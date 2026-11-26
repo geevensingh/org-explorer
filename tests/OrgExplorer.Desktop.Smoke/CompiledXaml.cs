@@ -267,7 +267,7 @@ internal static partial class Program
                 HarnessRuntime.Run("compiled-sqlite", () => VerifySqliteCreationNavigation(type, settings, chooseFolder));
                 HarnessRuntime.Run("compiled-snapshots", () => VerifySnapshotSynchronization(type, settings, chooseFolder));
                 HarnessRuntime.Run("compiled-local-recovery", () => VerifyLocalRecoveryCleanup(type, settings));
-                // The empty 44-Person probe must not warm the separate cold browsing window.
+                // The empty reading probe must not warm the separate cold browsing window.
                 var emptyReadingWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyEmptyReadingScroll(emptyReadingWindow, settings); }
@@ -2096,7 +2096,7 @@ internal static partial class Program
         var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(scroll).GetPattern(PatternInterface.Scroll);
         Console.WriteLine($"EMPTY-READING: people={workflow.People.Count}; viewport={scroll.ViewportHeight}; " +
             $"extent={scroll.ExtentHeight}; verticallyScrollable={provider.VerticallyScrollable}; offset={scroll.VerticalOffset}.");
-        if (workflow.People.Count != 44 || workflow.GetPersonNotes("avery@example.com").Count != 0 ||
+        if (workflow.People.Count != 46 || workflow.GetPersonNotes("avery@example.com").Count != 0 ||
             workflow.GetTeamNotes("avery@example.com").Count != 0 || scroll.ViewportHeight <= 0 ||
             provider.VerticallyScrollable || scroll.VerticalOffset != 0)
             throw new InvalidOperationException("The full wide empty-reading fixture did not establish the non-scrollable precondition.");
@@ -2673,6 +2673,7 @@ internal static partial class Program
                  {"email":"alex@example.com","displayName":"Alex","managerEmail":"avery@example.com"},
                  {"email":"casey@example.com","displayName":"Casey","managerEmail":null},
                  {"email":"jordan@example.com","displayName":"Jordan","managerEmail":"casey@example.com"},
+                 {"email":"jordan-leaf@example.com","displayName":"Jordan leaf","managerEmail":"jordan@example.com"},
                  {"email":"archived-a@example.com","displayName":"Archived A","managerEmail":null,"archived":true},
                  {"email":"archived-b@example.com","displayName":"Archived B","managerEmail":null,"archived":true},
                  {"email":"archived-c@example.com","displayName":"Archived C","managerEmail":null,"archived":true},
@@ -2791,11 +2792,12 @@ internal static partial class Program
             throw new InvalidOperationException("Reporting-row right-click must bypass ordinary focus/selection navigation.");
         var menu = container.ContextMenu;
         if (menu is null || menu.Items.OfType<MenuItem>().SingleOrDefault(item => Equals(item.Header, "Collapse subtree")) is not { } collapse ||
-            collapse.Command is not RoutedCommand command)
-            throw new InvalidOperationException("The compiled reporting-row menu must retain its routed Collapse subtree action.");
-        if (menu.Items.OfType<MenuItem>().SingleOrDefault(item => Equals(item.Header, "Expand subtree")) is not { } expand ||
+            collapse.Command is not RoutedCommand command ||
+            menu.Items.OfType<MenuItem>().SingleOrDefault(item => Equals(item.Header, "Collapse other branches")) is not { } collapseOthers ||
+            collapseOthers.Command is not RoutedCommand outsideCommand ||
+            menu.Items.OfType<MenuItem>().SingleOrDefault(item => Equals(item.Header, "Expand subtree")) is not { } expand ||
             expand.Command is not RoutedCommand expandCommand)
-            throw new InvalidOperationException("The compiled reporting-row menu must expose the routed Expand subtree action.");
+            throw new InvalidOperationException("The compiled reporting-row menu must expose all three routed tree actions.");
         menu.PlacementTarget = container;
         System.Windows.Data.BindingOperations.GetBindingExpression(collapse, MenuItem.CommandParameterProperty)?.UpdateTarget();
         System.Windows.Data.BindingOperations.GetBindingExpression(collapse, MenuItem.CommandTargetProperty)?.UpdateTarget();
@@ -2840,6 +2842,82 @@ internal static partial class Program
             throw new InvalidOperationException("A recycled row resurrected the recursively reset Person's expansion.");
         if (command.CanExecute("alex@example.com", child))
             throw new InvalidOperationException("A leaf must not expose a no-op Collapse subtree command.");
+        Layout();
+        siblingContainer.IsExpanded = true;
+        Layout();
+        var outsideNode = sibling.Reports.Single();
+        var outsideRow = (TreeViewItem)siblingContainer.ItemContainerGenerator.ContainerFromItem(outsideNode);
+        outsideRow.IsExpanded = true;
+        siblingContainer.IsExpanded = false;
+        Layout();
+        menu.PlacementTarget = child;
+        System.Windows.Data.BindingOperations.GetBindingExpression(collapseOthers, MenuItem.CommandParameterProperty)?.UpdateTarget();
+        System.Windows.Data.BindingOperations.GetBindingExpression(collapseOthers, MenuItem.CommandTargetProperty)?.UpdateTarget();
+        if (!Equals(collapseOthers.CommandParameter, "avery@example.com") || collapseOthers.CommandTarget != child ||
+            !outsideCommand.CanExecute(collapseOthers.CommandParameter, child))
+            throw new InvalidOperationException("Hidden outside expansion must offer the actual routed action on a collapsed target.");
+        outsideCommand.Execute(collapseOthers.CommandParameter, child);
+        Layout();
+        if (!container.IsExpanded || child.IsExpanded || siblingContainer.IsExpanded || outsideRow.IsExpanded ||
+            !model.PeopleNavigation.ExpandedPeople.SequenceEqual(["morgan@example.com"]) ||
+            model.PeopleNavigation.SelectedEmail != beforeAction || model.ProfileEdit != profileDraft ||
+            model.GetRetainedNoteDraft(NoteScope.Person, model.PersonNotesView.SelectedNote!.Id) != noteDraft ||
+            model.OperationError != beforeError || Control<TextBox>("OfficeNumber").Text != "  Compiled independent profile writing\r\n")
+            throw new InvalidOperationException("Outside collapse lost its ancestor path, expanded its target, navigated or changed retained writing.");
+        Layout(700, 500);
+        Layout();
+        Control<TextBox>("SearchQuery").Text = "casey";
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout();
+        if (!container.IsExpanded || child.IsExpanded || siblingContainer.IsExpanded ||
+            model.PeopleNavigation.ExpandedPeople.Contains("jordan@example.com"))
+            throw new InvalidOperationException("Search or layout restoration resurrected outside expansion.");
+        child.IsExpanded = true;
+        siblingContainer.IsExpanded = true;
+        Layout();
+        outsideRow = (TreeViewItem)siblingContainer.ItemContainerGenerator.ContainerFromItem(outsideNode);
+        if (outsideRow.IsExpanded)
+            throw new InvalidOperationException("Reopening an outside root resurrected cleared hidden expansion.");
+        outsideRow.IsExpanded = true;
+        Layout();
+        var leaf = (TreeViewItem)child.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single().Reports.Single());
+        if (!outsideCommand.CanExecute("alex@example.com", leaf))
+            throw new InvalidOperationException("A leaf must offer outside collapse when unrelated expansion exists.");
+        Layout(700, 500);
+        Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout(700, 500);
+        if (!model.PeopleNavigation.OverlayOpen)
+            throw new InvalidOperationException("The leaf outside-collapse fixture must begin with compact People open.");
+        outsideCommand.Execute("alex@example.com", leaf);
+        Layout(700, 500);
+        if (!container.IsExpanded || !child.IsExpanded || siblingContainer.IsExpanded || outsideRow.IsExpanded ||
+            model.PeopleNavigation.SelectedEmail != beforeAction || model.ProfileEdit != profileDraft ||
+            model.GetRetainedNoteDraft(NoteScope.Person, model.PersonNotesView.SelectedNote!.Id) != noteDraft ||
+            !model.PeopleNavigation.OverlayOpen)
+            throw new InvalidOperationException("Leaf outside collapse changed its protected path/subtree, profile, writing or compact panel.");
+        outsideRow.DataContext = manager.Reports.Single();
+        if (!outsideRow.IsExpanded)
+            throw new InvalidOperationException("The recycled outside row did not adopt protected target expansion.");
+        outsideRow.DataContext = outsideNode;
+        if (outsideRow.IsExpanded || outsideCommand.CanExecute("alex@example.com", leaf))
+            throw new InvalidOperationException("Recycling resurrected cleared outside expansion or offered a no-op leaf action.");
+        menu.PlacementTarget = leaf;
+        foreach (var item in new[] { expand, collapse, collapseOthers })
+        {
+            System.Windows.Data.BindingOperations.GetBindingExpression(item, MenuItem.CommandParameterProperty)?.UpdateTarget();
+            System.Windows.Data.BindingOperations.GetBindingExpression(item, MenuItem.CommandTargetProperty)?.UpdateTarget();
+        }
+        CommandManager.InvalidateRequerySuggested();
+        PumpUntil(() => !expand.IsEnabled && !collapse.IsEnabled && !collapseOthers.IsEnabled);
+        if (expand.Visibility != Visibility.Collapsed || collapse.Visibility != Visibility.Collapsed ||
+            collapseOthers.Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Actual no-op leaf menu actions must be omitted, not merely disabled.");
+        Layout();
+        command.Execute("morgan@example.com", container);
+        container.IsExpanded = true;
+        siblingContainer.IsExpanded = true;
+        Layout();
+        menu.PlacementTarget = container;
         System.Windows.Data.BindingOperations.GetBindingExpression(expand, MenuItem.CommandParameterProperty)?.UpdateTarget();
         System.Windows.Data.BindingOperations.GetBindingExpression(expand, MenuItem.CommandTargetProperty)?.UpdateTarget();
         if (!Equals(expand.CommandParameter, "morgan@example.com") || expand.CommandTarget != container ||
@@ -3008,7 +3086,7 @@ internal static partial class Program
             throw new InvalidOperationException("The real archived-list restoration changed its captured mode, profile/draft or open People panel.");
         Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => model.CanSafelyClose);
-        Console.WriteLine("PASS: real tree selection/disclosure, non-navigating routed Collapse/Expand subtree, actual cancellation, hidden/recycled expansion, search restoration and exact independent profile/note writing.");
+        Console.WriteLine("PASS: real tree selection/disclosure, all three non-navigating tree actions, actual cancellation/disclosure interruption, protected path/leaf scope, hidden/recycled reset, search/layout restoration and exact independent profile/note writing.");
     }
 
     private static void VerifyReportsVisibility(Window window, string settings)

@@ -186,6 +186,8 @@ internal static partial class Program
               "alias":"longreading","officeBuilding":"South campus research and collaboration building with a deliberately long descriptive location",
               "officeState":"A long state or province description that must wrap without shrinking the ordinary reading type",
               "managerEmail":null}
+            ,{"email":"menu-outside@example.com","displayName":"Outside nested","managerEmail":"alex@example.com"}
+            ,{"email":"menu-outside-leaf@example.com","displayName":"Outside leaf","managerEmail":"menu-outside@example.com"}
             """ : "") + "," + string.Join(",", Enumerable.Range(1, 40).Select(i => $$"""
                 {"email":"browse{{i:00}}@example.com","displayName":"Z Browse {{i:00}}","managerEmail":null}
                 """));

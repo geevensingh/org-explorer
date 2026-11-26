@@ -38,11 +38,12 @@ after that request, a genuinely interior position establishes the recorded row
 baseline; an unchanged endpoint still fails. The later exact-row restoration
 check, not the requested percentage, proves that browsing was preserved.
 
-Reporting-tree Collapse subtree and Expand subtree cases extend the public
+Reporting-tree Expand subtree, Collapse subtree and Collapse other branches extend the public
 `WorkspaceViewModel.GetPeopleTreeActions` / `ExecutePeopleTreeAction` and
 `PeopleNavigation` seams with real branching and 1,024-level imported graphs,
-hidden remembered expansion, leaf/unavailable no-ops and independent failed
-Person/Team-note and profile writing. Expansion also checks all current levels,
+hidden remembered expansion, protected subtree/ancestor paths, leaf applicability,
+leaf/unavailable no-ops and independent failed Person/Team-note and profile writing.
+Expansion also checks all current levels,
 archived exclusions, a 1,024-manager/2,048-report graph, observable bounded
 progress, cancellation retaining completed branches, resumption and interruption
 when the current reporting view changes. It uses the existing action boundary
@@ -71,9 +72,19 @@ action with a dirty profile. These are hosted-only native assertions; invisible
 compiled checks do not prove popup or keyboard-focus acceptance. Expansion
 reuses the reset-manager menu boundaries for real mouse, Apps and
 Shift+F10 actions without duplicating the full preparation/retention journeys.
-These added native assertions still require exact-candidate hosted execution;
-compiled success does not claim it. Collapse other branches remains a separate
-slice.
+
+Outside-collapse checks share those same native journeys and their fixture
+preparation. A two-level outside Alex branch makes the existing leaf right-click
+actionable; additional mouse and Apps checks retain the hidden open profile,
+recover hidden-report focus to an initially collapsed target, preserve unrelated
+focus and reset nested outside expansion through search-clear/reopening.
+The original Collapse subtree inputs, responsive matrices and deadlines remain.
+Retention captures expansion/focus alongside the original writing and exact
+target bounds in one fresh cached-UIA batch per boundary. The live People
+provider is retained within that subjourney to avoid repeated parent discovery;
+cached state is never reused across inputs or boundaries. These assertions
+still require exact-candidate hosted acceptance; local compiled success does
+not establish native popup/focus behavior or whole-lane budget headroom.
 
 The reporting-header request replays actual horizontally clipped UI Automation
 bounds from run `45688751967` through the shared runner seam. It chooses a
@@ -313,7 +324,7 @@ and `responsive-workspace` journeys require actual ` > ` separators, duplicate
 mouse/keyboard attribution, segment-only Copy through mouse and keyboard context
 menus, inherited read-only context and owner-only editing.
 The responsive long-duplicate-name checks retain the full original size matrix
-and restore the original 44-Person graph before the remaining reading checks.
+and restore the original reading graph before the remaining reading checks.
 Invisible compiled checks separately cover wrapping, exact segment/separator
 order and live attributed peers through rename, clear, restore and Cancel/resize;
 they are not rendered interaction acceptance.
@@ -1736,7 +1747,7 @@ independent Team note's Edit mode, before its reading capture. First-autosave
 external-delivery checks observe the note surface's actual ItemStatus from
 pending-before-delivery through failure, retained typing and explicit retry;
 they never depend on an absent healthy status row.
-The compiled 44-Person wide fixture also observes empty reading before long-note
+The compiled 46-Person wide fixture also observes empty reading before long-note
 setup: the main viewport can fit its complete content and reports no vertical
 scrolling. Scroll-to-top skips that invalid axis; a genuinely scrollable long
 document still receives one real provider action. Provider failures propagate,
@@ -1793,7 +1804,7 @@ bounded readiness wait before any conditional Clear or overlay-open action.
 Its runner replay covers missing-then-present query discovery after Clear,
 without repeating either action; a permanently missing query still fails.
 The later exact-row restoration assertion and its 20-second bound are unchanged.
-The invisible compiled replay additionally drives the 44-Person/long-note
+The invisible compiled replay additionally drives the 46-Person/long-note
 fixture through real tree scrolling with cold virtualization and recorded
 available viewport geometry, grouped-result highlighting/manual clear and wide/compact
 restoration, including recycled tree-item load events. Compact replay establishes
@@ -2237,7 +2248,7 @@ rechecks its gate after dispatcher settling and waits again for an admitted
 save, while existing failed-save, profile/draft and final restart guards remain
 active. This regression never shows/focuses a window or creates its native
 handle.
-The ordinary (43-Person), responsive and invisible replay (44-Person) browsing
+The ordinary (43-Person), responsive and invisible replay (46-Person) browsing
 paths share only their fixture records and long-note paragraph inputs.
 Expected identities, exact row positions and document/owner assertions remain
 independently literal; the full populations, actions and deadlines are unchanged.

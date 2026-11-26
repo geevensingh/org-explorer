@@ -13,6 +13,8 @@ public partial class MainWindow
         new("Expand subtree", nameof(ExpandSubtreeCommand), typeof(MainWindow));
     public static RoutedUICommand CollapseSubtreeCommand { get; } =
         new("Collapse subtree", nameof(CollapseSubtreeCommand), typeof(MainWindow));
+    public static RoutedUICommand CollapseOtherBranchesCommand { get; } =
+        new("Collapse other branches", nameof(CollapseOtherBranchesCommand), typeof(MainWindow));
     private bool changingTreePresentation;
     private IInputElement? reportingMenuReturnFocus;
     private int reportingMenuRequest;
@@ -159,18 +161,31 @@ public partial class MainWindow
         e.Handled = true;
     }
 
-    private void CollapseSubtree(object sender, ExecutedRoutedEventArgs e)
+    private void CanCollapseOtherBranches(object sender, CanExecuteRoutedEventArgs e)
+    {
+        e.CanExecute = e.Parameter is string email &&
+            workflow.GetPeopleTreeActions(email).Contains(PeopleTreeAction.CollapseOtherBranches);
+        e.Handled = true;
+    }
+
+    private void CollapseSubtree(object sender, ExecutedRoutedEventArgs e) =>
+        ExecuteReportingCollapse(e, PeopleTreeAction.CollapseSubtree, "Collapse subtree");
+
+    private void CollapseOtherBranches(object sender, ExecutedRoutedEventArgs e) =>
+        ExecuteReportingCollapse(e, PeopleTreeAction.CollapseOtherBranches, "Collapse other branches");
+
+    private void ExecuteReportingCollapse(ExecutedRoutedEventArgs e, PeopleTreeAction action, string label)
     {
         e.Handled = true;
         if (e.Parameter is not string email ||
             ReportingItemFrom(e.OriginalSource as DependencyObject) is not { DataContext: ReportingNode node } target ||
             !node.Person.Email.Equals(email, StringComparison.OrdinalIgnoreCase))
         {
-            StatusText.Text = "Collapse subtree was not applied: its reporting row is unavailable.";
+            StatusText.Text = $"{label} was not applied: its reporting row is unavailable.";
             return;
         }
         RememberPeopleBrowsing();
-        if (!workflow.ExecutePeopleTreeAction(email, PeopleTreeAction.CollapseSubtree))
+        if (!workflow.ExecutePeopleTreeAction(email, action))
         {
             StatusText.Text = workflow.PeopleTreeActionFeedback;
             return;
@@ -181,11 +196,22 @@ public partial class MainWindow
         try
         {
             var focus = reportingMenuReturnFocus ?? Keyboard.FocusedElement;
-            if (ReportingItemFrom(focus as DependencyObject) is { } focused &&
-                focused != target && target.IsAncestorOf(focused))
-                reportingMenuReturnFocus = target;
             expandedPeople.Clear();
             expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
+            if (ReportingItemFrom(focus as DependencyObject) is { DataContext: ReportingNode focused })
+            {
+                var context = workflow.GetRelationships(focused.Person.Email);
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                while (context?.Manager is { } manager && visited.Add(manager.Email))
+                {
+                    if (!expandedPeople.Contains(manager.Email))
+                    {
+                        reportingMenuReturnFocus = target;
+                        break;
+                    }
+                    context = workflow.GetRelationships(manager.Email);
+                }
+            }
             pendingSearchRevealEmail = null;
             peopleBrowseRequest++;
             RestoreRealizedTreeState(PeopleList);

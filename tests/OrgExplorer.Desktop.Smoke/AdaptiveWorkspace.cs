@@ -605,10 +605,11 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.ClassNameProperty, "ContextMenu")))
         .Cast<AutomationElement>().FirstOrDefault(menu => !menu.Current.IsOffscreen);
 
-    private static void RightClickReportingRow(AutomationElement window, AutomationElement row, string state)
+    private static void RightClickReportingRow(AutomationElement window, AutomationElement row, string state,
+        AutomationElement? peopleTree = null)
     {
         var bounds = row.Current.BoundingRectangle;
-        var viewport = Find(window, "People").Current.BoundingRectangle;
+        var viewport = (peopleTree ?? Find(window, "People")).Current.BoundingRectangle;
         var (x, y) = TreeItemRealization.ReportingHeaderPoint(
             (bounds.Left, bounds.Top, bounds.Width, bounds.Height),
             (viewport.Left, viewport.Top, viewport.Width, viewport.Height), DpiScale(window));
@@ -627,13 +628,12 @@ internal static partial class Program
             "PersonNoteHeading", "TeamNoteHeading", "PersonNoteTitle", "PersonNoteMarkdown", "TeamNoteTitle",
             "TeamNoteMarkdown", "PersonNoteStatus", "TeamNoteStatus"
         };
+        var commandTargetEmail = managerEmail;
         AutomationElement[] CaptureRetention()
         {
             var ids = writingIds.Concat(["People", "PeopleNavigation", "OpenPeople", "ClosePeople"]);
             var conditions = ids.Select(id => (System.Windows.Automation.Condition)new PropertyCondition(AutomationElement.AutomationIdProperty, id))
-                .Append(new AndCondition(
-                    new PropertyCondition(AutomationElement.AutomationIdProperty, managerEmail),
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TreeItem))).ToArray();
+                .Append(new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TreeItem)).ToArray();
             using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
             var cache = new CacheRequest { TreeScope = TreeScope.Element };
             cache.Add(AutomationElement.AutomationIdProperty);
@@ -641,6 +641,8 @@ internal static partial class Program
             cache.Add(AutomationElement.HelpTextProperty);
             cache.Add(AutomationElement.IsOffscreenProperty);
             cache.Add(AutomationElement.BoundingRectangleProperty);
+            cache.Add(AutomationElement.HasKeyboardFocusProperty);
+            cache.Add(ExpandCollapsePattern.ExpandCollapseStateProperty);
             cache.Add(ValuePattern.ValueProperty);
             AutomationElementCollection controls;
             using (cache.Activate())
@@ -673,27 +675,37 @@ internal static partial class Program
             var bounds = tree.Current.BoundingRectangle;
             return !tree.Current.IsOffscreen && !bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0;
         }, Await);
-        var treeScroll = (ScrollPattern)Find(window, "People").GetCurrentPattern(ScrollPattern.Pattern);
+        var peopleTree = Find(window, "People");
+        var treeScroll = (ScrollPattern)peopleTree.GetCurrentPattern(ScrollPattern.Pattern);
         ControlReadiness.ScrollToTopIfScrollable(() => treeScroll.Current.VerticallyScrollable,
             () => treeScroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
-        AutomationElement Row(string email) => Find(Find(window, "People"), email);
+        AutomationElement Row(string email) => Find(peopleTree, email);
         ExpandCollapsePattern Expansion(string email) => (ExpandCollapsePattern)Row(email).GetCurrentPattern(ExpandCollapsePattern.Pattern);
         AutomationElement? Menu() => ReportingMenu(window);
-        void RightClickRow(string email) => RightClickReportingRow(window, Row(email), state);
-        void AssertRetained(TreeItemRealization.MenuRetentionBoundary boundary = TreeItemRealization.MenuRetentionBoundary.Command)
+        void RightClickRow(string email)
+        {
+            commandTargetEmail = email;
+            RightClickReportingRow(window, Row(email), state, peopleTree);
+        }
+        void AssertRetained(TreeItemRealization.MenuRetentionBoundary boundary = TreeItemRealization.MenuRetentionBoundary.Command,
+            Action<AutomationElement[]>? assertScope = null)
         {
             TreeItemRealization.AssertMenuRetention(boundary, CaptureRetention, controls =>
             {
                 if (Captured(controls, "Email").Cached.Name != owner || !before.SequenceEqual(Writing(controls)) ||
                     !Visible(controls, "People") || compact && !Visible(controls, "ClosePeople"))
                     throw new InvalidOperationException($"A tree presentation action changed the profile/writing or dismissed compact People at {state}.");
+                assertScope?.Invoke(controls);
             }, controls =>
             {
-                var row = Captured(controls, managerEmail);
-                var bounds = row.Cached.BoundingRectangle;
                 var viewport = Captured(controls, "People").Cached.BoundingRectangle;
-                if (row.Cached.IsOffscreen || bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
-                    throw new InvalidOperationException($"Collapse subtree lost its target row at {state}.");
+                foreach (var email in new[] { managerEmail, commandTargetEmail }.Distinct())
+                {
+                    var row = Captured(controls, email);
+                    var bounds = row.Cached.BoundingRectangle;
+                    if (row.Cached.IsOffscreen || bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
+                        throw new InvalidOperationException($"Tree collapse lost its target row at {state}: {email}.");
+                }
             });
         }
         void AssertNoMenu()
@@ -704,31 +716,69 @@ internal static partial class Program
                 throw new InvalidOperationException($"A leaf or fully reset branch opened an empty/no-op tree menu at {state}.");
             AssertRetained();
         }
-        void ActFromMenu(string label, bool keyboard)
+        void ActFromMenu(string action, bool keyboard, string[]? expected = null,
+            Action<AutomationElement[]>? assertScope = null)
         {
             AutomationElement? menu = null;
             Await(() => (menu = Menu()) is not null);
             var actions = menu!.FindAll(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>()
                 .Where(item => !item.Current.IsOffscreen).ToArray();
-            if (actions.Length != 1 || actions[0].Current.Name != label || !actions[0].Current.IsEnabled)
+            expected ??= [action];
+            if (!actions.Select(item => item.Current.Name).SequenceEqual(expected) || actions.Any(item => !item.Current.IsEnabled))
                 throw new InvalidOperationException($"The tree menu contains a no-op, duplicate or unimplemented action at {state}.");
             var opening = CaptureRetention();
             if (Captured(opening, "Email").Cached.Name != owner || !before.SequenceEqual(Writing(opening)))
                 throw new InvalidOperationException($"Opening the tree menu navigated or submitted retained writing at {state}.");
+            var actionIndex = Array.FindIndex(actions, item => item.Current.Name == action);
+            if (actionIndex < 0)
+                throw new InvalidOperationException($"The tree menu omitted its requested supported action at {state}: {action}.");
             if (keyboard)
             {
-                PressCopyKey(0x28);
+                for (var index = 0; index <= actionIndex; index++)
+                    PressCopyKey(0x28);
                 PressCopyKey(0x0D);
             }
-            else PrimaryClick(() => actions[0]);
-            var expected = label == "Expand subtree" ? ExpandCollapseState.Expanded : ExpandCollapseState.Collapsed;
-            Await(() => Menu() is null && Expansion(managerEmail).Current.ExpandCollapseState == expected);
-            if (label == "Expand subtree")
-                Await(() => Find(window, "People").Current.ItemStatus.StartsWith("Expanded all available reporting levels:", StringComparison.Ordinal));
-            AssertRetained();
+            else PrimaryClick(() => actions.Single(item => item.Current.Name == action));
+            var expectedState = action == "Expand subtree" ? ExpandCollapseState.Expanded : ExpandCollapseState.Collapsed;
+            Await(() => Menu() is null && (action == "Collapse other branches" ||
+                Expansion(managerEmail).Current.ExpandCollapseState == expectedState));
+            if (action == "Expand subtree")
+                Await(() => peopleTree.Current.ItemStatus.StartsWith("Expanded all available reporting levels:", StringComparison.Ordinal));
+            AssertRetained(assertScope: assertScope);
         }
-        void CollapseFromMenu(bool keyboard) => ActFromMenu("Collapse subtree", keyboard);
+        void ToggleDisclosure(string email)
+        {
+            var arrow = Row(email).FindFirst(TreeScope.Children, new AndCondition(
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "Expander"),
+                new PropertyCondition(AutomationElement.NameProperty, "Expand or collapse reporting subtree")));
+            if (arrow is null || !arrow.Current.IsEnabled || arrow.Current.IsOffscreen ||
+                !arrow.TryGetCurrentPattern(TogglePattern.Pattern, out var provider))
+                throw new InvalidOperationException($"The reporting disclosure Toggle provider is unavailable at {state}: {email}.");
+            ((TogglePattern)provider).Toggle();
+        }
+        void PrepareOutsideBranch()
+        {
+            foreach (var email in new[] { "alex@example.com", "menu-outside@example.com" })
+                TreeItemRealization.PrepareMenuBranch(
+                    () => Expansion(email).Current.ExpandCollapseState == ExpandCollapseState.Expanded,
+                    input =>
+                    {
+                        if (input != TreeItemRealization.MenuBranchInput.DisclosureToggle)
+                            throw new InvalidOperationException("Outside fixture preparation must use identity-bound disclosure Toggle.");
+                        ToggleDisclosure(email);
+                    }, Await);
+        }
+        bool Expanded(AutomationElement[] controls, string email) =>
+            Captured(controls, email).GetCachedPropertyValue(ExpandCollapsePattern.ExpandCollapseStateProperty)
+                .Equals(ExpandCollapseState.Expanded);
+        void OutsideReset(AutomationElement[] controls)
+        {
+            if (!Expanded(controls, managerEmail) || Expanded(controls, "alex@example.com"))
+                throw new InvalidOperationException($"Leaf outside collapse lost its ancestor or retained outside expansion at {state}.");
+        }
+        void CollapseFromMenu(bool keyboard, string action = "Collapse subtree", string[]? expected = null,
+            Action<AutomationElement[]>? assertScope = null) => ActFromMenu(action, keyboard, expected, assertScope);
         void ExpandFromMenu(bool keyboard) => ActFromMenu("Expand subtree", keyboard);
         var branch = Expansion(managerEmail);
         void ObserveExpansion(string phase, string boundary, string? input = null)
@@ -794,7 +844,7 @@ internal static partial class Program
                         {
                             var row = Row(managerEmail);
                             var bounds = row.Current.BoundingRectangle;
-                            var viewport = Find(window, "People").Current.BoundingRectangle;
+                            var viewport = peopleTree.Current.BoundingRectangle;
                             var scale = DpiScale(window);
                             var point = new Point(bounds.Left + 9 * scale, bounds.Top + 14 * scale);
                             if (row.Current.IsOffscreen || !viewport.Contains(point) ||
@@ -829,7 +879,11 @@ internal static partial class Program
             }
         }
         ReexpandForMenu("initial");
+        PrepareOutsideBranch();
         Find(window, "SearchQuery").SetFocus();
+        Await(() => Find(window, "SearchQuery").Current.HasKeyboardFocus);
+        RightClickRow(reportEmail);
+        CollapseFromMenu(keyboard: false, "Collapse other branches", ["Collapse other branches"], OutsideReset);
         Await(() => Find(window, "SearchQuery").Current.HasKeyboardFocus);
         RightClickRow(reportEmail);
         AssertNoMenu();
@@ -844,12 +898,38 @@ internal static partial class Program
             ReexpandForMenu("report-focus");
             Row(reportEmail).SetFocus();
             Await(() => Row(reportEmail).Current.HasKeyboardFocus);
+            RightClickRow("alex@example.com");
+            CollapseFromMenu(keyboard: false, "Collapse other branches", ["Expand subtree", "Collapse other branches"], controls =>
+            {
+                if (Expanded(controls, managerEmail) || Expanded(controls, "alex@example.com"))
+                    throw new InvalidOperationException($"Outside collapse failed to hide the focused branch or automatically expanded its target at {state}.");
+            });
+            Await(() => Row("alex@example.com").Current.HasKeyboardFocus);
+            ReexpandForMenu("report-focus-after-outside");
+            Row(reportEmail).SetFocus();
+            Await(() => Row(reportEmail).Current.HasKeyboardFocus);
             RightClickRow(managerEmail);
             CollapseFromMenu(keyboard: false);
             Await(() => Row(managerEmail).Current.HasKeyboardFocus);
             foreach (var appsKey in new[] { true, false })
             {
                 ReexpandForMenu(appsKey ? "apps-menu" : "shift-f10-menu");
+                commandTargetEmail = managerEmail;
+                if (appsKey)
+                {
+                    TreeItemRealization.PrepareMenuBranch(
+                        () => Expansion("alex@example.com").Current.ExpandCollapseState == ExpandCollapseState.Expanded,
+                        input =>
+                        {
+                            if (input != TreeItemRealization.MenuBranchInput.DisclosureToggle)
+                                throw new InvalidOperationException("Keyboard outside fixture requires identity-bound disclosure Toggle.");
+                            ToggleDisclosure("alex@example.com");
+                        }, Await);
+                    PressCopyKey(0x5D);
+                    CollapseFromMenu(keyboard: true, "Collapse other branches",
+                        ["Collapse subtree", "Collapse other branches"], OutsideReset);
+                    Await(() => Row(managerEmail).Current.HasKeyboardFocus);
+                }
                 if (appsKey) PressCopyKey(0x5D);
                 else
                 {
@@ -880,6 +960,21 @@ internal static partial class Program
         if (Expansion(managerEmail).Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
             throw new InvalidOperationException($"Search-clear resurrected recursively reset tree expansion at {state}.");
         AssertRetained();
+        TreeItemRealization.PrepareMenuBranch(
+            () => Expansion("alex@example.com").Current.ExpandCollapseState == ExpandCollapseState.Expanded,
+            input =>
+            {
+                if (input != TreeItemRealization.MenuBranchInput.DisclosureToggle)
+                    throw new InvalidOperationException("Outside restoration probe requires identity-bound disclosure Toggle.");
+                ToggleDisclosure("alex@example.com");
+            }, Await);
+        AssertRetained(assertScope: controls =>
+        {
+            if (Expanded(controls, managerEmail) || Expanded(controls, "menu-outside@example.com"))
+                throw new InvalidOperationException($"Search-clear or reopening outside expansion resurrected recursively reset state at {state}.");
+        });
+        ToggleDisclosure("alex@example.com");
+        Await(() => Expansion("alex@example.com").Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
         ReexpandForMenu("restore-fixture", TreeItemRealization.MenuRetentionBoundary.OrdinaryFixtureRestoration);
         TreeItemRealization.RestoreArchivedListAfterMenu(archivedInitiallyShown, ArchivedListShown, ToggleArchivedList, Await);
         var restored = CaptureRetention();
