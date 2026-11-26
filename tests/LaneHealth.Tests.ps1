@@ -167,7 +167,7 @@ try {
     $union = Join-Path $fixture 'union'
     & "$root\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $rich.prefix -TailDirectory $rich.tail `
         -ExpectedRevision $run.head_sha -RunId 51 -RunAttempt 1 -ResultsDirectory $union `
-        -RequiredJobOutcomes @('success', 'success', 'success')
+        -RequiredJobOutcomes @('success', 'success', 'success') -ExpectedPolicyVersion rich-scale-original-v1
     $performance = Join-Path $fixture 'performance'
     $ownedRun = 'run-' + ('e' * 32)
     New-Item -ItemType Directory -Path (Join-Path $performance $ownedRun) -Force | Out-Null

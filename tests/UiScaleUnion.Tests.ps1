@@ -7,6 +7,24 @@ $candidate = 'a' * 40
 $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
 Assert-UiScaleUnion $fixture.prefix $fixture.tail $candidate '123' '2'
 $checks = 0
+$active = New-UiScaleUnionFixture (Join-Path $ResultsDirectory 'active') $candidate -TimingPolicyVersion ci-timing-v2
+foreach ($phase in @('normal-executable', 'background-export')) {
+    $path = Join-Path $active.prefix "$($active.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
+    $note = Get-Content $path -Raw | ConvertFrom-Json
+    $note.localDurability.samplesMs = @(1) * 19 + @(1500.0, 1520.0)
+    $note.localDurability.p95Ms = 1500.0
+    $note.localDurability.goalMet = $false
+    $note | ConvertTo-Json -Depth 12 | Set-Content $path
+}
+$path = Join-Path $active.prefix 'result.json'
+$report = Get-Content $path -Raw | ConvertFrom-Json
+$report.startedAt = [DateTimeOffset]::UtcNow.AddMinutes(-16).ToString('O')
+$report.completedAt = ([DateTimeOffset]$report.startedAt).AddSeconds(900).ToString('O')
+$report.executionSeconds = 900.0
+$report | ConvertTo-Json -Depth 12 | Set-Content $path
+$report | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $active.prefix "$($active.runName)\result.json")
+Assert-UiScaleUnion $active.prefix $active.tail $candidate '123' '2' -ExpectedPolicyVersion ci-timing-v2
+$checks++
 foreach ($phase in @('normal-executable', 'background-export')) {
     foreach ($case in @(
         @{ p95 = 1000.0; rejected = $false },
@@ -156,7 +174,7 @@ $rejected = $false
 try {
     & "$PSScriptRoot\..\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $fixture.prefix -TailDirectory $fixture.tail `
         -ExpectedRevision $candidate -RunId '123' -RunAttempt '2' -RequiredJobOutcomes @('failure', 'success', 'success') `
-        -ResultsDirectory $failedJobs
+        -ResultsDirectory $failedJobs -ExpectedPolicyVersion rich-scale-original-v1
 } catch { $rejected = $true }
 $failure = Get-Content (Join-Path $failedJobs 'result.json') -Raw | ConvertFrom-Json
 if (!$rejected -or $failure.outcome -cne 'failure' -or !$failure.failure.Contains('Missing, failed')) {
@@ -188,7 +206,7 @@ foreach ($defect in @('primary-run-report', 'primary-both-reports', 'run-report'
             }
             & "$PSScriptRoot\..\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $fixture.prefix -TailDirectory $fixture.tail `
                 -ExpectedRevision $candidate -RunId '123' -RunAttempt '2' -RequiredJobOutcomes $outcomes `
-                -ResultsDirectory $blocked
+                -ResultsDirectory $blocked -ExpectedPolicyVersion rich-scale-original-v1
         }
     } catch { $failure = $_ }
     if (!$failure) { throw "Union verification passed $defect." }

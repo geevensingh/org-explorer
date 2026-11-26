@@ -17,7 +17,8 @@ $root = Split-Path $PSScriptRoot -Parent
 if (!$Worker) { throw 'Select prefix or tail; complete UI-scale acceptance requires both isolated workers and Assert-UiScaleUnion.ps1.' }
 $plan = Get-UiScalePlan
 $required = @($plan.workers[$Worker])
-$observation = if ($ExtendedObservation) { 900 } else { 660 }
+$policy = Get-ApprovedTimingPolicy
+$observation = if ($ExtendedObservation -or $Worker -ceq 'prefix') { 900 } else { 660 }
 $selection = @{ selector = "--ui-scale-$Worker"; worker = $Worker; requiredScenarios = $required
     runId = $RunId; runAttempt = $RunAttempt; completedPhases = @() }
 if ($CohortId) {
@@ -29,6 +30,7 @@ if ($CohortId) {
 
 Invoke-ScaleSuite -Suite ui-scale -Label 'UI scale' `
     -ResultsDirectory $ResultsDirectory -ExpectedRevision $ExpectedRevision -ObservationSeconds $observation `
+    -ExpectedPolicyVersion $policy.version -DiagnosticOnly:$ExtendedObservation `
     -Selection $selection -Verify {
         param($run, $build)
         if (![Environment]::UserInteractive) {
@@ -45,7 +47,7 @@ Invoke-ScaleSuite -Suite ui-scale -Label 'UI scale' `
             $handoff = Join-Path $run 'handoff'
             if ($Worker -eq 'tail') {
                 if (!$PrefixResultsDirectory) { throw 'The tail requires the current successful prefix worker artifact.' }
-                $prefix = Get-UiScaleWorkerResult $PrefixResultsDirectory prefix $ExpectedRevision $RunId $RunAttempt $CohortId $Sample
+                $prefix = Get-UiScaleWorkerResult $PrefixResultsDirectory prefix $ExpectedRevision $RunId $RunAttempt $CohortId $Sample $policy.version
                 $handoff = [IO.Path]::GetFullPath((Join-Path $prefix.run 'handoff'))
             }
             $env:UI_SCALE_HANDOFF_DIRECTORY = $handoff

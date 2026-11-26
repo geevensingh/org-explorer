@@ -1,5 +1,46 @@
+function Get-ApprovedTimingPolicy(
+    [ValidateSet('rich-scale-original-v1', 'ci-timing-v2')][string]$Version = 'ci-timing-v2') {
+    return @{
+        version = $Version
+        prefixSafetySeconds = if ($Version -ceq 'ci-timing-v2') { 900 } else { 660 }
+        prefixWatchdogMinutes = if ($Version -ceq 'ci-timing-v2') { 30 } else { 13 }
+        tailSafetySeconds = 660
+        richNoteGoalMs = 1000
+        richNoteCeilingMs = if ($Version -ceq 'ci-timing-v2') { 1500 } else { 1050 }
+    }
+}
+
+function Get-SourceTimingPolicyVersion([string]$Revision, [switch]$Hosted, [string]$GitDirectory) {
+    if ($Revision -cnotmatch '^[0-9a-f]{40}$') { throw 'Timing policy requires an exact trusted source revision.' }
+    $path = 'eng/timing-policy.json'
+    if ($Hosted) {
+        $tree = Invoke-HealthApi "git/trees/$Revision`?recursive=1"
+        if ($tree.truncated) { throw 'Truncated source tree cannot establish timing policy.' }
+        $entries = @($tree.tree | Where-Object { $_.path -ceq $path })
+        if (!$entries.Count) { return 'rich-scale-original-v1' }
+        if ($entries.Count -ne 1 -or $entries[0].type -cne 'blob') { throw 'Invalid timing policy source entry.' }
+        $blob = Invoke-HealthApi "git/blobs/$($entries[0].sha)"
+        if ($blob.encoding -cne 'base64') { throw 'Unsupported timing policy source encoding.' }
+        $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($blob.content))
+    } else {
+        $gitArguments = if ($GitDirectory) { @("--git-dir=$GitDirectory") }
+            else { @('-C', (Split-Path $PSScriptRoot -Parent)) }
+        $entry = @(git @gitArguments ls-tree $Revision -- $path)
+        if ($LASTEXITCODE -ne 0) { throw 'Trusted timing policy source revision is unavailable.' }
+        if (!$entry.Count) { return 'rich-scale-original-v1' }
+        $text = (git @gitArguments show "${Revision}:$path") -join "`n"
+        if ($LASTEXITCODE -ne 0) { throw 'Trusted timing policy source cannot be read.' }
+    }
+    $policy = $text | ConvertFrom-Json -AsHashtable
+    if ($policy.Count -ne 1 -or $policy.version -cne 'ci-timing-v2') {
+        throw 'Unknown or amended timing policy requires explicit approval and implementation.'
+    }
+    return $policy.version
+}
+
 function Set-TimingPolicyPreview($Record, $History,
-    [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2')][string]$PolicyVersion = 'ci-timing-preview-v2') {
+    [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2')][string]$PolicyVersion = 'ci-timing-preview-v2',
+    $PinnedReference = $null, [switch]$Active) {
     $richNoteCeiling = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 1050 } else { 1500 }
     $prefixWatchdog = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 17 } else { 30 }
     $approval = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 'pending' } else { 'approved' }
@@ -17,6 +58,10 @@ function Set-TimingPolicyPreview($Record, $History,
                 $goal = if ($richNote) { 1000 } elseif ($metric.Contains('goalMs')) { $metric.goalMs } else { $null }
                 $budget = if ($richNote) { $richNoteCeiling } elseif ($metric.Contains('budgetMs') -and
                     (!$metric.Contains('budgetEnforced') -or $metric.budgetEnforced)) { $metric.budgetMs } else { $null }
+                if ($Active -and !$richNote) {
+                    $goal = $null
+                    $budget = if ($metric.name -cmatch '^(profile-save|note-durability)(-|$)') { 1000 } else { $null }
+                }
                 $metrics[$metric.name] = @{
                     health = 'unbaselined'; median = $metric.value; range = $null; count = 1; reference = $null
                     relativeHealth = 'unbaselined'
@@ -57,7 +102,13 @@ function Set-TimingPolicyPreview($Record, $History,
     }
     $key = Get-TimingCohortKey $Record
     $reference = $null
-    if ($History -and $key) {
+    if ($Active) {
+        if ($PinnedReference -and $key -and $PinnedReference.revision -cne $Record.revision -and
+            $PinnedReference.validation -ceq 'success' -and $PinnedReference.authority -ceq 'trusted-main-push' -and
+            (Get-TimingCohortKey $PinnedReference) -ceq $key) {
+            $reference = $PinnedReference
+        }
+    } elseif ($History -and $key) {
         $references = @($History.records | Where-Object {
             $_.Contains('recordType') -and $_.recordType -ceq 'performance-cohort' -and
             $_.schemaVersion -eq $Record.schemaVersion -and $_.validation -ceq 'success' -and
@@ -96,7 +147,7 @@ function Set-TimingPolicyPreview($Record, $History,
                 kind = 'proposal-reference-observation; not canonical'
             }
             $completeTiming = $Record.validation -ceq 'success'
-            if (!$completeTiming -and $name -ceq 'prefix-executionSeconds' -and $Record.schemaVersion -eq 2) {
+            if (!$Active -and !$completeTiming -and $name -ceq 'prefix-executionSeconds' -and $Record.schemaVersion -eq 2) {
                 $plan = Get-UiScalePlan
                 $completeTiming = !@($Record.samples | Where-Object {
                     $report = $_.rich.prefix.report
@@ -162,6 +213,10 @@ function Set-TimingPolicyPreview($Record, $History,
                 } else { 'The observed bootstrap range spans remaining headroom; relative comparison remains unbaselined.' }
                 $inconsistent = $true
             }
+            if ($Active -and $null -ne $executionLimit -and $metric.maximum -gt $executionLimit) {
+                $preview.health = 'red'
+                $preview.reason = 'An individual whole execution exceeds its approved safety limit.'
+            }
         }
         if ($null -ne $hardLimit) {
             $preview.hardLimit = $hardLimit
@@ -198,6 +253,73 @@ function Set-TimingPolicyPreview($Record, $History,
     if ($serious) { $Record.policyPreview.eligibility = 'rejected-proposed-relative; current gates unchanged' }
     elseif ($Record.samples.Count -eq 5 -and ($widerRange -or $lowHeadroom)) { $Record.policyPreview.eligibility = 'inconclusive' }
     if ($Record.validation -cne 'success') { $Record.policyPreview.eligibility = 'rejected-current-validation' }
+}
+
+function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$HistoryTip = $null) {
+    if ($Record.recordType -ceq 'performance-cohort') {
+        foreach ($entry in @($Record.metrics.GetEnumerator())) {
+            $metric = $entry.Value
+            foreach ($field in @('median', 'minimum', 'maximum', 'range', 'count')) {
+                Assert-HealthNumber $metric[$field] "candidate $($entry.Key).$field"
+            }
+        }
+        if ($PinnedReference) {
+            if ($PinnedReference.policyVersion -cne 'ci-timing-v2' -or
+                $PinnedReference.samples.Count -notin @(3, 5)) {
+                throw 'Pinned reference is not an eligible approved-policy cohort.'
+            }
+            foreach ($entry in @($PinnedReference.metrics.GetEnumerator())) {
+                foreach ($field in @('median', 'minimum', 'maximum', 'range', 'count')) {
+                    Assert-HealthNumber $entry.Value[$field] "reference $($entry.Key).$field"
+                }
+            }
+        }
+    }
+    $previousPreview = if ($Record.Contains('policyPreview')) { $Record.policyPreview } else { $null }
+    Set-TimingPolicyPreview $Record $null ci-timing-preview-v2 -PinnedReference $PinnedReference -Active
+    $evaluation = $Record.policyPreview
+    if ($null -ne $previousPreview) { $Record.policyPreview = $previousPreview } else { $Record.Remove('policyPreview') }
+    $evaluation.version = 'ci-timing-v2'; $evaluation.mode = 'enforced'; $evaluation.approval = 'approved'
+    $evaluation.historySnapshot = $HistoryTip
+    $evaluation.promotion = 'external; never a release prerequisite'
+    $evaluation.validationBlocking = $Record.validation -cne 'success'
+    if ($Record.recordType -cne 'performance-cohort' -and $Record.measurements) {
+        $duration = $evaluation.metrics.executionSeconds
+        $limit = if ($Record.lane -ceq 'core') { 300 }
+            elseif ($Record.lane -cmatch '^(desktop-|high-resolution-)') { 900 }
+            elseif ($Record.lane -ceq 'ui-scale-prefix') { 900 }
+            elseif ($Record.lane -cin @('filesystem', 'non-ui-performance', 'ui-scale-tail')) { 660 } else { $null }
+        if ($null -ne $limit) {
+            $duration.limit = $limit; $duration.headroom = $limit - $duration.median
+            if ($duration.median -gt $limit) {
+                $duration.health = 'red'; $duration.reason = 'Whole execution exceeds its effective safety limit.'
+            }
+        }
+    }
+    $red = @($evaluation.metrics.Values | Where-Object { $_.health -ceq 'red' }).Count -gt 0
+    $yellow = @($evaluation.metrics.Values | Where-Object { $_.health -ceq 'yellow' }).Count -gt 0
+    $evaluation.health = if ($red) { 'red' } elseif ($yellow) { 'yellow' }
+        elseif ($evaluation.validationBlocking) { 'inconclusive' }
+        elseif (!$evaluation.metrics.Count -or @($evaluation.metrics.Values | Where-Object { $_.health -cne 'green' }).Count) { 'unbaselined' } else { 'green' }
+    $evaluation.blocking = $evaluation.validationBlocking -or $red
+    $evaluation.eligibility = if ($evaluation.blocking) { 'rejected' }
+        elseif ($evaluation.additionalSamples.Count) { 'extend' }
+        elseif ($evaluation.eligibility -ceq 'inconclusive') { 'inconclusive' } else { 'eligible' }
+    foreach ($metric in $evaluation.metrics.Values) {
+        if ($metric.Contains('relativeRule') -and $metric.relativeRule -cne 'informational') { $metric.relativeRule = 'approved-gate' }
+        if ($metric.reference) { $metric.reference.kind = 'pinned-eligible-reference' }
+    }
+    $Record.timingEvaluation = $evaluation
+}
+
+function Format-TimingPolicyEvaluation($Evaluation) {
+    $text = Format-TimingPolicyPreview $Evaluation
+    $text = $text.Replace('### Timing policy preview', '### Active timing policy')
+    $text = $text.Replace('OBSERVATION ONLY; numerical policy approved; activation pending. No new gate or canonical promotion.',
+        'APPROVED AND ENFORCED. Reference selection/promotion remains independent.')
+    $text = $text.Replace('These are separate limits, not current activation.', 'Watchdog allowance is not accepting execution time.')
+    $text = $text.Replace('preview blocking: **false**', "gate blocking: **$($Evaluation.blocking)**")
+    return $text + "`nTiming health: **$($Evaluation.health)**. Measurement overhead is included; unknown overhead remains unquantified, never subtracted."
 }
 
 function Get-TimingCohortKey($Record) {

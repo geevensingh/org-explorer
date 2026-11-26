@@ -20,7 +20,7 @@ function Write-FixtureReport([string]$Suite, [string]$Outcome = 'success', [stri
     if ($Suite -eq 'ui-scale') {
         $fixture = New-UiScaleUnionFixture (Join-Path $root 'split-source') $Revision -StartedAt $Start
         & "$PSScriptRoot\..\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $fixture.prefix -TailDirectory $fixture.tail `
-            -ExpectedRevision $Revision -RunId '123' -RunAttempt '2' -ResultsDirectory $directory
+            -ExpectedRevision $Revision -RunId '123' -RunAttempt '2' -ResultsDirectory $directory -ExpectedPolicyVersion rich-scale-original-v1
         $report = Get-Content (Join-Path $directory 'result.json') -Raw | ConvertFrom-Json
         $report.outcome = $Outcome
         $report | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $directory 'result.json')
@@ -37,7 +37,7 @@ function Write-FixtureReport([string]$Suite, [string]$Outcome = 'success', [stri
     $report | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $directory 'result.json')
     $report | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $directory "$runName\result.json")
 }
-function Verify { Assert-ReleaseVerification -PerformanceDirectory "$root\non-ui-performance" -UiScaleDirectory "$root\ui-scale" -Candidate $candidate -StartedAt $started }
+function Verify { Assert-ReleaseVerification -PerformanceDirectory "$root\non-ui-performance" -UiScaleDirectory "$root\ui-scale" -Candidate $candidate -StartedAt $started -ExpectedPolicyVersion rich-scale-original-v1 }
 try {
     Rejects { Verify } 'missing current-run artifacts'
     Write-FixtureReport non-ui-performance

@@ -2,6 +2,8 @@ param([switch]$BootstrapPreviewOnly, [switch]$RichPolicyPreviewOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
+. "$root\eng\FilesystemHealth.ps1"
+. "$root\eng\TimingPolicy.ps1"
 $fixture = Join-Path $root ('.test-workspaces\cohort-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
 $revision = 'a' * 40
@@ -424,6 +426,14 @@ try {
                     $result.policyPreview.metrics.'profile-p95-ms'.seriousRegression -eq $case.serious -and
                     $result.validation -ceq 'success' -and !$result.policyPreview.blocking) `
                     "Product latency20%/100ms floors disagree at$($case.value)ms or only one floor sufficed."
+                $pinned = Get-Content (Join-Path $headroomPeer "performance-cohorts\$($series.digit * 40)\$($series.run)\1.json") -Raw |
+                    ConvertFrom-Json -AsHashtable
+                $pinned.policyVersion = 'ci-timing-v2'
+                Set-TimingPolicyEvaluation $result $pinned
+                Assert ($result.timingEvaluation.blocking -eq $case.serious -and
+                    $result.timingEvaluation.metrics.'profile-p95-ms'.health -ceq $case.health -and
+                    $result.validation -ceq 'success' -and !$result.policyPreview.blocking) `
+                    'Approved public evaluator disagrees with practical floors or rewrites the preserved preview.'
             }
         }
     } finally {
@@ -564,6 +574,16 @@ try {
                     $metric.absoluteRequirement -ceq 'satisfied' -and
                     $meaningful.validation -ceq 'success' -and !$meaningful.policyPreview.blocking) `
                     'The five-run1000-to1050 rich-note example became serious under amended practical floors or rewrote v1.'
+            }
+            if ($version -ceq 'ci-timing-preview-v2') {
+                $pinned = $meaningfulReference | ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable
+                $pinned.policyVersion = 'ci-timing-v2'
+                Set-TimingPolicyEvaluation $meaningful $pinned
+                Assert (!$meaningful.timingEvaluation.blocking -and $meaningful.timingEvaluation.health -ceq 'yellow' -and
+                    $meaningful.timingEvaluation.metrics.'prefix-background-export-localDurability-p95-ms'.deltaPercent -eq 5 -and
+                    $meaningful.validation -ceq 'success' -and !$meaningful.policyPreview.blocking -and
+                    (Format-TimingPolicyEvaluation $meaningful.timingEvaluation).Contains('APPROVED AND ENFORCED')) `
+                    'Shared active gate blocked sustained1000-to1050, erased raw validation or omitted active provenance.'
             }
         }
     } finally {

@@ -1,3 +1,5 @@
+. "$PSScriptRoot\TimingPolicy.ps1"
+
 function Get-UiScalePlan {
     $directory = Join-Path $PSScriptRoot '..\tests'
     $scenarios = @(Get-Content (Join-Path $directory 'UiScaleScenarios.json') -Raw | ConvertFrom-Json)
@@ -44,11 +46,16 @@ function Assert-UiScalePhases([string] $Log, [string[]] $Expected) {
 }
 
 function Assert-UiScaleWorkerReport($Report, [string] $Worker, [string] $Revision,
-    [string] $RunId, [string] $RunAttempt, [string] $CohortId, [int] $Sample) {
+    [string] $RunId, [string] $RunAttempt, [string] $CohortId, [int] $Sample,
+    [string] $ExpectedPolicyVersion = 'rich-scale-original-v1') {
     if ($Revision -cnotmatch '^[0-9a-f]{40}$' -or !$RunId -or !$RunAttempt) {
         throw 'UI-scale collection requires exact candidate, run and attempt.'
     }
     $plan = Get-UiScalePlan
+    $policy = Get-ApprovedTimingPolicy $ExpectedPolicyVersion
+    $ceiling = if ($Worker -ceq 'prefix') { $policy.prefixSafetySeconds } else { $policy.tailSafetySeconds }
+    $declaredPolicy = if ($Report.PSObject.Properties['policyVersion']) { $Report.policyVersion } else { 'rich-scale-original-v1' }
+    if ($declaredPolicy -cne $ExpectedPolicyVersion) { throw 'Rich runner policy differs from the trusted source policy.' }
     if ($CohortId -and ($CohortId -cne "$Revision-$RunId-$RunAttempt" -or $Sample -notin @(1, 2, 3, 4, 5) -or
         $report.cohortId -cne $CohortId -or $report.sample -ne $Sample)) {
         throw 'Rich worker belongs to a different cohort/sample/attempt.'
@@ -60,17 +67,17 @@ function Assert-UiScaleWorkerReport($Report, [string] $Worker, [string] $Revisio
         $report.trackedChanges -isnot [bool] -or $report.trackedChanges -or
         $report.untrackedChanges -isnot [bool] -or $report.untrackedChanges -or
         $report.diagnosticOnly -isnot [bool] -or $report.diagnosticOnly -or
-        $report.ceilingSeconds -ne 660 -or $report.observationSeconds -ne 660 -or
+        $report.ceilingSeconds -ne $ceiling -or $report.observationSeconds -ne $ceiling -or
         $null -eq $report.executionSeconds -or ![double]::IsFinite($report.executionSeconds) -or
-        $report.executionSeconds -lt 0 -or $report.executionSeconds -gt 660 -or
+        $report.executionSeconds -lt 0 -or $report.executionSeconds -gt $ceiling -or
         !$report.startedAt -or !$report.completedAt -or
         [DateTimeOffset]$report.completedAt -lt [DateTimeOffset]$report.startedAt -or
         [DateTimeOffset]$report.completedAt -gt [DateTimeOffset]::UtcNow -or
-        ([DateTimeOffset]$report.completedAt - [DateTimeOffset]$report.startedAt).TotalSeconds -gt 660 -or
+        ([DateTimeOffset]$report.completedAt - [DateTimeOffset]$report.startedAt).TotalSeconds -gt $ceiling -or
         $report.runDirectory -cnotmatch '^run-[0-9a-f]{32}$' -or
         (@($report.requiredScenarios) -join "`n") -cne (@($plan.workers[$Worker]) -join "`n") -or
         (@($report.completedPhases) -join "`n") -cne (@($plan.phases[$Worker]) -join "`n")) {
-        throw "UI-scale $Worker is missing, failed, stale, diagnostic, incomplete or outside its unchanged budget."
+        throw "UI-scale $Worker is missing, failed, stale, diagnostic, incomplete or outside its effective safety limit."
     }
     $requiredSteps = @('restore-app', 'restore-tests', 'build-app', 'display-prerequisite', 'ui-scale')
     if ((@($report.steps.name) -join "`n") -cne ($requiredSteps -join "`n") -or
@@ -82,9 +89,10 @@ function Assert-UiScaleWorkerReport($Report, [string] $Worker, [string] $Revisio
 }
 
 function Get-UiScaleWorkerResult([string] $Directory, [string] $Worker, [string] $Revision,
-    [string] $RunId, [string] $RunAttempt, [string] $CohortId, [int] $Sample) {
+    [string] $RunId, [string] $RunAttempt, [string] $CohortId, [int] $Sample,
+    [string] $ExpectedPolicyVersion = 'rich-scale-original-v1') {
     $report = Get-Content (Join-Path $Directory 'result.json') -Raw | ConvertFrom-Json
-    $plan = Assert-UiScaleWorkerReport $report $Worker $Revision $RunId $RunAttempt $CohortId $Sample
+    $plan = Assert-UiScaleWorkerReport $report $Worker $Revision $RunId $RunAttempt $CohortId $Sample $ExpectedPolicyVersion
     $run = Join-Path $Directory $report.runDirectory
     $nested = Get-Content (Join-Path $run 'result.json') -Raw
     if ($nested -cne (Get-Content (Join-Path $Directory 'result.json') -Raw)) {
@@ -120,9 +128,10 @@ function Assert-UiScaleEvidenceIdentity($Data, [string]$Revision, [string]$RunId
 }
 
 function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory, [string] $Revision,
-    [string] $RunId, [string] $RunAttempt, [string] $CohortId, [int] $Sample) {
-    $prefix = Get-UiScaleWorkerResult $PrefixDirectory prefix $Revision $RunId $RunAttempt $CohortId $Sample
-    $tail = Get-UiScaleWorkerResult $TailDirectory tail $Revision $RunId $RunAttempt $CohortId $Sample
+    [string] $RunId, [string] $RunAttempt, [string] $CohortId, [int] $Sample,
+    [string] $ExpectedPolicyVersion = 'rich-scale-original-v1') {
+    $prefix = Get-UiScaleWorkerResult $PrefixDirectory prefix $Revision $RunId $RunAttempt $CohortId $Sample $ExpectedPolicyVersion
+    $tail = Get-UiScaleWorkerResult $TailDirectory tail $Revision $RunId $RunAttempt $CohortId $Sample $ExpectedPolicyVersion
     $handoffPath = Join-Path $prefix.run 'handoff\handoff.json'
     $handoffHash = (Get-FileHash -LiteralPath $handoffPath -Algorithm SHA256).Hash
     $handoff = Get-Content $handoffPath -Raw | ConvertFrom-Json
@@ -179,10 +188,12 @@ function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory,
     $evidence['profile-background-export'] = Read-UiScaleEvidence $prefix.run 'scale-mutation-save-prefix-ui-sqlite-rich-profile-latency-background-export.json' $Revision $RunId $RunAttempt $handoff.binding
     $evidence['profile-normal-executable'] = Read-UiScaleEvidence $tail.run 'scale-mutation-delivery-tail-ui-sqlite-rich-profile-latency-normal-executable.json' $Revision $RunId $RunAttempt $handoff.binding
     $evidence.lifecycle = Read-UiScaleEvidence $prefix.run 'scale-mutation-save-prefix-ui-sqlite-rich-export-lifecycle.json' $Revision $RunId $RunAttempt $handoff.binding
-    Assert-UiScaleRichEvidence $evidence $handoff $Revision $RunId $RunAttempt
+    Assert-UiScaleRichEvidence $evidence $handoff $Revision $RunId $RunAttempt $ExpectedPolicyVersion
 }
 
-function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [string] $RunId, [string] $RunAttempt) {
+function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [string] $RunId, [string] $RunAttempt,
+    [string] $ExpectedPolicyVersion = 'rich-scale-original-v1') {
+    $policy = Get-ApprovedTimingPolicy $ExpectedPolicyVersion
     function Read-Evidence([string] $Name) {
         $data = $Evidence[$Name]
         Assert-UiScaleEvidenceIdentity $data $Revision $RunId $RunAttempt $handoff.binding
@@ -198,6 +209,8 @@ function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [st
     foreach ($phase in @('normal-executable', 'background-export')) {
         $note = Read-Evidence "note-$phase"
         $durability = $note.localDurability
+        $declaredPolicy = if ($durability.PSObject.Properties['policyVersion']) { $durability.policyVersion } else { 'rich-scale-original-v1' }
+        if ($declaredPolicy -cne $ExpectedPolicyVersion) { throw 'Raw rich-note policy differs from the trusted source policy.' }
         $editorP95 = Assert-Samples $note.addTeamNote.samplesMs 20
         $navigationP95 = Assert-Samples $note.personNavigation.samplesMs 42
         $durabilityP95 = Assert-Samples $durability.samplesMs 21
@@ -209,13 +222,13 @@ function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [st
             @($durability.samplesMs).Count -ne 21 -or @($durability.committedDuringTyping).Count -ne 21 -or
             @($durability.committedDuringTyping | Where-Object { $_ -isnot [bool] -or !$_ }).Count -or
             $note.addTeamNote.p95Ms -ne $editorP95 -or $note.personNavigation.p95Ms -ne $navigationP95 -or
-            $durability.p95Ms -ne $durabilityP95 -or $durabilityP95 -gt 1050 -or
-            $durability.budgetMs -isnot [ValueType] -or $durability.budgetMs -is [bool] -or $durability.budgetMs -ne 1050 -or
+            $durability.p95Ms -ne $durabilityP95 -or $durabilityP95 -gt $policy.richNoteCeilingMs -or
+            $durability.budgetMs -isnot [ValueType] -or $durability.budgetMs -is [bool] -or $durability.budgetMs -ne $policy.richNoteCeilingMs -or
             $durability.goalMs -isnot [ValueType] -or $durability.goalMs -is [bool] -or $durability.goalMs -ne 1000 -or
             $durability.goalMet -isnot [bool] -or
             $durability.goalMet -ne ($durabilityP95 -le 1000) -or
             $durability.budgetEnforced -isnot [bool] -or !$durability.budgetEnforced -or
-            $durability.temporaryCeiling -isnot [bool] -or !$durability.temporaryCeiling -or
+            $durability.temporaryCeiling -isnot [bool] -or $durability.temporaryCeiling -ne ($ExpectedPolicyVersion -ceq 'rich-scale-original-v1') -or
             $durability.timingUse -cne 'acceptance' -or
             $durability.independentVerificationScope -cne 'fresh-final-prefix-owner-and-exact-writing' -or
             $durability.continuedEditsPerNote -ne 6 -or $durability.nominalEditSpacingMs -ne 250) {

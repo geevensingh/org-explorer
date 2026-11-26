@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       prefix_only_diagnostic:
-        description: One prefix-only 900s observation, 17m watchdog; nonaccepting and baseline-ineligible
+        description: One prefix-only 900s observation, 30m watchdog; nonaccepting and baseline-ineligible
         required: false
         default: false
         type: boolean
@@ -45,7 +45,7 @@ on:
         required: false
         type: string
       extended_observation:
-        description: Observe UI work for up to 900s but retain the 660s verdict; diagnostic only
+        description: Explicit nonaccepting UI observation; cannot supply release proof or a baseline
         required: false
         default: false
         type: boolean
@@ -109,7 +109,7 @@ jobs:
     if: ${{ inputs.prefix_only_diagnostic || (!inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot) }}
     name: Rich combined normal and held-export saves
     runs-on: windows-latest
-    timeout-minutes: ${{ inputs.prefix_only_diagnostic && 17 || 13 }}
+    timeout-minutes: 30
     env:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
       EXTENDED_OBSERVATION: ${{ inputs.prefix_only_diagnostic || inputs.extended_observation || false }}
