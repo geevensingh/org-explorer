@@ -82,11 +82,23 @@ verification, packaging and publication. Every product attempt calls the same
 `scale-verification.yml` used by nightly/manual checks, at the exact candidate.
 That workflow runs non-UI performance, two isolated rich UI workers and their
 strict union collector. The tail joins the prefix's actual complete logical
-snapshot; it does not reseed equivalent data. Source-bound `ci-timing-v2` and
-`ci-timing-v3` use900s prefix safety/30m watchdog, while tail/non-UI keep660s/13m. Original candidate
+snapshot; it does not reseed equivalent data. Source-bound `ci-timing-v2`,
+`ci-timing-v3` and `ci-timing-v4` use900s prefix safety/30m watchdog, while tail/non-UI keep660s/13m. Original candidate
 sources retain their original660s/1050ms policy; artifacts cannot grant a newer
 or higher ceiling. See the [canonical commands and artifact contract](testing.md#separate-scale-commands-and-results);
 one rich worker cannot establish complete verification.
+
+V4 changes only narrowly scoped post-verification native build-housekeeping
+disposition: actual cleanup stays failed and may warn on an authenticated
+disposable GitHub-hosted worker with intact raw/source proof and budget.
+Fresh signed invocation provenance distinguishes checked-out candidate A from
+its actual signer/controller B. Missing or rejected signatures, local/shared/
+self-hosted scope, failed work, malformed artifacts and exhausted budgets still
+fail. Signing overhead is not subtracted or given extra accepting time.
+Build/DLL bytes are excluded from evidence; raw TRX, metrics, phases, lifecycle
+and logical snapshots, cleanup errors and signed provenance remain.
+No historical failure or release verdict is rewritten. See the
+[exact scoped policy](ci-timing-policy-proposal.md).
 
 The independent `lane-health.yml` observer reports release/renewal job phases
 and available exact-attempt scale evidence after the source run completes.
@@ -97,7 +109,7 @@ remains a no-op, not executed release verification.
 Current rich ordinary note durability retains its1,000-ms goal with the
 owner-approved enforced1,500-ms inclusive p95 ceiling in both normal and held-export phases.
 The collector requires honest goal/ceiling metadata and every original
-during-typing/functional assertion. Only v3 native rich-profile Save in both
+during-typing/functional assertion. V3/v4 native rich-profile Save in both
 phases also uses a1,000-ms goal/1,500-ms inclusive enforced p95 ceiling.
 Historical v2 native-profile verdicts, ordinary/small-fixture and non-UI profile/
 note one-second gates,

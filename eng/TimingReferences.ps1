@@ -37,7 +37,7 @@ function Assert-TimingControl($Record, [string]$Path) {
     Assert-TimingEventVersion $Record $(if ($Record.recordType -ceq 'timing-bootstrap') { 1 } else { 2 })
     if ($Record.recordType -cnotin @('timing-bootstrap', 'timing-plan') -or
         $Record.repository -cne $FilesystemHealthRepository -or $Record.authority -cne 'trusted-main-push' -or
-        $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3') -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
+        $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4') -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
         $Record.mainRevision -cnotmatch '^[0-9a-f]{40}$' -or $Path -cne (Get-TimingControlPath $Record)) {
         throw 'Malformed trusted timing bootstrap/plan provenance.'
     }
@@ -54,7 +54,7 @@ function Assert-TimingControl($Record, [string]$Path) {
 function Get-TimingReferenceRecordTypes {
     return @{
         'timing-bootstrap'   = @{
-            PathPattern     = '^timing-bootstrap/ci-timing-v[23]\.json$'
+            PathPattern     = '^timing-bootstrap/ci-timing-v[234]\.json$'
             GetPath         = { param($record) Get-TimingControlPath $record }
             Validate        = { param($record, $path) Assert-TimingControl $record $path }
             ValidateHistory = { param($history) Assert-TimingHistory $history }
@@ -84,7 +84,7 @@ function Get-TimingReferenceRecordTypes {
 }
 
 function Get-TimingBootstrap($History, [string]$ExplicitRevision,
-    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$PolicyVersion = 'ci-timing-v2') {
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')][string]$PolicyVersion = 'ci-timing-v2') {
     $saved = @($History.records | Where-Object {
         $_.Contains('recordType') -and $_.recordType -ceq 'timing-bootstrap' -and $_.policyVersion -ceq $PolicyVersion
     })
@@ -122,7 +122,7 @@ function Assert-TimingAutomation($Collection, [long]$RunId, [int]$RunAttempt, [s
             $writer.head_sha -cne $head -or $writer.event -cne 'workflow_run' -or
             $writer.head_repository.full_name -cne $FilesystemHealthRepository -or
             $writer.path -cnotin @('.github/workflows/non-ui-cohorts.yml', '.github/workflows/non-ui-cohort-history.yml') -or
-            (Get-SourceTimingPolicyVersion $head) -cnotin @('ci-timing-v2', 'ci-timing-v3')) {
+            (Get-SourceTimingPolicyVersion $head) -cnotin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')) {
             throw 'Canonical history requires the current approved trusted controller, independently of the older collection source.'
         }
         $dirty = & git -C $source status --porcelain
@@ -173,7 +173,7 @@ function Get-TimingReferencePath($Record) {
 function Assert-TimingDecision($Record, [string]$Path) {
     Assert-TimingEventVersion $Record 1
     if ($Record.recordType -cne 'timing-decision' -or $Record.repository -cne $FilesystemHealthRepository -or
-        $Record.authority -cne 'trusted-main-push' -or $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3') -or
+        $Record.authority -cne 'trusted-main-push' -or $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4') -or
         $Record.policyVersion -cne $Record.cohort.policyVersion -or
         $Path -cne (Get-TimingDecisionPath $Record) -or $Record.cohort.samples.Count -ne 3 -or
         $Record.revision -cne $Record.cohort.revision -or $Record.cohortRunId -cne $Record.cohort.cohortRunId -or
@@ -184,7 +184,7 @@ function Assert-TimingDecision($Record, [string]$Path) {
 function Assert-TimingReference($Record, [string]$Path) {
     Assert-TimingEventVersion $Record 1
     if ($Record.recordType -cne 'timing-reference' -or $Record.repository -cne $FilesystemHealthRepository -or
-        $Record.authority -cne 'trusted-main-push' -or $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3') -or
+        $Record.authority -cne 'trusted-main-push' -or $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4') -or
         $Record.seriesKey -cnotmatch '^[0-9a-f]{64}$' -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
         $Record.mainRevision -cnotmatch '^[0-9a-f]{40}$' -or $Record.bootstrapRevision -cnotmatch '^[0-9a-f]{40}$' -or
         $Record.comparisonCommit -cnotmatch '^[0-9a-f]{40}$' -or

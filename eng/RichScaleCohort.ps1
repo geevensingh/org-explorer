@@ -1,6 +1,24 @@
 . "$PSScriptRoot\DesktopResults.ps1"
 . "$PSScriptRoot\UiScaleResults.ps1"
 
+function Read-RichCohortPhases([string[]]$Lines) {
+    $phases = @{}
+    $occurrences = @{}
+    foreach ($line in $Lines) {
+        if ($line -cmatch '^SCALE END (?<name>[^;]+); outcome=(?<outcome>[^;]+); ms=(?<ms>[0-9]+(?:\.[0-9]+)?)') {
+            $name = $Matches.name
+            if (!$occurrences.ContainsKey($name)) { $occurrences[$name] = 0 }
+            $occurrences[$name]++
+            $key = if ($occurrences[$name] -eq 1) { $name } else { "$name#$($occurrences[$name])" }
+            $phases[$key] = @{
+                value = [double]::Parse($Matches.ms, [Globalization.CultureInfo]::InvariantCulture)
+                outcome = $Matches.outcome
+            }
+        }
+    }
+    return $phases
+}
+
 function Get-RichCohortSeriesKey($Sample, [string]$ExpectedPolicyVersion = 'rich-scale-original-v1') {
     $configuration = @{} + $Sample.configuration
     foreach ($worker in @('prefix', 'tail')) {
@@ -80,19 +98,7 @@ function Read-RichCohortSample($Sample, [string]$Directory, [string]$Revision, [
                             if ($report.outcome -ceq 'failure' -or $report.executionSeconds -gt $limit) { $part.validation = 'failure' }
                             $log = Join-Path $run 'ui-scale.log'
                             if (Test-Path -LiteralPath $log) {
-                                $occurrences = @{}
-                                foreach ($line in Get-Content $log) {
-                                    if ($line -cmatch '^SCALE END (?<name>[^;]+); outcome=(?<outcome>[^;]+); ms=(?<ms>[0-9]+(?:\.[0-9]+)?)') {
-                                        $name = $Matches.name
-                                        if (!$occurrences.ContainsKey($name)) { $occurrences[$name] = 0 }
-                                        $occurrences[$name]++
-                                        $key = if ($occurrences[$name] -eq 1) { $name } else { "$name#$($occurrences[$name])" }
-                                        $part.phasesMs[$key] = @{
-                                            value = [double]::Parse($Matches.ms, [Globalization.CultureInfo]::InvariantCulture)
-                                            outcome = $Matches.outcome
-                                        }
-                                    }
-                                }
+                                $part.phasesMs = Read-RichCohortPhases @(Get-Content $log)
                             }
                             $files = if ($worker -eq 'prefix') {
                                 @{
@@ -192,6 +198,36 @@ function Assert-RichCohortSample($Sample, $Record, $Seen, [string]$ExpectedPolic
         if ($Sample.validation -ceq 'success' -and $worker -ne 'union') {
             $report = $part.report | ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
             $plan = Assert-UiScaleWorkerReport $report $worker $Record.revision $Record.cohortRunId $Record.cohortRunAttempt $Record.cohortId $Sample.number $ExpectedPolicyVersion
+            if ($part.report.Contains('cleanup') -and $part.report.cleanup.warning) {
+                $proof = $part.report.cleanup.proof | ConvertFrom-Json -AsHashtable -DateKind String -Depth 40
+                if ((ConvertTo-HealthCanonicalValue $part.phasesMs | ConvertTo-Json -Depth 30 -Compress) -cne
+                    (ConvertTo-HealthCanonicalValue $proof.phasesMs | ConvertTo-Json -Depth 30 -Compress)) {
+                    throw 'Historical rich phases differ from signed verification.'
+                }
+                $evidence = $proof.evidence
+                $profilePhase = if ($worker -ceq 'prefix') { 'background-export' } else { 'normal-executable' }
+                if ((ConvertTo-HealthCanonicalValue $part.profile | ConvertTo-Json -Depth 30 -Compress) -cne
+                    (ConvertTo-HealthCanonicalValue $evidence["profile-$profilePhase"] | ConvertTo-Json -Depth 30 -Compress)) {
+                    throw 'Historical rich profile differs from signed verification.'
+                }
+                if ($worker -ceq 'prefix') {
+                    if ((ConvertTo-HealthCanonicalValue $part.lifecycle | ConvertTo-Json -Depth 30 -Compress) -cne
+                        (ConvertTo-HealthCanonicalValue $evidence.lifecycle | ConvertTo-Json -Depth 30 -Compress) -or
+                        (ConvertTo-HealthCanonicalValue $Sample.rich.handoff | ConvertTo-Json -Depth 30 -Compress) -cne
+                        (ConvertTo-HealthCanonicalValue $proof.handoff | ConvertTo-Json -Depth 30 -Compress)) {
+                        throw 'Historical lifecycle/handoff differs from signed verification.'
+                    }
+                    foreach ($phase in @('normal-executable', 'background-export')) {
+                        if ((ConvertTo-HealthCanonicalValue $part.notes[$phase] | ConvertTo-Json -Depth 30 -Compress) -cne
+                            (ConvertTo-HealthCanonicalValue $evidence["note-$phase"] | ConvertTo-Json -Depth 30 -Compress)) {
+                            throw 'Historical rich notes differ from signed verification.'
+                        }
+                    }
+                } elseif ((ConvertTo-HealthCanonicalValue $Sample.rich.receipt | ConvertTo-Json -Depth 30 -Compress) -cne
+                    (ConvertTo-HealthCanonicalValue $proof.handoff | ConvertTo-Json -Depth 30 -Compress)) {
+                    throw 'Historical Join receipt differs from signed verification.'
+                }
+            }
             $occurrences = @{}
             foreach ($phase in $plan.phases[$worker]) {
                 if (!$occurrences.ContainsKey($phase)) { $occurrences[$phase] = 0 }

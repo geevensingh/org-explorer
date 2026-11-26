@@ -68,6 +68,11 @@ jobs:
     if: ${{ needs.plan.outputs.collect == 'true' && !inputs.rich_scale }}
     runs-on: windows-latest
     timeout-minutes: 13
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -86,11 +91,31 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Execute the complete original workload on this fresh worker
+        id: runner
         env:
+          GH_TOKEN: ${{ github.token }}
           REVISION: ${{ inputs.revision }}
           SAMPLE: ${{ matrix.sample }}
         run: |
-          .\eng\Run-Performance.ps1 -ExpectedRevision $env:REVISION -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Start -Worker non-ui-performance -ExpectedRevision $env:REVISION -ResultsDirectory .ci-results\performance -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+          } else {
+            .\eng\Run-Performance.ps1 -ExpectedRevision $env:REVISION -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+          }
+      - uses: actions/attest@v4
+        id: cleanup-attestation
+        if: ${{ steps.runner.outputs.needs_cleanup_signature == 'true' }}
+        with:
+          subject-path: ${{ steps.runner.outputs.cleanup_proof }}
+      - name: Observe original sample completion
+        if: ${{ steps.runner.outcome == 'success' }}
+        env:
+          REVISION: ${{ inputs.revision }}
+          ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Complete -Worker non-ui-performance -ExpectedRevision $env:REVISION -ResultsDirectory .ci-results\performance -AttestationBundle $env:ATTESTATION_BUNDLE
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -101,10 +126,16 @@ jobs:
             .ci-results/performance/**/*.json
             .ci-results/performance/**/*.log
             .ci-results/performance/**/*.trx
+            !.ci-results/performance/**/build/**
 
   rich-sample-1:
     needs: plan
     if: ${{ needs.plan.outputs.collect == 'true' && inputs.rich_scale }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/rich-cohort-sample.yml
     with:
       revision: ${{ inputs.revision }}
@@ -113,6 +144,11 @@ jobs:
   rich-sample-2:
     needs: [plan, rich-sample-1]
     if: ${{ always() && needs.plan.outputs.collect == 'true' && inputs.rich_scale }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/rich-cohort-sample.yml
     with:
       revision: ${{ inputs.revision }}
@@ -121,6 +157,11 @@ jobs:
   rich-sample-3:
     needs: [plan, rich-sample-2]
     if: ${{ always() && needs.plan.outputs.collect == 'true' && inputs.rich_scale }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/rich-cohort-sample.yml
     with:
       revision: ${{ inputs.revision }}

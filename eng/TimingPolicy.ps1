@@ -7,7 +7,7 @@ function Get-TimingLane([string]$Lane) {
 }
 
 function Get-ApprovedTimingPolicy(
-    [ValidateSet('rich-scale-original-v1', 'ci-timing-v2', 'ci-timing-v3')][string]$Version = 'ci-timing-v2') {
+    [ValidateSet('rich-scale-original-v1', 'ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')][string]$Version = 'ci-timing-v2') {
     return @{
         version = $Version
         prefixSafetySeconds = if ($Version -cne 'rich-scale-original-v1') { 900 } else { 660 }
@@ -16,7 +16,7 @@ function Get-ApprovedTimingPolicy(
         richNoteGoalMs = 1000
         richNoteCeilingMs = if ($Version -cne 'rich-scale-original-v1') { 1500 } else { 1050 }
         richProfileGoalMs = 1000
-        richProfileCeilingMs = if ($Version -ceq 'ci-timing-v3') { 1500 } else { 1000 }
+        richProfileCeilingMs = if ($Version -cin @('ci-timing-v3', 'ci-timing-v4')) { 1500 } else { 1000 }
     }
 }
 
@@ -42,7 +42,7 @@ function Get-SourceTimingPolicyVersion([string]$Revision, [switch]$Hosted, [stri
         if ($LASTEXITCODE -ne 0) { throw 'Trusted timing policy source cannot be read.' }
     }
     $policy = $text | ConvertFrom-Json -AsHashtable
-    if ($policy.Count -ne 1 -or $policy.version -isnot [string] -or $policy.version -cnotin @('ci-timing-v2', 'ci-timing-v3')) {
+    if ($policy.Count -ne 1 -or $policy.version -isnot [string] -or $policy.version -cnotin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')) {
         throw 'Unknown or amended timing policy requires explicit approval and implementation.'
     }
     return $policy.version
@@ -50,7 +50,7 @@ function Get-SourceTimingPolicyVersion([string]$Revision, [switch]$Hosted, [stri
 
 function New-TimingExecutionRecord([string]$PerformanceDirectory, [string]$PrefixDirectory, [string]$TailDirectory,
     [string]$Revision, [string]$RunId, [string]$RunAttempt,
-    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$ExpectedPolicyVersion = 'ci-timing-v2') {
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')][string]$ExpectedPolicyVersion = 'ci-timing-v2') {
     $record = @{
         schemaVersion = 2; recordType = 'verification-execution'; revision = $Revision; validation = 'success'
         runId = $RunId; runAttempt = $RunAttempt; policyVersion = $ExpectedPolicyVersion
@@ -75,11 +75,13 @@ function New-TimingExecutionRecord([string]$PerformanceDirectory, [string]$Prefi
         Add-Metric "$worker-profile-p95-ms" $profile.p95Ms
     }
     $report = Get-Content (Join-Path $PerformanceDirectory 'result.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+    Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $PerformanceDirectory
     if ($report.revision -cne $Revision -or $report.expectedRevision -cne $Revision -or
         $report.runId -cne $RunId -or $report.runAttempt -cne $RunAttempt -or $report.outcome -cne 'success') {
         throw 'Timing comparison requires the same complete non-UI candidate/run/attempt.'
     }
     if ($report.Contains('configuration')) { $sample.configuration = $report.configuration }
+    if ($report.Contains('cleanup')) { $sample.runnerReport = $report }
     Add-Metric executionSeconds $report.executionSeconds
     $sample.rich.handoff = Get-Content (Join-Path $sample.rich.prefix.run 'handoff\handoff.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
     foreach ($phase in @('normal-executable', 'background-export')) {
@@ -352,7 +354,7 @@ function Set-TimingPolicyPreview($Record, $History,
 }
 
 function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$HistoryTip = $null,
-    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$PolicyVersion = 'ci-timing-v2') {
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')][string]$PolicyVersion = 'ci-timing-v2') {
     if ($Record.recordType -cin @('performance-cohort', 'verification-execution')) {
         foreach ($entry in @($Record.metrics.GetEnumerator())) {
             $metric = $entry.Value
@@ -373,7 +375,7 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
         }
     }
     $previousPreview = if ($Record.Contains('policyPreview')) { $Record.policyPreview } else { $null }
-    $previewVersion = if ($PolicyVersion -ceq 'ci-timing-v3') { 'ci-timing-preview-v3' } else { 'ci-timing-preview-v2' }
+    $previewVersion = if ($PolicyVersion -cin @('ci-timing-v3', 'ci-timing-v4')) { 'ci-timing-preview-v3' } else { 'ci-timing-preview-v2' }
     Set-TimingPolicyPreview $Record $null $previewVersion -PinnedReference $PinnedReference -Active
     $evaluation = $Record.policyPreview
     if ($null -ne $previousPreview) { $Record.policyPreview = $previousPreview } else { $Record.Remove('policyPreview') }

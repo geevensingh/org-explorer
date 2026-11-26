@@ -294,7 +294,7 @@ internal static partial class Program
             environment = new { os = Environment.OSVersion.ToString(), runtime = Environment.Version.ToString(),
                 processors = Environment.ProcessorCount, window = window.Current.BoundingRectangle.ToString() },
             owner = ScaleFixture.Target, photoSha256 = photoHash, samplesMs = samples, p95Ms = p95,
-            policyVersion = "ci-timing-v3", goalMs = profileGoalMs, goalMet = p95 <= profileGoalMs,
+            policyVersion = "ci-timing-v4", goalMs = profileGoalMs, goalMet = p95 <= profileGoalMs,
             budgetMs = profileCeilingMs, budgetEnforced = true, timingUse = "acceptance",
             percentile = "Nearest rank: sorted sample at ceil(0.95 * count), one based.",
             boundary = (phase == "normal-executable" ? "Normal product EXE." : "Actual compiled product MainWindow in the held-export host.") +

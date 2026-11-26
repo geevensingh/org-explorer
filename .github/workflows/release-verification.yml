@@ -14,6 +14,11 @@ permissions:
 
 jobs:
   scale:
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ inputs.revision }}

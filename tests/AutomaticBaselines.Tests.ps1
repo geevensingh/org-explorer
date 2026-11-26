@@ -1,12 +1,15 @@
 param([switch]$PlanOnly, [switch]$SmokeOnly, [string]$GateSnapshotDirectory,
     [string]$EventVersionMetadata, [string]$EventVersionCase,
-    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$GatePolicyVersion = 'ci-timing-v2')
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')][string]$GatePolicyVersion = 'ci-timing-v2')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 $fixture = Join-Path $root ('.test-workspaces\baselines-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
 $checks = 0
+$cleanupRoots = @{}
+$cleanupContexts = @{}
+. "$PSScriptRoot\CleanupEvidenceFixture.ps1"
 function Assert([bool]$Condition, [string]$Reason) {
     if (!$Condition) { throw $Reason }
     $script:checks++
@@ -37,6 +40,13 @@ function gh {
     $endpoint = $args[1]
     $ciId = $global:BaselineFixture.ci.id
     $cohortRun = $global:BaselineFixture.cohortRun
+    if ($endpoint -match '/actions/runs/(?<run>[0-9]+)/attempts/(?<attempt>[0-9]+)$') {
+        $key = "$($Matches.run)-$($Matches.attempt)"
+        if ($cleanupContexts.ContainsKey($key) -and $Matches.run -ne [string]$cohortRun) {
+            $cleanupContexts[$key] | ConvertTo-Json -Depth 20
+            return
+        }
+    }
     switch -Regex ($endpoint) {
         '/git/trees/(?<revision>[0-9a-f]{40})\?recursive=1$' {
             $entry = & git "--git-dir=$($global:BaselineFixture.sourceRemote)" ls-tree $Matches.revision -- eng/timing-policy.json
@@ -64,6 +74,8 @@ function gh {
             @{ id = $cohortRun; run_attempt = 1; head_sha = $global:BaselineFixture.controller
                 event = 'workflow_run'; path = '.github/workflows/non-ui-cohorts.yml'; status = $global:BaselineFixture.status
                 conclusion = $global:BaselineFixture.outcome
+                referenced_workflows = @(@{ path = "geevensingh/org-explorer/.github/workflows/rich-cohort-sample.yml@$($global:BaselineFixture.controller)"
+                    ref = 'refs/heads/main'; sha = $global:BaselineFixture.controller })
                 head_repository = @{ full_name = 'geevensingh/org-explorer' } } | ConvertTo-Json -Depth 10
             return
         }
@@ -75,6 +87,12 @@ function gh {
         }
         default { throw "Unexpected external GitHub operation: $($args -join ' ')" }
     }
+}
+function Start-Process {
+    param([string]$FilePath, [object[]]$ArgumentList, [switch]$PassThru, [switch]$NoNewWindow,
+        [string]$RedirectStandardOutput, [string]$RedirectStandardError)
+    Start-CleanupFixtureProcess $FilePath $ArgumentList $cleanupRoots -PassThru:$PassThru `
+        -NoNewWindow:$NoNewWindow -RedirectStandardOutput $RedirectStandardOutput -RedirectStandardError $RedirectStandardError
 }
 function Add-MainFixtureRevision([string]$Text) {
     $Text | Set-Content (Join-Path $source 'product.txt')
@@ -89,6 +107,13 @@ function Select-BaselineFixture([string]$Revision, [int]$CiId, [int]$CohortRun) 
     $global:BaselineFixture.cohortRun = $CohortRun; $global:BaselineFixture.controller = $Revision
     $global:BaselineFixture.status = 'in_progress'; $global:BaselineFixture.outcome = $null
     $global:BaselineFixture.jobs = @(); $global:BaselineFixture.artifacts = @()
+    $cleanupContexts["$CohortRun-1"] = @{
+        id = $CohortRun; run_attempt = 1; head_sha = $Revision; event = 'workflow_run'
+        path = '.github/workflows/non-ui-cohorts.yml'; status = 'completed'; conclusion = 'success'
+        head_repository = @{ full_name = 'geevensingh/org-explorer' }
+        referenced_workflows = @(@{ path = "geevensingh/org-explorer/.github/workflows/rich-cohort-sample.yml@$Revision"
+            ref = 'refs/heads/main'; sha = $Revision })
+    }
 }
 function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Seconds, [double]$Latency,
     [string]$ImageVersion = '20261116', [string]$TimingPolicyVersion = 'ci-timing-v2') {
@@ -127,7 +152,14 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
     $profile = @{ samplesMs = @($Latency) * 21; p95Ms = $Latency; budgetMs = 1000
         percentile = 'Nearest rank: sorted sample at ceil(0.95 * count), one based.' }
     $log += 'SCALE ORDINARY-PROFILE ' + ($profile | ConvertTo-Json -Compress)
+    if ($TimingPolicyVersion -ceq 'ci-timing-v4') {
+        $log = @($log | ForEach-Object {
+            if ($_ -cmatch '^SCALE END (?<name>[^;]+);') { "SCALE BEGIN $($Matches.name);" }
+            $_
+        })
+    }
     $log | Set-Content (Join-Path $nonUi "$runName\scale-measurements.log")
+    if ($TimingPolicyVersion -ceq 'ci-timing-v4') { Add-SignedCleanupFixture $nonUi $global:BaselineFixture.controller $cleanupRoots }
     $rich = New-RichCohortSampleFixture (Join-Path $directory 'rich') $Revision $Number $runId '1' $TimingPolicyVersion
     foreach ($worker in @('prefix', 'tail')) {
         $path = Join-Path $rich[$worker] 'result.json'
@@ -142,7 +174,7 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
         $profilePath = Join-Path $rich[$worker] "$($data.runDirectory)\scale-mutation-$(if ($worker -ceq 'prefix') { 'save-prefix' } else { 'delivery-tail' })-ui-sqlite-rich-profile-latency-$(if ($worker -ceq 'prefix') { 'background-export' } else { 'normal-executable' }).json"
         $rawProfile = Get-Content $profilePath -Raw | ConvertFrom-Json -AsHashtable
         $rawProfile.samplesMs = @($Latency) * 21; $rawProfile.p95Ms = $Latency
-        if ($TimingPolicyVersion -ceq 'ci-timing-v3') { $rawProfile.goalMet = $Latency -le 1000 }
+        if ($TimingPolicyVersion -cin @('ci-timing-v3', 'ci-timing-v4')) { $rawProfile.goalMet = $Latency -le 1000 }
         $rawProfile | ConvertTo-Json -Depth 15 | Set-Content $profilePath
         if ($worker -ceq 'prefix') {
             foreach ($phase in @('normal-executable', 'background-export')) {
@@ -155,6 +187,9 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
                 $note | ConvertTo-Json -Depth 15 | Set-Content $notePath
             }
         }
+    }
+    if ($TimingPolicyVersion -ceq 'ci-timing-v4') {
+        foreach ($worker in @('prefix', 'tail')) { Add-SignedCleanupFixture $rich[$worker] $global:BaselineFixture.controller $cleanupRoots }
     }
     & "$root\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $rich.prefix -TailDirectory $rich.tail `
         -ExpectedRevision $Revision -RunId $runId -RunAttempt 1 -ResultsDirectory (Join-Path $directory 'active-union') `
@@ -375,28 +410,44 @@ try {
         'Successful automatic promotion still reported observation-only disabled policy.'
     if ($GateSnapshotDirectory) {
         if (Test-Path -LiteralPath $GateSnapshotDirectory) { throw 'Fixture export must not overwrite an existing directory.' }
-        if ($GatePolicyVersion -ceq 'ci-timing-v3') {
-            '{"version":"ci-timing-v3"}' | Set-Content (Join-Path $source 'eng\timing-policy.json')
+        if ($GatePolicyVersion -cin @('ci-timing-v3', 'ci-timing-v4')) {
+            @{ version = $GatePolicyVersion } | ConvertTo-Json | Set-Content (Join-Path $source 'eng\timing-policy.json')
             $null = Invoke-FixtureGit $source @('add', 'eng/timing-policy.json')
             $second = Add-MainFixtureRevision 'Approved native-profile v3 starts a separate comparison series'
             Select-BaselineFixture $second 42 98
             & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $second -CiRunId 42 -CiRunAttempt 1 `
                 -CohortRunId 98 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'v3-plan') -RichScale -PublishPlan `
-                -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v3 -InitializeBootstrap
+                -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion $GatePolicyVersion -InitializeBootstrap
             for ($number = 1; $number -le 3; $number++) {
-                New-CompleteBaselineSample $number $second @(148, 150, 152)[$number - 1] @(495, 500, 505)[$number - 1] -TimingPolicyVersion ci-timing-v3
+                New-CompleteBaselineSample $number $second @(148, 150, 152)[$number - 1] @(495, 500, 505)[$number - 1] -TimingPolicyVersion $GatePolicyVersion
             }
             $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
             $v3Work = Join-Path $fixture 'v3-first-reference'
-            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $second -CiRunId 42 -CiRunAttempt 1 `
-                -CohortRunId 98 -CohortRunAttempt 1 -WorkingDirectory $v3Work -RichScale -Publish `
-                -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v3
+            try {
+                & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $second -CiRunId 42 -CiRunAttempt 1 `
+                    -CohortRunId 98 -CohortRunAttempt 1 -WorkingDirectory $v3Work -RichScale -Publish `
+                    -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion $GatePolicyVersion
+            } catch {
+                if (Test-Path (Join-Path $v3Work 'record.json')) {
+                    $failed = Get-Content (Join-Path $v3Work 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+                    foreach ($sample in $failed.samples) { Write-Output "Sample $($sample.number) $($sample.validation): $($sample.diagnostics -join '; ')" }
+                }
+                throw
+            }
             $v3 = Get-Content (Join-Path $v3Work 'record.json') -Raw | ConvertFrom-Json -AsHashtable
-            Assert ($v3.eligibility -ceq 'eligible' -and $v3.timingEvaluation.version -ceq 'ci-timing-v3' -and
+            Assert ($v3.eligibility -ceq 'eligible' -and $v3.timingEvaluation.version -ceq $GatePolicyVersion -and
                 $null -eq $v3.reference -and $v3.metrics.'profile-p95-ms'.median -eq 500 -and
                 $v3.samples[0].rich.prefix.profile.budgetMs -eq 1500 -and
                 $v3.samples[0].measurements.profile.budgetMs -eq 1000) `
                 'Public v3 promotion mixed policies or weakened the non-UI profile limit.'
+            if ($GatePolicyVersion -ceq 'ci-timing-v4') {
+                Assert ($v3.extraSamples.Count -eq 0 -and $v3.samples[0].runnerReport.cleanup.outcome -ceq 'failure' -and
+                    $v3.samples[0].runnerReport.cleanup.warning -and
+                    $v3.samples[0].rich.prefix.report.cleanup.warning -and
+                    $v3.samples[0].rich.tail.report.cleanup.warning -and
+                    (Get-Content (Join-Path $v3Work 'summary.md') -Raw).Contains('housekeeping **FAILED**')) `
+                    'A scoped cleanup warning lost failed housekeeping, requested replacement samples or prevented qualified eligibility.'
+            }
         }
         $gateRevision = Add-MainFixtureRevision 'Serious relative fixture without an absolute violation'
         Select-BaselineFixture $gateRevision 45 102
@@ -433,7 +484,7 @@ try {
             'Serious five-run fixture changed strict acceptance, lost practical evidence or promoted the rejected candidate.'
         $after = @(& git --git-dir=$remote ls-tree -r --name-only refs/heads/ci-health-data |
             Where-Object { $_.StartsWith('timing-references/') })
-        Assert ($after.Count -eq $(if ($GatePolicyVersion -ceq 'ci-timing-v3') { 2 } else { 1 })) 'Serious relative rejection replaced the prior eligible reference.'
+        Assert ($after.Count -eq $(if ($GatePolicyVersion -cin @('ci-timing-v3', 'ci-timing-v4')) { 2 } else { 1 })) 'Serious relative rejection replaced the prior eligible reference.'
         $rejectedRemote = Join-Path $GateSnapshotDirectory 'rejected.git'
         Copy-Item -LiteralPath $remote -Destination $rejectedRemote -Recurse
         $eventRemote = Join-Path $GateSnapshotDirectory 'events.git'
@@ -444,18 +495,33 @@ try {
                 -HistoryRemote $eventRemote -AllowLocalFixture -ApprovedPolicyVersion $GatePolicyVersion
         } 'Unavailable plan fabricated qualified collection evidence instead of retaining an ineligible event.'
         $samplePaths = @()
+        $exportRoots = @{}
         for ($number = 1; $number -le 5; $number++) {
             $path = Join-Path $GateSnapshotDirectory "sample-$number"
             Copy-Item -LiteralPath (Join-Path $fixture "evidence-$gateRevision-102-$number") -Destination $path -Recurse
             $samplePaths += $path
+            foreach ($subject in Get-ChildItem -LiteralPath $path -Filter cleanup-proof.json -File -Recurse) {
+                $workerRoot = Split-Path (Split-Path $subject.FullName -Parent) -Parent
+                $exportRoots[(Get-FileHash -LiteralPath $subject.FullName).Hash] = Join-Path $workerRoot 'fixture-trust-root.json'
+            }
+        }
+        $exportSource = Join-Path $GateSnapshotDirectory 'source.git'
+        Copy-Item -LiteralPath $global:BaselineFixture.sourceRemote -Destination $exportSource -Recurse
+        $trustDirectory = Join-Path $GateSnapshotDirectory 'trust'
+        New-Item -ItemType Directory -Path $trustDirectory -Force | Out-Null
+        foreach ($hash in $cleanupRoots.Keys) {
+            $trustPath = Join-Path $trustDirectory "$hash.json"
+            Copy-Item -LiteralPath $cleanupRoots[$hash] -Destination $trustPath
+            $exportRoots[$hash] = $trustPath
         }
         @{
             schemaVersion = 1; kind = 'isolated-non-production-public-contract-fixture'; hostedMeasurement = $false
             sourceA = $second; sourceB = $gateRevision; policyVersion = $GatePolicyVersion
-            priorCohortId = "$second-$(if ($GatePolicyVersion -ceq 'ci-timing-v3') { '98' } else { '99' })-1"; currentCohortId = "$gateRevision-102-1"
+            priorCohortId = "$second-$(if ($GatePolicyVersion -cin @('ci-timing-v3', 'ci-timing-v4')) { '98' } else { '99' })-1"; currentCohortId = "$gateRevision-102-1"
             seriesKey = $gateRecord.samples[0].rich.seriesKey
             runningHistoryRemote = $runningRemote; rejectedHistoryRemote = $rejectedRemote
             eventHistoryRemote = $eventRemote; sampleDirectories = $samplePaths
+            sourceRemote = $exportSource; cleanupContexts = $cleanupContexts; cleanupRoots = $exportRoots
         } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $GateSnapshotDirectory 'metadata.json')
         Copy-Item -LiteralPath (Join-Path $gateDecisionWork 'record.json') -Destination (Join-Path $GateSnapshotDirectory 'decision.json')
         Copy-Item -LiteralPath (Join-Path $gateWork 'record.json') -Destination (Join-Path $GateSnapshotDirectory 'rejected.json')

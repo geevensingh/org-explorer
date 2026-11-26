@@ -41,6 +41,24 @@ function Write-FixtureReport([string]$Suite, [string]$Outcome = 'success', [stri
     $report | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $directory "$runName\result.json")
 }
 function Verify { Assert-ReleaseVerification -PerformanceDirectory "$root\non-ui-performance" -UiScaleDirectory "$root\ui-scale" -Candidate $candidate -StartedAt $started -ExpectedPolicyVersion rich-scale-original-v1 }
+if ($TimingFixtureMetadata) {
+    $cleanupMetadata = Get-Content -LiteralPath $TimingFixtureMetadata -Raw | ConvertFrom-Json -AsHashtable -Depth 40
+    if ($cleanupMetadata.policyVersion -ceq 'ci-timing-v4') {
+        . "$PSScriptRoot\CleanupEvidenceFixture.ps1"
+        function gh {
+            if ($args[0] -cne 'api') { throw 'Unexpected fixture GitHub command.' }
+            $global:LASTEXITCODE = 0
+            Invoke-CleanupFixtureApi $args[1] $cleanupMetadata.sourceRemote $cleanupMetadata.cleanupContexts |
+                ConvertTo-Json -Depth 40
+        }
+        function Start-Process {
+            param([string]$FilePath, [object[]]$ArgumentList, [switch]$PassThru, [switch]$NoNewWindow,
+                [string]$RedirectStandardOutput, [string]$RedirectStandardError)
+            Start-CleanupFixtureProcess $FilePath $ArgumentList $cleanupMetadata.cleanupRoots -PassThru:$PassThru `
+                -NoNewWindow:$NoNewWindow -RedirectStandardOutput $RedirectStandardOutput -RedirectStandardError $RedirectStandardError
+        }
+    }
+}
 try {
     Rejects { Verify } 'missing current-run artifacts'
     Write-FixtureReport non-ui-performance

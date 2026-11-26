@@ -1,10 +1,54 @@
-# Timing policy: ci-timing-v3
+# Timing policy: ci-timing-v4
 
-**Status at final-verification preparation:** #131/#132's `ci-timing-v2` implementation is integrated.
-The narrowly approved `ci-timing-v3` amendment is implemented on the
-final-verification branch. Exact-candidate hosted results and the remaining
-integration/joint-delivery gates are recorded on #133, not by changing the
-tested source afterward.
+**Status:** v2/v3 remain integrated with their original verdicts.
+#164's source-bound v4 housekeeping policy is under public-contract verification.
+Independent integration and a new exact-candidate full cohort belong to #133.
+No earlier failed execution is reclassified and joint `main` delivery is pending.
+
+## Scoped disposable-worker housekeeping
+
+V4 changes **no timing value or evidence rule**. It permits a visible warning
+only for a real `UnauthorizedAccessException`/AccessDenied refusal deleting
+the run-owned x64 compiled `e_sqlite3.dll` in an expected project's isolated
+`build\bin\<project>\release\runtimes\win-x64\native` output, after complete
+required verification and within the original whole-execution budget.
+The actual cleanup outcome stays **failed**, with exact error, HRESULT, path,
+phase and remaining-build metadata. The holder is unknown; this is policy,
+not a causal repair or a claim that deletion succeeded.
+
+The existing runner produces a fresh nonce-bound raw proof and waits once for
+the standard `actions/attest@v4` signing handoff. A supervised process receipt
+preserves execution errors even if terminal result writing preceded a later
+exception. `gh attestation verify` checks the real signature and witnessed time;
+positive `signature.certificate.runnerEnvironment=github-hosted`, repository
+identifiers and authenticated run/attempt/workflow context are mandatory.
+Signer/controller source B and checked-out candidate A are verified separately,
+including immutable reusable-workflow digests and each source's effective
+policy. Predicate hosting claims, environment flags, copied IDs and artifact
+versions are not authority. No bearer/request token or private signing key is
+retained. Only measurement jobs and their necessary callers receive signing
+permissions; workers cannot write baseline history.
+
+Signing, waiting and verification count inside the unchanged budget. Missing,
+invalid, stale or mismatched proof, failed work, known running owned commands,
+unknown source/runtime scope, local/shared/self-hosted execution, unexpected
+targets/error types and budget exhaustion remain failures. Required raw
+21-sample percentiles, matrices, phases, TRX, actual native/runtime identities
+and logical handoffs are still validated normally. Compact history retains
+signed inputs and failed housekeeping independently of workload validation.
+
+Artifact upload and union copies exclude the allocated compiled build subtree,
+including its DLL and generated build metadata, while preserving raw metrics,
+TRX, phase logs, lifecycle/Join snapshots, PNGs and cleanup/provenance diagnostics.
+Only normal disposable-VM teardown is relied on: no deletion retry, accepting
+time extension, shared-server shutdown, AV change or holder-PID kill.
+Housekeeping warnings alone never request samples4/5 or a clean retry.
+Otherwise-qualified main cohorts retain ordinary approved eligibility rules;
+manual, diagnostic, pilot, fork and local observations remain ineligible.
+
+V1/v2/v3 sources, previews and stored verdicts retain their original semantics,
+including cohorts45775685351 and45787987253. #154 ended inconclusively; v4 does
+not identify their holder or turn those failures into successful verification.
 
 ## Native rich-profile amendment
 

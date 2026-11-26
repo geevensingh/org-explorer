@@ -149,7 +149,7 @@ foreach ($descriptor in $descriptors) {
     }
     if ($history) { Set-LaneHealthComparison $record $history }
     if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history $TimingPolicyVersion }
-    if (!$TimingPolicyPreview -and $effectivePolicy -cin @('ci-timing-v2', 'ci-timing-v3')) {
+    if (!$TimingPolicyPreview -and $effectivePolicy -cin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')) {
         Set-TimingPolicyEvaluation $record -PolicyVersion $effectivePolicy
         if ($descriptor.kind -ceq 'ui-scale' -and $record.validation -ceq 'success') {
             $scope = $record.lane.Substring(0, $record.lane.Length - 'ui-scale'.Length)

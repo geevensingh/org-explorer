@@ -6,6 +6,22 @@ $ErrorActionPreference = 'Stop'
 $candidate = 'a' * 40
 $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
 Assert-UiScaleUnion $fixture.prefix $fixture.tail $candidate '123' '2'
+$compiled = Join-Path $fixture.prefix "$($fixture.runName)\build\bin\fixture"
+New-Item -ItemType Directory -Path $compiled -Force | Out-Null
+[IO.File]::WriteAllBytes((Join-Path $compiled 'e_sqlite3.dll'), [byte[]]@(77, 90, 1, 2))
+'{"compiled":"not verification proof"}' | Set-Content (Join-Path $compiled 'compiled.json')
+'raw TRX proof' | Set-Content (Join-Path $fixture.prefix "$($fixture.runName)\proof.trx")
+$selected = Join-Path $ResultsDirectory 'selected-evidence'
+& "$PSScriptRoot\..\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $fixture.prefix -TailDirectory $fixture.tail `
+    -ExpectedRevision $candidate -RunId 123 -RunAttempt 2 -ExpectedPolicyVersion rich-scale-original-v1 -ResultsDirectory $selected
+$selectedReport = Get-Content (Join-Path $selected 'result.json') -Raw | ConvertFrom-Json
+$selectedPrefix = Join-Path $selected "$($selectedReport.runDirectory)\prefix\$($fixture.runName)"
+if (Test-Path -LiteralPath (Join-Path $selectedPrefix 'build')) {
+    throw 'The public union artifact selection copied leftover compiled build/native bytes.'
+}
+foreach ($file in @('result.json', 'scenarios.json', 'ui-scale.log', 'proof.trx', 'handoff\handoff.json')) {
+    if (!(Test-Path -LiteralPath (Join-Path $selectedPrefix $file))) { throw "Artifact selection omitted required raw evidence: $file" }
+}
 $checks = 0
 $native = New-UiScaleUnionFixture (Join-Path $ResultsDirectory 'native-profile-v3') $candidate -TimingPolicyVersion ci-timing-v3
 foreach ($phase in @(

@@ -33,6 +33,16 @@ $artifacts = @(@{
     digest = 'sha256:' + ('b' * 64); workflow_run = @{ id = 51; head_sha = $run.head_sha }
 })
 $global:LaneHealthFixture = @{ run = $run; jobs = $jobs; artifacts = $artifacts; evidence = $evidence }
+$cleanupMetadata = if ($TimingFixtureMetadata) { Get-Content $TimingFixtureMetadata -Raw | ConvertFrom-Json -AsHashtable -Depth 40 } else { $null }
+if ($cleanupMetadata -and $cleanupMetadata.policyVersion -ceq 'ci-timing-v4') {
+    . "$PSScriptRoot\CleanupEvidenceFixture.ps1"
+    function Start-Process {
+        param([string]$FilePath, [object[]]$ArgumentList, [switch]$PassThru, [switch]$NoNewWindow,
+            [string]$RedirectStandardOutput, [string]$RedirectStandardError)
+        Start-CleanupFixtureProcess $FilePath $ArgumentList $cleanupMetadata.cleanupRoots -PassThru:$PassThru `
+            -NoNewWindow:$NoNewWindow -RedirectStandardOutput $RedirectStandardOutput -RedirectStandardError $RedirectStandardError
+    }
+}
 function gh {
     $arguments = @($args)
     $global:LASTEXITCODE = 0
@@ -44,6 +54,25 @@ function gh {
         return
     }
     if ($arguments[0] -cne 'api') { throw 'Unexpected external operation.' }
+    if ($cleanupMetadata -and $cleanupMetadata.policyVersion -ceq 'ci-timing-v4') {
+        $endpoint = $arguments[1]
+        if ($endpoint -match '/git/(trees|blobs)/') {
+            Invoke-CleanupFixtureApi $endpoint $cleanupMetadata.sourceRemote $cleanupMetadata.cleanupContexts | ConvertTo-Json -Depth 40
+            return
+        }
+        if ($endpoint -match '/actions/runs/(?<run>[0-9]+)/attempts/(?<attempt>[0-9]+)$') {
+            $key = "$($Matches.run)-$($Matches.attempt)"
+            if ($cleanupMetadata.cleanupContexts.ContainsKey($key)) {
+                $context = $cleanupMetadata.cleanupContexts[$key]
+                if ($Matches.run -eq [string]$global:LaneHealthFixture.run.id) {
+                    $context = @{} + $global:LaneHealthFixture.run
+                    $context.referenced_workflows = $cleanupMetadata.cleanupContexts[$key].referenced_workflows
+                }
+                $context | ConvertTo-Json -Depth 40
+                return
+            }
+        }
+    }
     switch -Regex ($arguments[1]) {
         '/git/trees/[0-9a-f]{40}\?recursive=1$' {
             if ($global:LaneHealthFixture.ContainsKey('sourceUnavailable') -and $global:LaneHealthFixture.sourceUnavailable) {

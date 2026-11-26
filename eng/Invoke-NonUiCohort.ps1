@@ -15,7 +15,7 @@ param(
     [switch]$ReadHistory,
     [switch]$TimingPolicyPreview,
     [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2', 'ci-timing-preview-v3')][string]$TimingPolicyVersion = 'ci-timing-preview-v2',
-    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$ApprovedPolicyVersion,
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')][string]$ApprovedPolicyVersion,
     [ValidatePattern('^[0-9a-f]{40}$')][string]$BootstrapRevision,
     [switch]$InitializeBootstrap,
     [switch]$PublishPlan,
@@ -244,7 +244,7 @@ for ($number = 1; $number -le $ExpectedSamples; $number++) {
                 $sample.evidence.state = 'unavailable'; $sample.diagnostics += 'Artifact download failed.'
             } else {
                 $sample.evidence.state = 'available'
-                try { Read-NonUiCohortSample $sample $directory $Revision $cohortId ([string]$CohortRunId) ([string]$CohortRunAttempt) -RequirePairedReport:([bool]$ApprovedPolicyVersion) }
+                try { Read-NonUiCohortSample $sample $directory $Revision $cohortId ([string]$CohortRunId) ([string]$CohortRunAttempt) -RequirePairedReport:([bool]$ApprovedPolicyVersion) -ExpectedPolicyVersion $effectivePolicy }
                 catch {
                     $sample.evidence.state = 'rejected'
                     if ($sample.validation -ceq 'success') { $sample.validation = 'incomplete' }
@@ -349,7 +349,7 @@ if ($ApprovedPolicyVersion) {
 } elseif ($null -ne $history) { Set-NonUiCohortComparison $record $history }
 Assert-NonUiCohortRecord $record (Get-NonUiCohortPath $record)
 if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history $TimingPolicyVersion }
-elseif (!$ApprovedPolicyVersion -and $effectivePolicy -cin @('ci-timing-v2', 'ci-timing-v3')) {
+elseif (!$ApprovedPolicyVersion -and $effectivePolicy -cin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')) {
     Set-TimingPolicyEvaluation $record -PolicyVersion $effectivePolicy
 }
 $record | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'record.json')

@@ -14,6 +14,7 @@ function Assert-ReleaseVerification(
         $rootReport = Join-Path $directory 'result.json'
         $reportText = Get-Content -LiteralPath $rootReport -Raw
         $report = $reportText | ConvertFrom-Json
+        Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $directory
         if ($suite -eq 'ui-scale') {
             if ($report.suite -cne 'ui-scale' -or $report.outcome -cne 'success' -or
                 $report.verificationMode -cne 'isolated-workers' -or $report.revision -cne $Candidate -or
@@ -55,7 +56,7 @@ function Assert-ReleaseVerification(
             Assert-PerformanceResults $run
         }
     }
-    if ($ExpectedPolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3')) {
+    if ($ExpectedPolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')) {
         $evaluations = @()
         $union = Get-Content (Join-Path $UiScaleDirectory 'result.json') -Raw | ConvertFrom-Json
         $owned = Join-Path $UiScaleDirectory $union.runDirectory
@@ -70,7 +71,7 @@ function Assert-ReleaseVerification(
                         samples = $note.localDurability.samplesMs; budgetMs = 1500; goalMs = 1000 }
                 }
             }
-            if ($ExpectedPolicyVersion -ceq 'ci-timing-v3') {
+            if ($ExpectedPolicyVersion -cin @('ci-timing-v3', 'ci-timing-v4')) {
                 $phase = if ($worker -ceq 'prefix') { 'background-export' } else { 'normal-executable' }
                 $scenario = if ($worker -ceq 'prefix') { 'scale-mutation-save-prefix' } else { 'scale-mutation-delivery-tail' }
                 $profile = Get-Content (Join-Path $result.run "$scenario-ui-sqlite-rich-profile-latency-$phase.json") -Raw |

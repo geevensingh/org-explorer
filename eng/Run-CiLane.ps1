@@ -115,6 +115,7 @@ try {
             Invoke-CiCompanion 'DocumentationHandoff.Tests.ps1' { & "$root\tests\DocumentationHandoff.Tests.ps1" }
             Invoke-CiCompanion 'DraftDiscard.Tests.ps1' { & "$root\tests\DraftDiscard.Tests.ps1" -Assembly (Join-Path $artifactBuild 'bin\OrgExplorer.Core.Tests\release\OrgExplorer.Core.Tests.dll') }
             Invoke-CiCompanion 'Performance.Tests.ps1' { & "$root\tests\Performance.Tests.ps1" }
+            Invoke-CiCompanion 'HostedCleanup.Tests.ps1' { & "$root\tests\HostedCleanup.Tests.ps1" }
             Invoke-CiCompanion 'NonUiCohort.Tests.ps1' { & "$root\tests\NonUiCohort.Tests.ps1" }
             Invoke-CiCompanion 'DesktopResults.Tests.ps1' { & "$root\tests\DesktopResults.Tests.ps1" }
             Invoke-CiCompanion 'UiScale.Tests.ps1' { & "$root\tests\UiScale.Tests.ps1" }

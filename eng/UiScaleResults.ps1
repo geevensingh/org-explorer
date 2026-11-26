@@ -1,4 +1,5 @@
 . "$PSScriptRoot\TimingPolicy.ps1"
+. "$PSScriptRoot\ScaleCleanupPolicy.ps1"
 
 function Get-UiScalePlan {
     $directory = Join-Path $PSScriptRoot '..\tests'
@@ -56,6 +57,7 @@ function Assert-UiScaleWorkerReport($Report, [string] $Worker, [string] $Revisio
     $ceiling = if ($Worker -ceq 'prefix') { $policy.prefixSafetySeconds } else { $policy.tailSafetySeconds }
     $declaredPolicy = if ($Report.PSObject.Properties['policyVersion']) { $Report.policyVersion } else { 'rich-scale-original-v1' }
     if ($declaredPolicy -isnot [string] -or $declaredPolicy -cne $ExpectedPolicyVersion) { throw 'Rich runner policy differs from the trusted source policy.' }
+    Assert-ScaleCleanupDisposition $Report $ExpectedPolicyVersion
     if ($CohortId -and ($CohortId -cne "$Revision-$RunId-$RunAttempt" -or $Sample -notin @(1, 2, 3, 4, 5) -or
         $report.cohortId -cne $CohortId -or $report.sample -ne $Sample)) {
         throw 'Rich worker belongs to a different cohort/sample/attempt.'
@@ -103,6 +105,7 @@ function Get-UiScaleWorkerResult([string] $Directory, [string] $Worker, [string]
     }
     Assert-DesktopResults (Join-Path $run 'scenarios.json') @($plan.workers[$Worker])
     Assert-UiScalePhases (Join-Path $run 'ui-scale.log') @($plan.phases[$Worker])
+    Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $Directory
     return @{ report = $report; run = $run }
 }
 
@@ -195,7 +198,8 @@ function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory,
 }
 
 function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [string] $RunId, [string] $RunAttempt,
-    [string] $ExpectedPolicyVersion = 'rich-scale-original-v1') {
+    [string] $ExpectedPolicyVersion = 'rich-scale-original-v1',
+    [ValidateSet('complete', 'prefix', 'tail')][string]$Worker = 'complete') {
     $policy = Get-ApprovedTimingPolicy $ExpectedPolicyVersion
     function Read-Evidence([string] $Name) {
         $data = $Evidence[$Name]
@@ -209,7 +213,7 @@ function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [st
         }
         return @($Samples | Sort-Object)[[int][Math]::Ceiling($Count * .95) - 1]
     }
-    foreach ($phase in @('normal-executable', 'background-export')) {
+    foreach ($phase in $(if ($Worker -cne 'tail') { @('normal-executable', 'background-export') } else { @() })) {
         $note = Read-Evidence "note-$phase"
         $durability = $note.localDurability
         $declaredPolicy = if ($durability.PSObject.Properties['policyVersion']) { $durability.policyVersion } else { 'rich-scale-original-v1' }
@@ -238,7 +242,12 @@ function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [st
             throw 'Combined original normal/held-export 20/42/21 continuous-typing proof is incomplete or nonaccepting.'
         }
     }
-    foreach ($phase in @('background-export', 'normal-executable')) {
+    $profilePhases = switch ($Worker) {
+        'prefix' { @('background-export') }
+        'tail' { @('normal-executable') }
+        'complete' { @('background-export', 'normal-executable') }
+    }
+    foreach ($phase in $profilePhases) {
         $profile = Read-Evidence "profile-$phase"
         $profileP95 = Assert-Samples $profile.samplesMs 21
         $null = Assert-Samples @($profile.p95Ms) 1
@@ -246,7 +255,7 @@ function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [st
             ($profile.policyVersion -isnot [string] -or $profile.policyVersion -cne $ExpectedPolicyVersion)) {
             throw 'Raw rich-profile policy differs from the trusted source policy.'
         }
-        if ($ExpectedPolicyVersion -ceq 'ci-timing-v3') {
+        if ($ExpectedPolicyVersion -cin @('ci-timing-v3', 'ci-timing-v4')) {
             $null = Assert-Samples $profile.independentFullReopenVerificationMs 21
             if ($profile.policyVersion -cne $ExpectedPolicyVersion -or
                 $profile.goalMs -isnot [ValueType] -or $profile.goalMs -is [bool] -or $profile.goalMs -ne 1000 -or
@@ -262,6 +271,7 @@ function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [st
             throw 'Actual21 profile Save evidence is incomplete or nonaccepting.'
         }
     }
+    if ($Worker -ceq 'tail') { return }
     $lifecycle = Read-Evidence 'lifecycle'
     if ($lifecycle.outcome -cne 'Passed' -or $lifecycle.error -or !$lifecycle.profileAdmittedAt -or
         !$lifecycle.profileBrowsedAt -or !$lifecycle.admittedAt -or !$lifecycle.localWritingVerifiedAt -or

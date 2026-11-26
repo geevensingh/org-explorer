@@ -5,9 +5,10 @@ and agents ([approved spec #21](https://github.com/geevensingh/org-explorer/issu
 Choose the lowest-cost agreed surface that can prove the behavior, not a project
 name. A desktop click alone does not establish a successful navigation or save.
 
-The original CI reliability implementation is integrated under source-bound
-`ci-timing-v2`; the approved `ci-timing-v3` native-profile amendment is implemented
-on the final-verification branch. Exact-candidate hosted results and remaining
+The v2/v3 CI reliability implementation is integrated, retaining its failed
+full-cohort results. #164's approved source-bound `ci-timing-v4` cleanup policy
+is under public-contract verification; it changes no numerical threshold.
+Exact-candidate hosted results and remaining
 integration/joint `main` delivery gates are recorded on #133, without editing
 the tested source afterward. The [approved policy](ci-timing-policy-proposal.md) distinguishes
 current 900s/30m rich-prefix and 1000ms/1500ms rich-note rules from original
@@ -96,6 +97,35 @@ checks. Release succeeds before/while collection is incomplete, uses an already
 available reference, and rejects only established complete five-run serious
 evidence after collection; the earlier saved result is unchanged. These are
 non-UI contract fixtures, not actual hosted measurements or production history.
+
+V4 adds scoped failed build-housekeeping warnings, separate from verification
+and timing health. `HostedCleanup.Tests.ps1` holds a real x64 native image in a
+controlled external process after completed work and drives the public result
+flow. Controlled certificate/TSA and GitHub/process inputs replace only external
+hosting effects; the actual CLI signature verifier and result validators run.
+No desktop opens. Source A/controller B, complete raw counts, failed work,
+scope/host/proof forgery, original budgets and legacy refusal remain covered.
+The supervisor retains actual script exit failure separately from saved results.
+
+The focused signed-history/release/lane flow uses new isolated publisher output:
+
+```powershell
+.\tests\HostedCleanup.Tests.ps1
+.\tests\AutomaticBaselines.Tests.ps1 -GatePolicyVersion ci-timing-v4 -GateSnapshotDirectory .ci-results\cleanup-gates
+.\tests\Release.Gates.Tests.ps1 -TimingFixtureMetadata .ci-results\cleanup-gates\metadata.json
+.\tests\LaneHealth.Tests.ps1 -TimingFixtureMetadata .ci-results\cleanup-gates\metadata.json
+```
+
+These fixtures preserve failed housekeeping in immutable records and exercise
+qualified-main eligibility without making cleanup warnings a reason for more
+samples. They do not establish a real hosted cohort. `actions/attest@v4` signs
+only a fresh post-verification proof; the existing runner waits once, counting
+signing/verification in its original budget. Positive verified certificate
+hosting, authenticated run/workflow source and intact raw hashes are required;
+environment or artifact fields alone cannot authorize acceptance. Upload and
+union selection exclude only the allocated compiled build subtree while keeping
+raw metrics/TRX/phases, snapshots, PNGs and cleanup/provenance diagnostics.
+Normal disposable-VM teardown remains the only deferred cleanup.
 
 | Category | Observes | Examples and limits |
 |---|---|---|

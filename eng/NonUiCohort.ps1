@@ -8,8 +8,37 @@ $NonUiCohortPhases = @('fixture', 'fixture-export', 'load', 'navigation-100', 'p
     'reopen', 'reopened-projections', 'latest-replay', 'initial-replay-preview', 'initial-replay-apply',
     'unchanged-refresh', 'validated-delivery', 'reopen-after-delivery', 'resume-unpublished')
 
+function Read-NonUiCohortMeasurementLog([string[]]$Lines) {
+    $measurements = @{ phasesMs = @{}; profile = $null }
+    foreach ($line in $Lines) {
+        if ($line -cmatch '^SCALE END (?<name>[^;]+); outcome=(?<outcome>Passed|Failed); ms=(?<ms>[0-9]+(?:\.[0-9]+)?);') {
+            $name = $Matches.name
+            if ($name -cin $NonUiCohortPhases) {
+                if ($measurements.phasesMs.ContainsKey($name)) { throw 'Duplicate measured non-UI phase.' }
+                $measurements.phasesMs[$name] = @{
+                    value = [double]::Parse($Matches.ms, [Globalization.CultureInfo]::InvariantCulture)
+                    outcome = $Matches.outcome
+                }
+            }
+        } elseif ($line.StartsWith('SCALE ORDINARY-PROFILE ', [StringComparison]::Ordinal)) {
+            if ($null -ne $measurements.profile) { throw 'Duplicate ordinary-profile measurement.' }
+            $profile = $line.Substring('SCALE ORDINARY-PROFILE '.Length) | ConvertFrom-Json -AsHashtable -Depth 10
+            if (@($profile.samplesMs).Count -ne 21 -or $profile.budgetMs -ne 1000 -or
+                $profile.percentile -cne 'Nearest rank: sorted sample at ceil(0.95 * count), one based.') {
+                throw 'Original profile samples, percentile or hard limit changed.'
+            }
+            foreach ($value in $profile.samplesMs) { Assert-HealthNumber $value 'profile sample' }
+            Assert-HealthNumber $profile.p95Ms 'profile p95'
+            if ($profile.p95Ms -ne @($profile.samplesMs | Sort-Object)[19]) { throw 'Profile p95 disagrees with all 21 raw samples.' }
+            $measurements.profile = $profile
+        }
+    }
+    return $measurements
+}
+
 function Read-NonUiCohortSample($Sample, [string]$Directory, [string]$Revision, [string]$CohortId,
-    [string]$RunId, [string]$RunAttempt, [switch]$RequirePairedReport) {
+    [string]$RunId, [string]$RunAttempt, [switch]$RequirePairedReport,
+    [string]$ExpectedPolicyVersion = 'rich-scale-original-v1') {
     $report = Get-Content -LiteralPath (Join-Path $Directory 'result.json') -Raw |
         ConvertFrom-Json -AsHashtable -DateKind String -Depth 20
     foreach ($field in @('schemaVersion', 'sample', 'ceilingSeconds', 'observationSeconds')) {
@@ -42,6 +71,10 @@ function Read-NonUiCohortSample($Sample, [string]$Directory, [string]$Revision, 
     $Sample.runnerOutcome = $report.outcome
     $Sample.runnerFailure = if ($report.ContainsKey('failure')) { $report.failure } else { $null }
     $Sample.configuration = $report.configuration
+    if ($report.ContainsKey('cleanup')) {
+        $Sample.runnerReport = $report
+        Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $Directory
+    }
     $Sample.measurements = [ordered]@{ executionSeconds = $report.executionSeconds; phasesMs = @{}; profile = $null
         steps = $report.steps; headroomSeconds = 660 - $report.executionSeconds
         startedAt = $report.startedAt; completedAt = $report.completedAt }
@@ -67,29 +100,9 @@ function Read-NonUiCohortSample($Sample, [string]$Directory, [string]$Revision, 
     } catch { $testsError = $_; $Sample.diagnostics += "Required TRX rejected: $($_.Exception.Message)" }
     $timingFile = Join-Path $runDirectory 'scale-measurements.log'
     if (Test-Path -LiteralPath $timingFile -PathType Leaf) {
-        foreach ($line in Get-Content -LiteralPath $timingFile) {
-            if ($line -cmatch '^SCALE END (?<name>[^;]+); outcome=(?<outcome>Passed|Failed); ms=(?<ms>[0-9]+(?:\.[0-9]+)?);') {
-                $name = $Matches.name
-                if ($name -cin $NonUiCohortPhases) {
-                    if ($Sample.measurements.phasesMs.ContainsKey($name)) { throw 'Duplicate measured non-UI phase.' }
-                    $Sample.measurements.phasesMs[$name] = @{
-                        value = [double]::Parse($Matches.ms, [Globalization.CultureInfo]::InvariantCulture)
-                        outcome = $Matches.outcome
-                    }
-                }
-            } elseif ($line.StartsWith('SCALE ORDINARY-PROFILE ', [StringComparison]::Ordinal)) {
-                if ($null -ne $Sample.measurements.profile) { throw 'Duplicate ordinary-profile measurement.' }
-                $profile = $line.Substring('SCALE ORDINARY-PROFILE '.Length) | ConvertFrom-Json -AsHashtable -Depth 10
-                if (@($profile.samplesMs).Count -ne 21 -or $profile.budgetMs -ne 1000 -or
-                    $profile.percentile -cne 'Nearest rank: sorted sample at ceil(0.95 * count), one based.') {
-                    throw 'Original profile samples, percentile or hard limit changed.'
-                }
-                foreach ($value in $profile.samplesMs) { Assert-HealthNumber $value 'profile sample' }
-                Assert-HealthNumber $profile.p95Ms 'profile p95'
-                if ($profile.p95Ms -ne @($profile.samplesMs | Sort-Object)[19]) { throw 'Profile p95 disagrees with all 21 raw samples.' }
-                $Sample.measurements.profile = $profile
-            }
-        }
+        $parsed = Read-NonUiCohortMeasurementLog @(Get-Content -LiteralPath $timingFile)
+        $Sample.measurements.phasesMs = $parsed.phasesMs
+        $Sample.measurements.profile = $parsed.profile
     }
     $complete = $report.phase -ceq 'finished' -and $null -ne $report.completedAt -and
         $report.outcome -ceq 'success' -and $report.observedOutcome -ceq 'success' -and
@@ -201,10 +214,10 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
         $Path -cne (Get-NonUiCohortPath $Record) -or
         $Record.mode -cnotin @('observation', 'automatic-baseline') -or
         (!$automatic -and $Record.promotion -cne 'disabled') -or
-        ($automatic -and (!$rich -or $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3') -or
+        ($automatic -and (!$rich -or $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4') -or
             $Record.promotion -cnotin @('eligible-after-comparison', 'retained') -or
             $Record.bootstrapRevision -cnotmatch '^[0-9a-f]{40}$' -or $Record.mainRevision -cnotmatch '^[0-9a-f]{40}$' -or
-            $Record.sourcePolicyVersion -cnotin @('rich-scale-original-v1', 'ci-timing-v2', 'ci-timing-v3'))) -or
+            $Record.sourcePolicyVersion -cnotin @('rich-scale-original-v1', 'ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4'))) -or
         $Record.validation -cnotin @('success', 'rejected') -or
         $Record.timingHealth -cnotin @('observation', 'unbaselined', 'inconclusive', 'green', 'yellow', 'red') -or
         (!$automatic -and $Record.timingHealth -cin @('green', 'yellow', 'red')) -or
@@ -212,7 +225,7 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
         (!$rich -and ($Record.richScaleAcceptance -cne 'not-executed' -or
             $Record.policyVersion -cnotin @('non-ui-cohort-observation-v1', 'TEST-non-ui-range-v1'))) -or
         ($rich -and ($Record.richScaleAcceptance -cnotin @('complete', 'rejected') -or
-            $Record.policyVersion -cnotin @('rich-cohort-observation-v2', 'TEST-rich-range-v2', 'ci-timing-v2', 'ci-timing-v3') -or
+            $Record.policyVersion -cnotin @('rich-cohort-observation-v2', 'TEST-rich-range-v2', 'ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4') -or
             ($Record.validation -ceq 'success') -ne ($Record.richScaleAcceptance -ceq 'complete'))) -or
         $Record.authority -cnotin @('trusted-main-push', 'pilot-observation')) { throw 'Invalid non-UI cohort schema/provenance.' }
     if ($Record.authority -ceq 'trusted-main-push' -and $Record.ciRevision -cne $Record.revision) {
@@ -244,6 +257,29 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
             } elseif ($sample.validation -ceq 'success') { throw "Complete execution lacks independent $field." }
         }
         if ($rich) { Assert-RichCohortSample $sample $Record $seen $effectivePolicy }
+        if ($sample.Contains('runnerReport')) {
+            if ($sample.runnerReport.revision -cne $Record.revision -or
+                $sample.runnerReport.runId -cne $Record.cohortRunId -or
+                $sample.runnerReport.runAttempt -cne $Record.cohortRunAttempt -or
+                $sample.runnerReport.invocationId -cne $sample.invocationId -or
+                $sample.runnerReport.outcome -cne $sample.runnerOutcome) { throw 'Retained original runner/cleanup identity differs.' }
+            if ($sample.validation -ceq 'success') { Assert-ScaleCleanupDisposition $sample.runnerReport $effectivePolicy }
+            if ($sample.validation -ceq 'success' -and $sample.runnerReport.cleanup.warning) {
+                $proof = $sample.runnerReport.cleanup.proof | ConvertFrom-Json -AsHashtable -DateKind String -Depth 40
+                foreach ($field in @('phasesMs', 'profile')) {
+                    if ((ConvertTo-HealthCanonicalValue $sample.measurements[$field] | ConvertTo-Json -Depth 30 -Compress) -cne
+                        (ConvertTo-HealthCanonicalValue $proof.measurements[$field] | ConvertTo-Json -Depth 30 -Compress)) {
+                        throw 'Historical metrics differ from the original signed cleanup evidence.'
+                    }
+                }
+                if ($sample.measurements.executionSeconds -ne $sample.runnerReport.executionSeconds) { throw 'Historical runner time differs.' }
+                foreach ($field in @('total', 'executed', 'passed', 'failed', 'notExecuted', 'requiredNames')) {
+                    if (($sample.tests[$field] | ConvertTo-Json -Compress) -cne ($proof.tests[$field] | ConvertTo-Json -Compress)) {
+                        throw 'Historical required TRX differs from signed verification.'
+                    }
+                }
+            }
+        }
         if ($null -ne $sample.measurements) {
             Assert-HealthNumber $sample.measurements.executionSeconds 'executionSeconds'
             Assert-HealthDate $sample.measurements.startedAt 'execution startedAt'
@@ -323,7 +359,7 @@ function Get-NonUiCohortRecordTypes {
             Validate = {
                 param($record, $path)
                 $automatic = $record.mode -ceq 'automatic-baseline'
-                if ($record.policyVersion -cnotin @('non-ui-cohort-observation-v1', 'rich-cohort-observation-v2', 'ci-timing-v2', 'ci-timing-v3') -or $record.authority -cne 'trusted-main-push' -or
+                if ($record.policyVersion -cnotin @('non-ui-cohort-observation-v1', 'rich-cohort-observation-v2', 'ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4') -or $record.authority -cne 'trusted-main-push' -or
                     (!$automatic -and $record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconclusive')) -or
                     (!$automatic -and @($record.samples).Count -ne 3 -and
                         !(@($record.samples).Count -eq 5 -and $record.unexpectedExecutions -and $record.validation -ceq 'rejected'))) {
@@ -372,8 +408,8 @@ function Set-NonUiCohortComparison($Record, $History) {
 function Format-NonUiCohort($Record, [string]$Publication) {
     $rich = $Record.schemaVersion -eq 2
     $automatic = $Record.mode -ceq 'automatic-baseline'
-    $active = ($Record.Contains('effectivePolicyVersion') -and $Record.effectivePolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3')) -or
-        ($automatic -and $Record.sourcePolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3'))
+    $active = ($Record.Contains('effectivePolicyVersion') -and $Record.effectivePolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')) -or
+        ($automatic -and $Record.sourcePolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4'))
     $lines = @(
         if ($rich) { '### Complete performance/scale cohort' } else { '### Independent non-UI performance cohort' }
         ''
@@ -391,8 +427,8 @@ function Format-NonUiCohort($Record, [string]$Publication) {
             else { 'Original per-worker 660-second setup/workload/cleanup budgets and 1,000-ms profile p95 hard limit remain enforced.' }
         }
         if ($rich) {
-            if (($Record.Contains('effectivePolicyVersion') -and $Record.effectivePolicyVersion -ceq 'ci-timing-v3') -or
-                ($automatic -and $Record.sourcePolicyVersion -ceq 'ci-timing-v3')) {
+            if (($Record.Contains('effectivePolicyVersion') -and $Record.effectivePolicyVersion -cin @('ci-timing-v3', 'ci-timing-v4')) -or
+                ($automatic -and $Record.sourcePolicyVersion -cin @('ci-timing-v3', 'ci-timing-v4'))) {
                 'Native rich-profile Save in both phases retains all21 raw samples, a1,000ms goal and inclusive1,500ms ceiling. Ordinary and non-UI profile/note limits remain1,000ms.'
             } else { 'Native rich-profile Save p95 retains its original1,000ms hard limit.' }
             'Each sample owns non-UI, prefix, actual-snapshot Join/tail and strict union. The executionSeconds metric is NON-UI only; prefix/tail are separate. Their sum is consumed worker time, never one 660-second execution.'
@@ -422,6 +458,19 @@ function Format-NonUiCohort($Record, [string]$Publication) {
         }
         ''
         foreach ($sample in $Record.samples) {
+            $reports = @()
+            if ($sample.Contains('runnerReport')) { $reports += $sample.runnerReport }
+            if ($rich) {
+                foreach ($worker in @('prefix', 'tail')) {
+                    if ($sample.rich[$worker].report) { $reports += $sample.rich[$worker].report }
+                }
+            }
+            foreach ($report in $reports) {
+                if ($report.Contains('cleanup') -and $report.cleanup.outcome -ceq 'failure') {
+                    $workerLabel = if ($report.Contains('worker')) { $report.worker } else { 'non-ui' }
+                    "Sample $($sample.number) $($report.suite)/$workerLabel build housekeeping **FAILED**; reported warning **$($report.cleanup.warning)**; verified sample **$($sample.validation)**; phase ``$($report.cleanup.phase)``; path ``$([Net.WebUtility]::HtmlEncode($report.cleanup.path))``; ``$($report.cleanup.errorType)`` / ``$($report.cleanup.hresult)``: $([Net.WebUtility]::HtmlEncode($report.cleanup.error)). Holder unknown; deletion did not succeed. This warning alone never requests additional samples."
+                }
+            }
             foreach ($detail in $sample.diagnostics) { "Sample $($sample.number): $([Net.WebUtility]::HtmlEncode($detail))" }
             if ($null -ne $sample.runnerFailure) { "Sample $($sample.number) original runner failure: $([Net.WebUtility]::HtmlEncode($sample.runnerFailure))" }
         }

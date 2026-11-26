@@ -186,7 +186,7 @@ function Assert-LaneHealthRecord($Record, [string]$Path) {
                 $Record.measurements.ceilingSeconds - $Record.measurements.executionSeconds) { throw 'Lane headroom disagrees.' }
             $ceiling = if ($Record.lane -ceq 'core') { 300 }
                 elseif ($Record.lane -cmatch '^(desktop-|high-resolution-)') { 900 }
-                elseif ((Get-TimingLane $Record.lane) -ceq 'ui-scale-prefix' -and $Record.originalPolicy -cin @('ci-timing-v2', 'ci-timing-v3')) { 900 } else { 660 }
+                elseif ((Get-TimingLane $Record.lane) -ceq 'ui-scale-prefix' -and $Record.originalPolicy -cin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')) { 900 } else { 660 }
             if ($Record.measurements.ceilingSeconds -ne $ceiling) { throw 'Lane measurement changed an original budget.' }
         }
         foreach ($step in @($Record.measurements.steps)) {
@@ -515,11 +515,15 @@ function Get-ScaleHealthMeasurement($Descriptor, $Evidence, $Run, [string]$Expec
     }
     $owned = Join-Path $directory $report.runDirectory
     if ((Get-Content (Join-Path $owned 'result.json') -Raw) -cne $reportText) { throw 'Scale root/owned report disagreement.' }
+    Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $directory
     $steps = @()
     $metrics = @()
     $diagnostics = @()
     if ($report.ContainsKey('configurationErrors')) { $diagnostics += @($report.configurationErrors) }
     if ($report.ContainsKey('failure') -and $report.failure) { $diagnostics += "Original runner failure: $($report.failure)" }
+    if ($report.ContainsKey('cleanup') -and $report.cleanup.outcome -ceq 'failure') {
+        $diagnostics += "Build housekeeping FAILED; warning=$($report.cleanup.warning); phase=$($report.cleanup.phase); path=$($report.cleanup.path); $($report.cleanup.errorType): $($report.cleanup.error). Holder unknown; deletion did not succeed."
+    }
     $validation = 'incomplete'
     $configuration = if ($report.ContainsKey('configuration')) { $report.configuration } else { $null }
     $tests = $null
@@ -619,11 +623,13 @@ function Get-ScaleHealthMeasurement($Descriptor, $Evidence, $Run, [string]$Expec
             $diagnostics += 'Worker scenario/phase proof is not accepting union proof. Full raw product/native/logical continuity is established only by the exact accepting union.'
         }
     }
-    return @{ validation = $validation; tests = $tests; diagnostics = $diagnostics; revision = $candidate
+    $measurement = @{ validation = $validation; tests = $tests; diagnostics = $diagnostics; revision = $candidate
         configuration = $configuration; measuredAt = $finished; originalPolicy = $policy; selector = $selector
         measurements = @{ executionSeconds = $seconds; ceilingSeconds = $ceiling
             headroomSeconds = if ($null -ne $ceiling) { $ceiling - $seconds } else { $null }
             steps = $steps; metrics = $metrics } }
+    if ($report.ContainsKey('cleanup')) { $measurement.measurements.cleanup = $report.cleanup }
+    return $measurement
 }
 
 function Get-LaneHealthSeriesKey($Measurement) {

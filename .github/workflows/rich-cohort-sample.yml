@@ -16,6 +16,11 @@ permissions:
 jobs:
   non-ui:
     name: Non-UI cohort sample (${{ inputs.sample }})
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     runs-on: windows-latest
     timeout-minutes: 13
     steps:
@@ -31,10 +36,31 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Run this sample's complete named non-UI execution
+        id: runner
         env:
+          GH_TOKEN: ${{ github.token }}
           REVISION: ${{ inputs.revision }}
           SAMPLE: ${{ inputs.sample }}
-        run: .\eng\Run-Performance.ps1 -ExpectedRevision $env:REVISION -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Start -Worker non-ui-performance -ExpectedRevision $env:REVISION -ResultsDirectory .ci-results\performance -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+          } else {
+            .\eng\Run-Performance.ps1 -ExpectedRevision $env:REVISION -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+          }
+      - uses: actions/attest@v4
+        id: cleanup-attestation
+        if: ${{ steps.runner.outputs.needs_cleanup_signature == 'true' }}
+        with:
+          subject-path: ${{ steps.runner.outputs.cleanup_proof }}
+      - name: Observe the original worker's final signed disposition
+        if: ${{ steps.runner.outcome == 'success' }}
+        env:
+          REVISION: ${{ inputs.revision }}
+          ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Complete -Worker non-ui-performance -ExpectedRevision $env:REVISION -ResultsDirectory .ci-results\performance -AttestationBundle $env:ATTESTATION_BUNDLE
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -45,9 +71,15 @@ jobs:
             .ci-results/performance/**/*.json
             .ci-results/performance/**/*.log
             .ci-results/performance/**/*.trx
+            !.ci-results/performance/**/build/**
 
   prefix:
     name: Rich cohort prefix (${{ inputs.sample }})
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -63,10 +95,31 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Run original rich prefix and capture its actual logical snapshot
+        id: runner
         env:
+          GH_TOKEN: ${{ github.token }}
           REVISION: ${{ inputs.revision }}
           SAMPLE: ${{ inputs.sample }}
-        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:REVISION -Worker prefix -ResultsDirectory .ci-results\prefix -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Start -Worker prefix -ExpectedRevision $env:REVISION -ResultsDirectory .ci-results\prefix -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+          } else {
+            .\eng\Run-UiScale.ps1 -ExpectedRevision $env:REVISION -Worker prefix -ResultsDirectory .ci-results\prefix -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+          }
+      - uses: actions/attest@v4
+        id: cleanup-attestation
+        if: ${{ steps.runner.outputs.needs_cleanup_signature == 'true' }}
+        with:
+          subject-path: ${{ steps.runner.outputs.cleanup_proof }}
+      - name: Observe the original prefix's final signed disposition
+        if: ${{ steps.runner.outcome == 'success' }}
+        env:
+          REVISION: ${{ inputs.revision }}
+          ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Complete -Worker prefix -ExpectedRevision $env:REVISION -ResultsDirectory .ci-results\prefix -AttestationBundle $env:ATTESTATION_BUNDLE
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -78,9 +131,15 @@ jobs:
             .ci-results/prefix/**/*.log
             .ci-results/prefix/**/*.oesnapshot
             .ci-results/prefix/**/*.png
+            !.ci-results/prefix/**/build/**
 
   tail:
     name: Rich cohort tail (${{ inputs.sample }})
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     needs: prefix
     runs-on: windows-latest
     timeout-minutes: 13
@@ -101,10 +160,31 @@ jobs:
           name: rich-cohort-${{ inputs.revision }}-${{ github.run_id }}-${{ github.run_attempt }}-sample-${{ inputs.sample }}-prefix
           path: .ci-results/prefix
       - name: Public Join and original tail using only this sample's actual prefix
+        id: runner
         env:
+          GH_TOKEN: ${{ github.token }}
           REVISION: ${{ inputs.revision }}
           SAMPLE: ${{ inputs.sample }}
-        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:REVISION -Worker tail -PrefixResultsDirectory .ci-results\prefix -ResultsDirectory .ci-results\tail -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Start -Worker tail -ExpectedRevision $env:REVISION -PrefixResultsDirectory .ci-results\prefix -ResultsDirectory .ci-results\tail -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+          } else {
+            .\eng\Run-UiScale.ps1 -ExpectedRevision $env:REVISION -Worker tail -PrefixResultsDirectory .ci-results\prefix -ResultsDirectory .ci-results\tail -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+          }
+      - uses: actions/attest@v4
+        id: cleanup-attestation
+        if: ${{ steps.runner.outputs.needs_cleanup_signature == 'true' }}
+        with:
+          subject-path: ${{ steps.runner.outputs.cleanup_proof }}
+      - name: Observe the original tail's final signed disposition
+        if: ${{ steps.runner.outcome == 'success' }}
+        env:
+          REVISION: ${{ inputs.revision }}
+          ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Complete -Worker tail -ExpectedRevision $env:REVISION -ResultsDirectory .ci-results\tail -AttestationBundle $env:ATTESTATION_BUNDLE
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -115,6 +195,7 @@ jobs:
             .ci-results/tail/**/*.json
             .ci-results/tail/**/*.log
             .ci-results/tail/**/*.png
+            !.ci-results/tail/**/build/**
 
   union:
     name: Rich cohort union (${{ inputs.sample }})
@@ -122,6 +203,9 @@ jobs:
     if: ${{ always() }}
     runs-on: windows-latest
     timeout-minutes: 13
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -143,6 +227,7 @@ jobs:
           NON_UI_OUTCOME: ${{ needs.non-ui.result }}
           PREFIX_OUTCOME: ${{ needs.prefix.result }}
           TAIL_OUTCOME: ${{ needs.tail.result }}
+          GH_TOKEN: ${{ github.token }}
         run: .\eng\Assert-UiScaleUnion.ps1 -PrefixDirectory .ci-results\prefix -TailDirectory .ci-results\tail -ExpectedRevision $env:REVISION -RunId $env:GITHUB_RUN_ID -RunAttempt $env:GITHUB_RUN_ATTEMPT -RequiredJobOutcomes @($env:NON_UI_OUTCOME, $env:PREFIX_OUTCOME, $env:TAIL_OUTCOME) -ResultsDirectory .ci-results\union -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}

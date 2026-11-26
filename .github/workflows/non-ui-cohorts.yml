@@ -38,7 +38,7 @@ jobs:
           CI_RUN_ID: ${{ github.event.workflow_run.id }}
           CI_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
-          .\eng\Invoke-NonUiCohort.ps1 -Stage Plan -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-plan -RichScale -ApprovedPolicyVersion ci-timing-v3 -PublishPlan -InitializeBootstrap
+          .\eng\Invoke-NonUiCohort.ps1 -Stage Plan -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-plan -RichScale -ApprovedPolicyVersion ci-timing-v4 -PublishPlan -InitializeBootstrap
           $plan = Get-Content .ci-results\cohort-plan\plan.json -Raw | ConvertFrom-Json
           "collect=$($plan.collect.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
@@ -52,6 +52,11 @@ jobs:
   rich-sample-1:
     needs: plan
     if: ${{ needs.plan.outputs.collect == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/rich-cohort-sample.yml
     with:
       revision: ${{ github.event.workflow_run.head_sha }}
@@ -60,6 +65,11 @@ jobs:
   rich-sample-2:
     needs: [plan, rich-sample-1]
     if: ${{ always() && needs.plan.outputs.collect == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/rich-cohort-sample.yml
     with:
       revision: ${{ github.event.workflow_run.head_sha }}
@@ -68,6 +78,11 @@ jobs:
   rich-sample-3:
     needs: [plan, rich-sample-2]
     if: ${{ always() && needs.plan.outputs.collect == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/rich-cohort-sample.yml
     with:
       revision: ${{ github.event.workflow_run.head_sha }}
@@ -96,7 +111,7 @@ jobs:
           CI_RUN_ID: ${{ github.event.workflow_run.id }}
           CI_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
-          .\eng\Invoke-NonUiCohort.ps1 -Stage Summarize -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-decision -RichScale -ApprovedPolicyVersion ci-timing-v3 -PublishDecision
+          .\eng\Invoke-NonUiCohort.ps1 -Stage Summarize -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-decision -RichScale -ApprovedPolicyVersion ci-timing-v4 -PublishDecision
           $decision = Get-Content .ci-results\cohort-decision\record.json -Raw | ConvertFrom-Json
           "extend=$((($decision.extraSamples -join ',') -ceq '4,5').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
@@ -112,6 +127,11 @@ jobs:
   rich-sample-4:
     needs: [plan, decision]
     if: ${{ always() && needs.plan.outputs.collect == 'true' && needs.decision.outputs.extend == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/rich-cohort-sample.yml
     with:
       revision: ${{ github.event.workflow_run.head_sha }}
@@ -120,6 +140,11 @@ jobs:
   rich-sample-5:
     needs: [plan, decision, rich-sample-4]
     if: ${{ always() && needs.plan.outputs.collect == 'true' && needs.decision.outputs.extend == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/rich-cohort-sample.yml
     with:
       revision: ${{ github.event.workflow_run.head_sha }}

@@ -59,6 +59,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/non-ui-cohort-execution.yml
     with:
       revision: ${{ github.sha }}
@@ -72,6 +74,11 @@ jobs:
     name: Thorough non-UI performance
     runs-on: windows-latest
     timeout-minutes: 13
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     env:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
     steps:
@@ -93,7 +100,28 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Run fresh complete non-UI performance verification
-        run: .\eng\Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION
+        id: runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Start -Worker non-ui-performance -ExpectedRevision $env:TESTED_REVISION -ResultsDirectory .ci-results\performance
+          } else {
+            .\eng\Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION
+          }
+      - uses: actions/attest@v4
+        id: cleanup-attestation
+        if: ${{ steps.runner.outputs.needs_cleanup_signature == 'true' }}
+        with:
+          subject-path: ${{ steps.runner.outputs.cleanup_proof }}
+      - name: Observe original non-UI completion
+        if: ${{ steps.runner.outcome == 'success' }}
+        env:
+          ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Complete -Worker non-ui-performance -ExpectedRevision $env:TESTED_REVISION -ResultsDirectory .ci-results\performance -AttestationBundle $env:ATTESTATION_BUNDLE
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -104,12 +132,18 @@ jobs:
             .ci-results/performance/**/*.json
             .ci-results/performance/**/*.log
             .ci-results/performance/**/*.trx
+            !.ci-results/performance/**/build/**
 
   ui-scale-prefix:
     if: ${{ inputs.prefix_only_diagnostic || (!inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot) }}
     name: Rich combined normal and held-export saves
     runs-on: windows-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     env:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
       EXTENDED_OBSERVATION: ${{ inputs.prefix_only_diagnostic || inputs.extended_observation || false }}
@@ -136,7 +170,28 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Run combined rich save proof and capture actual published logical handoff
-        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker prefix -ResultsDirectory .ci-results\ui-scale-prefix -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+        id: runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Start -Worker prefix -ExpectedRevision $env:TESTED_REVISION -ResultsDirectory .ci-results\ui-scale-prefix -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+          } else {
+            .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker prefix -ResultsDirectory .ci-results\ui-scale-prefix -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+          }
+      - uses: actions/attest@v4
+        id: cleanup-attestation
+        if: ${{ steps.runner.outputs.needs_cleanup_signature == 'true' }}
+        with:
+          subject-path: ${{ steps.runner.outputs.cleanup_proof }}
+      - name: Observe original prefix completion
+        if: ${{ steps.runner.outcome == 'success' }}
+        env:
+          ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Complete -Worker prefix -ExpectedRevision $env:TESTED_REVISION -ResultsDirectory .ci-results\ui-scale-prefix -AttestationBundle $env:ATTESTATION_BUNDLE
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -147,6 +202,8 @@ jobs:
             .ci-results/ui-scale-prefix/**/*.json
             .ci-results/ui-scale-prefix/**/*.log
             .ci-results/ui-scale-prefix/**/*.oesnapshot
+            .ci-results/ui-scale-prefix/**/*.png
+            !.ci-results/ui-scale-prefix/**/build/**
 
   ui-scale-tail:
     if: ${{ !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
@@ -154,6 +211,11 @@ jobs:
     needs: ui-scale-prefix
     runs-on: windows-latest
     timeout-minutes: 13
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     env:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
       EXTENDED_OBSERVATION: ${{ inputs.extended_observation || false }}
@@ -180,7 +242,28 @@ jobs:
           name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-prefix-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: .ci-results/ui-scale-prefix
       - name: Resume actual validated logical snapshot in a fresh physical store
-        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker tail -PrefixResultsDirectory .ci-results\ui-scale-prefix -ResultsDirectory .ci-results\ui-scale-tail -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+        id: runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Start -Worker tail -ExpectedRevision $env:TESTED_REVISION -PrefixResultsDirectory .ci-results\ui-scale-prefix -ResultsDirectory .ci-results\ui-scale-tail -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+          } else {
+            .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker tail -PrefixResultsDirectory .ci-results\ui-scale-prefix -ResultsDirectory .ci-results\ui-scale-tail -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+          }
+      - uses: actions/attest@v4
+        id: cleanup-attestation
+        if: ${{ steps.runner.outputs.needs_cleanup_signature == 'true' }}
+        with:
+          subject-path: ${{ steps.runner.outputs.cleanup_proof }}
+      - name: Observe original tail completion
+        if: ${{ steps.runner.outcome == 'success' }}
+        env:
+          ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Complete -Worker tail -ExpectedRevision $env:TESTED_REVISION -ResultsDirectory .ci-results\ui-scale-tail -AttestationBundle $env:ATTESTATION_BUNDLE
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -190,6 +273,8 @@ jobs:
           path: |
             .ci-results/ui-scale-tail/**/*.json
             .ci-results/ui-scale-tail/**/*.log
+            .ci-results/ui-scale-tail/**/*.png
+            !.ci-results/ui-scale-tail/**/build/**
 
   ui-scale:
     name: Complete scale acceptance union
@@ -197,6 +282,9 @@ jobs:
     if: ${{ always() && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
     runs-on: windows-latest
     timeout-minutes: 13
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -216,6 +304,7 @@ jobs:
           NON_UI_OUTCOME: ${{ needs.non-ui-performance.result }}
           PREFIX_OUTCOME: ${{ needs.ui-scale-prefix.result }}
           TAIL_OUTCOME: ${{ needs.ui-scale-tail.result }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           .\eng\Assert-UiScaleUnion.ps1 -PrefixDirectory .ci-results\ui-scale-prefix -TailDirectory .ci-results\ui-scale-tail -ExpectedRevision $env:EXPECTED_REVISION -RunId $env:GITHUB_RUN_ID -RunAttempt $env:GITHUB_RUN_ATTEMPT -RequiredJobOutcomes @($env:NON_UI_OUTCOME, $env:PREFIX_OUTCOME, $env:TAIL_OUTCOME)
       - uses: actions/upload-artifact@v4
@@ -228,3 +317,5 @@ jobs:
             .ci-results/ui-scale-union/**/*.json
             .ci-results/ui-scale-union/**/*.log
             .ci-results/ui-scale-union/**/*.oesnapshot
+            .ci-results/ui-scale-union/**/*.png
+            !.ci-results/ui-scale-union/**/build/**

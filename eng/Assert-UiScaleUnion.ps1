@@ -38,8 +38,8 @@ try {
         throw 'Missing, failed, skipped or diagnostic scale work cannot pass acceptance.'
     }
     Assert-UiScaleUnion $PrefixDirectory $TailDirectory $ExpectedRevision $RunId $RunAttempt $CohortId $Sample $ExpectedPolicyVersion
-    Copy-Item -LiteralPath $PrefixDirectory -Destination (Join-Path $run 'prefix') -Recurse
-    Copy-Item -LiteralPath $TailDirectory -Destination (Join-Path $run 'tail') -Recurse
+    Copy-ScaleEvidenceDirectory $PrefixDirectory (Join-Path $run 'prefix')
+    Copy-ScaleEvidenceDirectory $TailDirectory (Join-Path $run 'tail')
     Assert-UiScaleUnion (Join-Path $run 'prefix') (Join-Path $run 'tail') $ExpectedRevision $RunId $RunAttempt $CohortId $Sample $ExpectedPolicyVersion
     $report.outcome = 'success'
 } catch {

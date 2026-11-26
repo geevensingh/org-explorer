@@ -1,3 +1,5 @@
+. "$PSScriptRoot\ScaleCleanupPolicy.ps1"
+
 function Invoke-ScaleSuite(
     [string] $Suite, [string] $Label, [string] $ResultsDirectory, [string] $ExpectedRevision,
     [hashtable] $Selection, [scriptblock] $Verify,
@@ -34,6 +36,7 @@ function Invoke-ScaleSuite(
         observedOutcome = 'running'; phase = 'setup'; activeCommand = $null; lastProgress = $null
         activePhase = $null; lastActivePhase = $null
         configuration = $null; configurationErrors = @()
+        sourcePolicy = $ExpectedPolicyVersion; cleanup = $null; ownedCommandsExited = $true
     }
 
     function Write-ScaleReport {
@@ -57,6 +60,11 @@ function Invoke-ScaleSuite(
         }
         if ($Suite -ceq 'ui-scale') { $report.policyVersion = $ExpectedPolicyVersion }
         foreach ($key in $Selection.Keys) { $report[$key] = $Selection[$key] }
+        if ($state.sourcePolicy -ceq 'ci-timing-v4') {
+            $report.acceptancePolicyVersion = $state.sourcePolicy
+            $report.verificationOutcome = $state.observedOutcome
+            $report.cleanup = $state.cleanup
+        }
         $json = $report | ConvertTo-Json -Depth 12
         foreach ($path in @((Join-Path $run 'result.json'), (Join-Path $results 'result.json'))) {
             [IO.File]::WriteAllText("$path.writing", $json)
@@ -135,6 +143,7 @@ function Invoke-ScaleSuite(
             try {
                 [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', $state.started.AddSeconds($ObservationSeconds).ToString('O'))
                 $process = Start-Process $FilePath -ArgumentList $quoted -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError $errors
+                $state.ownedCommandsExited = $false
             } finally {
                 if ($null -eq $previousDeadline) {
                     [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', [NullString]::Value)
@@ -165,6 +174,7 @@ function Invoke-ScaleSuite(
                         finally { $process.Kill($true); $process.WaitForExit() }
                     }
                     $state.steps.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds; exitCode = $process.ExitCode })
+                    $state.ownedCommandsExited = $process.HasExited
                 } finally { $process.Dispose() }
             }
             if (Test-Path $log) { Read-ScaleProgress $log; Get-Content $log }
@@ -191,6 +201,9 @@ function Invoke-ScaleSuite(
         if ($LASTEXITCODE -ne 0) { throw 'Cannot verify checkout state.' }
         $state.untracked = [bool](& git ls-files --others --exclude-standard)
         if ($LASTEXITCODE -ne 0) { throw 'Cannot verify untracked checkout state.' }
+        if ($Suite -cin @('non-ui-performance', 'ui-scale')) {
+            $state.sourcePolicy = Get-SourceTimingPolicyVersion $state.revision
+        }
         Write-ScaleReport
         if ($ExpectedRevision -and ($state.revision -ne $ExpectedRevision -or $state.dirty -or $state.untracked)) {
             throw 'Pre-publication/candidate verification requires the exact expected revision and a clean checkout, including untracked files.'
@@ -262,22 +275,120 @@ function Invoke-ScaleSuite(
         try {
             # Owned commands have exited before their fixture/build tree is removed.
             if (Test-Path $build) { Remove-Item $build -Recurse -Force }
-            $null = Assert-ScaleRemainingBudget
+            $state.cleanup = @{ outcome = 'success'; warning = $false; phase = 'build-housekeeping' }
         } catch {
             $cleanupFailure = $_
-            $state.outcome = if (([DateTimeOffset]::UtcNow - $state.started).TotalSeconds -ge $ceilingSeconds) { 'timed_out' } else { 'failure' }
-            $state.failure = if ($state.failure) { $state.failure + "`n" + $cleanupFailure.Exception.Message } else { $cleanupFailure.Exception.Message }
             try { Write-ScaleCleanupFailure $cleanupFailure }
             catch { [Console]::Error.WriteLine("Cleanup observation failed ({0}); original failure retained.", $_.Exception.GetType().FullName) }
-            Write-Error -Message $state.failure -ErrorAction Continue
+            $state.cleanup = @{
+                outcome = 'failure'; warning = $false; phase = 'build-housekeeping'
+                error = $cleanupFailure.Exception.Message; errorType = $cleanupFailure.Exception.GetType().FullName
+                hresult = $cleanupFailure.Exception.HResult; observedAt = [DateTimeOffset]::UtcNow.ToString('O')
+                path = [string]$cleanupFailure.TargetObject; remainingBuild = Get-ScaleBuildInventory $build
+                authenticationFailure = $null
+            }
+            try {
+                $native = Get-ScaleNativeCleanupTarget $cleanupFailure $build $Suite
+                if ($state.sourcePolicy -cne 'ci-timing-v4' -or !$native -or $state.outcome -cne 'success' -or
+                    $state.observedOutcome -cne 'success' -or $state.failure -or $diagnostic -or !$ExpectedRevision -or
+                    !$state.ownedCommandsExited -or $env:GITHUB_ACTIONS -cne 'true' -or
+                    $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows') {
+                    throw 'This cleanup refusal is outside the approved signed disposable-worker policy.'
+                }
+                $null = Assert-ScaleRemainingBudget
+                $state.cleanup.path = $native.path
+                $state.cleanup.native = $native
+                $authenticationStarted = [DateTimeOffset]::UtcNow
+                if ($state.configurationErrors.Count -or
+                    ($Selection.ContainsKey('configurationErrors') -and @($Selection.configurationErrors).Count)) {
+                    throw 'Required source/runtime cleanup scope is unavailable.'
+                }
+                $state.phase = 'cleanup-authentication'
+                Write-ScaleReport
+                $proof = Get-Content -LiteralPath (Join-Path $run 'result.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+                $proof.Remove('cleanup')
+                $proof.schemaVersion = 1; $proof.repository = 'geevensingh/org-explorer'
+                $proof.nonce = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
+                $proof.cleanup = @{} + $state.cleanup
+                if ($Suite -ceq 'non-ui-performance') {
+                    . "$PSScriptRoot\NonUiCohort.ps1"
+                    Assert-PerformanceResults $run
+                    $proof.measurements = Read-NonUiCohortMeasurementLog @(Get-Content -LiteralPath (Join-Path $run 'scale-measurements.log'))
+                    if ($proof.measurements.phasesMs.Count -ne $NonUiCohortPhases.Count -or
+                        @($proof.measurements.phasesMs.Values | Where-Object { $_.outcome -cne 'Passed' }).Count -or
+                        !$proof.measurements.profile -or $proof.measurements.profile.p95Ms -gt 1000) {
+                        throw 'Required complete raw non-UI verification is missing or invalid.'
+                    }
+                    $proof.tests = Read-FilesystemTests $run
+                    $proof.tests.requiredNames = @($PerformanceTests)
+                } else {
+                    . "$PSScriptRoot\RichScaleCohort.ps1"
+                    $proof.phasesMs = Read-RichCohortPhases @(Get-Content -LiteralPath (Join-Path $run 'ui-scale.log'))
+                    $proof.evidence = @{}
+                    $worker = $Selection.worker
+                    if ($worker -ceq 'prefix') {
+                        $handoff = Get-Content (Join-Path $run 'handoff\handoff.json') -Raw | ConvertFrom-Json
+                        foreach ($phase in @('normal-executable', 'background-export')) {
+                            $proof.evidence["note-$phase"] = Read-UiScaleEvidence $run "scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json" $state.revision $Selection.runId $Selection.runAttempt $handoff.binding
+                        }
+                        $proof.evidence.lifecycle = Read-UiScaleEvidence $run 'scale-mutation-save-prefix-ui-sqlite-rich-export-lifecycle.json' $state.revision $Selection.runId $Selection.runAttempt $handoff.binding
+                    } else { $handoff = Get-Content (Join-Path $run 'handoff-received.json') -Raw | ConvertFrom-Json }
+                    $phase = if ($worker -ceq 'prefix') { 'background-export' } else { 'normal-executable' }
+                    $scenario = if ($worker -ceq 'prefix') { 'scale-mutation-save-prefix' } else { 'scale-mutation-delivery-tail' }
+                    $proof.evidence["profile-$phase"] = Read-UiScaleEvidence $run "$scenario-ui-sqlite-rich-profile-latency-$phase.json" $state.revision $Selection.runId $Selection.runAttempt $handoff.binding
+                    Assert-UiScaleRichEvidence $proof.evidence $handoff $state.revision $Selection.runId $Selection.runAttempt $state.sourcePolicy -Worker $worker
+                    $proof.handoff = $handoff
+                }
+                $proof.files = @(Get-ScaleProofFiles $run)
+                $proofText = $proof | ConvertTo-Json -Depth 40
+                $state.cleanup.proof = $proofText
+                $attestation = Join-Path $run 'cleanup-attestation.json'
+                $watcher = [IO.FileSystemWatcher]::new($run, 'cleanup-attestation.json')
+                try {
+                    $watcher.EnableRaisingEvents = $true
+                    [IO.File]::WriteAllText((Join-Path $run 'cleanup-proof.json'), $proofText)
+                    $signal = Join-Path $results 'cleanup-proof.json'
+                    [IO.File]::WriteAllText("$signal.writing", $proofText)
+                    [IO.File]::Move("$signal.writing", $signal, $true)
+                    if (!(Test-Path -LiteralPath $attestation)) {
+                        $event = $watcher.WaitForChanged(
+                            ([IO.WatcherChangeTypes]::Created -bor [IO.WatcherChangeTypes]::Renamed),
+                            [int]((Assert-ScaleRemainingBudget) * 1000))
+                        if ($event.TimedOut) { throw 'Signed cleanup proof did not arrive within the original execution budget.' }
+                    }
+                    $state.cleanup.attestation = Get-Content -LiteralPath $attestation -Raw
+                    Write-ScaleReport
+                    $report = Get-Content -LiteralPath (Join-Path $run 'result.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+                    Assert-ScaleCleanupDisposition $report ci-timing-v4 $results -DuringExecution
+                    $state.cleanup.warning = $true
+                    $state.cleanup.authenticationSeconds = ([DateTimeOffset]::UtcNow - $authenticationStarted).TotalSeconds
+                    $null = Assert-ScaleRemainingBudget
+                    Write-Warning "Cleanup FAILED at $($native.path): $($state.cleanup.error). Scoped disposable-worker housekeeping warning; holder unknown. VM teardown only."
+                    Write-Host "::warning title=Owned build cleanup failed::$($state.cleanup.error -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A')"
+                } finally { $watcher.Dispose() }
+            } catch {
+                $state.cleanup.authenticationFailure = $_.Exception.Message
+                $state.outcome = if (([DateTimeOffset]::UtcNow - $state.started).TotalSeconds -ge $ceilingSeconds) { 'timed_out' } else { 'failure' }
+                $state.failure = if ($state.failure) { $state.failure + "`n" + $cleanupFailure.Exception.Message } else { $cleanupFailure.Exception.Message }
+                Write-Error -Message $state.failure -ErrorAction Continue
+            }
         }
         $elapsed = ([DateTimeOffset]::UtcNow - $state.started).TotalSeconds
+        if ($elapsed -ge $ceilingSeconds) {
+            $state.outcome = 'timed_out'
+            $budgetFailure = "$Label exhausted its unchanged whole-execution budget, including cleanup and authentication."
+            $state.failure = if ($state.failure) { $state.failure + "`n" + $budgetFailure } else { $budgetFailure }
+        }
         $state.phase = 'finished'
         Write-ScaleReport
         $summary = "$Label $($state.outcome) at $($state.revision) in $([Math]::Round($elapsed, 2)) s including setup, restore/build, fixtures, tests and cleanup; ceiling $ceilingSeconds s. No latency SLA."
         Write-Host $summary
         if ($env:GITHUB_STEP_SUMMARY) {
             "### $Label`: $($state.outcome)`n$summary Queues and publication excluded." | Add-Content $env:GITHUB_STEP_SUMMARY
+            if ($state.cleanup -and $state.cleanup.outcome -ceq 'failure') {
+                "Build housekeeping: **FAILED**; warning: **$($state.cleanup.warning)**; phase ``$($state.cleanup.phase)``; path ``$($state.cleanup.path)``; ``$($state.cleanup.errorType)`` / ``$($state.cleanup.hresult)``. $($state.cleanup.error) Holder unknown; cleanup did not succeed. Remaining build metadata and signed/raw proof retained; compiled build bytes excluded." |
+                    Add-Content $env:GITHUB_STEP_SUMMARY
+            }
         }
     }
     if ($state.outcome -ne 'success') { throw "$Label did not succeed: $($state.failure)" }
