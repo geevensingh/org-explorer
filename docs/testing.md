@@ -72,13 +72,21 @@ scroll/click replay. Run `45693688714` captured both new menu journeys changing
 from Avery/open People to a Manager/closed People at the ordinary external
 expansion request boundary. That navigation-capable provider is not a menu
 presentation command. Menu fixture preparation now uses the existing disclosure
-arrow once only when the fresh branch is collapsed, including initial setup and
-final fixture restoration. Already expanded state is observed without toggling;
+arrow's identity-bound Toggle provider once only when the fresh branch is
+collapsed, including initial setup and final fixture restoration.
+Already expanded state is observed without toggling;
 unreached state still fails without replaying input. The same full matrices,
 menu/writing/focus/visibility assertions and 20-second observation deadline remain.
 Runner cases replay the captured external effects through the actual preparation
 input-selection seam; the compiled contract also uses the actual non-focusable
 disclosure Toggle binding. Ordinary provider behavior is unchanged.
+Run `45717484494` later captured a coordinate disclosure request returning with
+the same branch still collapsed after focus/geometry changed. The fixture now
+resolves the target row's own enabled, visible `Expander` Toggle provider instead
+of a physical pointer coordinate; it never falls back to ordinary expansion or
+replays failed input. The connected runner case replays that captured refusal,
+and the compiled contract resolves the real row-owned disclosure peer. These
+checks do not establish the ordering or cause of native focus/scroll events.
 The exact command-target viewport predicate remains required at every actual
 menu-action, no-op and search-clear boundary. Final ordinary fixture restoration
 still requires unchanged profile/writing and an open People panel, but its
@@ -101,6 +109,12 @@ the request input and provider state, and a failure capture if necessary.
 Diagnostic refusal is separate and does not replace the original failure.
 These non-atomic observations and invisible checks do not establish native
 popup/focus acceptance or a defect inside the ordinary Windows provider.
+The same run's reading partition reached its enforced 900-second whole-lane
+ceiling after all nine menu states completed and later browsing restoration
+passed. Each menu subjourney now records the existing nested harness-runtime
+costs, followed by a parent checkpoint so completed-state costs survive a later
+watchdog interruption. These measurements are diagnostic, not product latency
+or budget deductions; all matrices, assertions and deadlines remain unchanged.
 
 ## Placement
 

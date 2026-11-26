@@ -7,6 +7,32 @@ public sealed class TreeItemRealizationTests
 {
     [Fact]
     [Trait("Category", "Runner")]
+    public void Menu_preparation_targets_the_disclosure_identity_without_a_scrolling_pointer_request()
+    {
+        var expanded = false;
+        var targetTop = 479d;
+        var focus = "SearchQuery";
+        var inputs = new List<TreeItemRealization.MenuBranchInput>();
+        TreeItemRealization.PrepareMenuBranch(() => expanded && targetTop >= 478, input =>
+        {
+            inputs.Add(input);
+            if (input == TreeItemRealization.MenuBranchInput.DisclosureArrow)
+            {
+                // Captured run45717484494: pointer return refocused V-header and moved Casey offscreen without toggling.
+                targetTop = 433;
+                focus = "V-header@example.com";
+            }
+            else if (input == TreeItemRealization.MenuBranchInput.DisclosureToggle) expanded = true;
+        }, AwaitProvider);
+
+        Assert.Equal([TreeItemRealization.MenuBranchInput.DisclosureToggle], inputs);
+        Assert.True(expanded);
+        Assert.Equal("SearchQuery", focus);
+        Assert.Equal(479, targetTop);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Initially_shown_archived_list_is_hidden_for_real_menu_checks_and_restored_once()
     {
         var archivedShown = true;
@@ -140,7 +166,7 @@ public sealed class TreeItemRealizationTests
             }
         }, AwaitProvider);
 
-        Assert.Equal([TreeItemRealization.MenuBranchInput.DisclosureArrow], requests);
+        Assert.Equal([TreeItemRealization.MenuBranchInput.DisclosureToggle], requests);
         Assert.Equal("avery@example.com", owner);
         Assert.True(overlayOpen);
         Assert.True(expanded);

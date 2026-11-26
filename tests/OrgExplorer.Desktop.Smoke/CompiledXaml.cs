@@ -2884,9 +2884,11 @@ internal static partial class Program
         command.Execute("morgan@example.com", container);
         Layout(700, 500);
         var disclosure = (ToggleButton)container.Template.FindName("Expander", container);
-        var disclosureProvider = (IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(disclosure)
-            .GetPattern(PatternInterface.Toggle);
+        var disclosureDataPeer = managerDataPeer.GetChildren().Single(peer =>
+            peer.GetAutomationId() == "Expander" && peer.GetName() == "Expand or collapse reporting subtree");
+        var disclosureProvider = (IToggleProvider)disclosureDataPeer.GetPattern(PatternInterface.Toggle);
         var ordinaryRequests = 0;
+        var disclosureRequests = 0;
         TreeItemRealization.PrepareMenuBranch(() => container.IsExpanded, input =>
         {
             if (input == TreeItemRealization.MenuBranchInput.ExpandCollapseProvider)
@@ -2894,10 +2896,15 @@ internal static partial class Program
                 ordinaryRequests++;
                 retainedProvider.Expand();
             }
-            else disclosureProvider.Toggle();
+            else if (input == TreeItemRealization.MenuBranchInput.DisclosureToggle)
+            {
+                disclosureRequests++;
+                disclosureProvider.Toggle();
+            }
+            else throw new InvalidOperationException("Menu preparation requested a coordinate-bound disclosure input.");
         }, condition => PumpUntil(condition));
         Layout(700, 500);
-        if (disclosure.Focusable || ordinaryRequests != 0 || !container.IsExpanded ||
+        if (disclosure.Focusable || ordinaryRequests != 0 || disclosureRequests != 1 || !container.IsExpanded ||
             model.PeopleNavigation.SelectedEmail != "avery@example.com" || !model.PeopleNavigation.OverlayOpen ||
             model.ProfileEdit != retainedProfile || Control<TextBlock>("Email").Text != "avery@example.com")
             throw new InvalidOperationException("Menu preparation must use the real non-focusable disclosure binding, not ordinary provider expansion/navigation.");
