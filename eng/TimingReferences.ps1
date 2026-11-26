@@ -64,6 +64,12 @@ function Assert-TimingMainRevision($History, [string]$Revision) {
                 GetPath = { param($record) Get-TimingReferencePath $record }
                 Validate = { param($record, $path) Assert-TimingReference $record $path }
             }
+            'cohort-observation' = @{
+                PathPattern = '^observations/cohorts/[1-9][0-9]*/[1-9][0-9]*\.json$'
+                GetPath = { param($record) "observations/cohorts/$($record.cohortRunId)/$($record.cohortRunAttempt).json" }
+                Validate = { param($record, $path) Assert-TimingUnavailable $record $path }
+                ObservationWriterAllowed = $true
+            }
         }
     }
 
@@ -110,6 +116,37 @@ function Assert-TimingMainRevision($History, [string]$Revision) {
             if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Timing controller source must be clean and committed.' }
         }
     }
+
+function Assert-TimingUnavailable($Record, [string]$Path) {
+    if ($Record.recordType -cne 'cohort-observation' -or $Record.schemaVersion -ne 1 -or
+        $Record.repository -cne $FilesystemHealthRepository -or $Record.authority -cne 'trusted-controller-observation' -or
+        $Record.controllerRevision -cnotmatch '^[0-9a-f]{40}$' -or $Record.baselineEligible -isnot [bool] -or
+        $Record.baselineEligible -or $Record.comparisonInputEligible -isnot [bool] -or $Record.comparisonInputEligible -or
+        $null -ne $Record.revision -or $Record.validation -cne 'incomplete' -or $Record.timingHealth -cne 'inconclusive' -or
+        $Record.cohortRunId -cnotmatch '^[1-9][0-9]*$' -or $Record.cohortRunAttempt -cnotmatch '^[1-9][0-9]*$' -or
+        $Path -cne "observations/cohorts/$($Record.cohortRunId)/$($Record.cohortRunAttempt).json" -or
+        [string]::IsNullOrWhiteSpace($Record.reason)) { throw 'Malformed baseline-ineligible unavailable cohort observation.' }
+    Assert-HealthDate $Record.observedAt 'unavailable cohort observedAt'
+}
+
+function Publish-TimingUnavailable($Run, [string]$Reason, [string]$Directory, [string]$Remote, [switch]$AllowLocalFixture) {
+    if ($Run.status -cne 'completed') { throw 'Unavailable cohort history requires an original terminal collection attempt.' }
+    Assert-TimingAutomation $Run $Run.id $Run.run_attempt -AllowLocalFixture:$AllowLocalFixture
+    $history = Open-HealthHistory $Directory $Remote -AllowLocalFixture:$AllowLocalFixture -RecordTypes (Get-LaneHealthRecordTypes)
+    $history.observationWriterAuthorized = $true
+    $pages = Invoke-HealthApi "actions/runs/$($Run.id)/attempts/$($Run.run_attempt)/jobs?per_page=100" @('--paginate', '--slurp')
+    $record = @{
+        schemaVersion = 1; recordType = 'cohort-observation'; repository = $FilesystemHealthRepository
+        authority = 'trusted-controller-observation'; controllerRevision = $Run.head_sha; revision = $null
+        cohortRunId = [string]$Run.id; cohortRunAttempt = [string]$Run.run_attempt
+        observedAt = [DateTimeOffset]::UtcNow.ToString('O'); baselineEligible = $false; comparisonInputEligible = $false
+        validation = 'incomplete'; timingHealth = 'inconclusive'; reason = $Reason
+        collectionOutcome = if ($Run.conclusion) { $Run.conclusion } else { 'unavailable' }
+        jobs = @($pages | ForEach-Object { $_.jobs } |
+            ForEach-Object { @{ id = $_.id; name = $_.name; status = $_.status; outcome = $_.conclusion } })
+    }
+    return Publish-HealthRecord $history $record
+}
 
 function Get-TimingDecisionPath($Record) {
     return "timing-decisions/$($Record.revision)/$($Record.cohortRunId)/$($Record.cohortRunAttempt)/3.json"
@@ -198,15 +235,14 @@ function Get-TimingPinnedReference($Record, $History) {
 
 function Set-TimingCanonicalComparison($Record, $History) {
     $reference = Get-TimingPinnedReference $Record $History
+    $key = Get-TimingCohortKey $Record
     if ($reference) {
         if ($reference.revision -ceq $Record.revision -or $reference.eligibility -cne 'eligible' -or
             $reference.policyVersion -cne 'ci-timing-v2' -or
-            ($Record.validation -ceq 'success' -and
-                (Get-TimingCohortKey $reference) -cne (Get-TimingCohortKey $Record))) {
+            ($Record.validation -ceq 'success' -and $key -and (Get-TimingCohortKey $reference) -cne $key)) {
             throw 'Pinned canonical comparison is self-referencing, ineligible or incompatible.'
         }
-        if ($Record.validation -cne 'success' -and
-            (Get-TimingCohortKey $reference) -cne (Get-TimingCohortKey $Record)) {
+        if (!$key) {
             $Record.historyDiagnostics += 'Pinned predecessor metadata is retained; missing/incompatible current keys cannot establish relative comparison.'
         }
         $Record.reference = @{
@@ -232,13 +268,55 @@ function Set-TimingCanonicalComparison($Record, $History) {
     $Record.promotion = if ($Record.eligibility -ceq 'eligible') { 'eligible-after-comparison' } else { 'retained' }
 }
 
+function Get-TimingEvaluationState($Evaluation) {
+    $state = @{}
+    foreach ($field in @('version', 'mode', 'approval', 'health', 'blocking', 'validationBlocking', 'eligibility',
+        'additionalSamples', 'historySnapshot')) { $state[$field] = $Evaluation[$field] }
+    $state.metrics = @{}
+    foreach ($name in $Evaluation.metrics.Keys) {
+        $metric = @{} + $Evaluation.metrics[$name]
+        $metric.Remove('reason'); $metric.Remove('relativeRule')
+        $state.metrics[$name] = $metric
+    }
+    return (ConvertTo-HealthCanonicalValue $state | ConvertTo-Json -Depth 30 -Compress)
+}
+
 function Assert-TimingHistory($History) {
     $bootstrap = @($History.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-bootstrap' })
+    $cohorts = @($History.records | Where-Object {
+        $_.Contains('recordType') -and $_.recordType -ceq 'performance-cohort' -and $_.mode -ceq 'automatic-baseline'
+    })
+    $cohorts += @($History.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-decision' } |
+        ForEach-Object { $_.cohort })
+    foreach ($cohort in $cohorts) {
+        if ($bootstrap.Count -ne 1 -or $cohort.bootstrapRevision -cne $bootstrap[0].revision) {
+            throw 'Automatic comparison lacks the once-pinned bootstrap source.'
+        }
+        $plans = @($History.records | Where-Object {
+            $_.Contains('recordType') -and $_.recordType -ceq 'timing-plan' -and
+            $_.revision -ceq $cohort.revision -and $_.cohortRunId -ceq $cohort.cohortRunId -and
+            $_.cohortRunAttempt -ceq $cohort.cohortRunAttempt
+        })
+        if ($plans.Count -ne 1 -or !$plans[0].collect -or $plans[0].ciRunId -cne $cohort.ciRunId -or
+            $plans[0].ciRunAttempt -cne $cohort.ciRunAttempt) { throw 'Automatic comparison lost its immutable source-qualified plan.' }
+        $reference = if ($cohort.reference) { Get-TimingSavedCohort $History $cohort.reference.recordPath } else { $null }
+        if ($reference -and ($reference.revision -ceq $cohort.revision -or $reference.eligibility -cne 'eligible' -or
+            $reference.policyVersion -cne 'ci-timing-v2')) { throw 'Stored comparison used a self or ineligible reference.' }
+        $expected = $cohort | ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable -DateKind String -Depth 30
+        Set-TimingPolicyEvaluation $expected $reference $cohort.historySnapshot
+        if ((Get-TimingEvaluationState $expected.timingEvaluation) -cne (Get-TimingEvaluationState $cohort.timingEvaluation) -or
+            $cohort.eligibility -cne $expected.timingEvaluation.eligibility -or
+            $cohort.timingHealth -cne $expected.timingEvaluation.health -or
+            ($cohort.extraSamples -join ',') -cne ($expected.timingEvaluation.additionalSamples -join ',')) {
+            throw 'Stored timing health/eligibility does not reproduce from its immutable approved comparison inputs.'
+        }
+    }
     $events = @($History.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-reference' })
     foreach ($event in $events) {
         if ($bootstrap.Count -ne 1 -or $event.bootstrapRevision -cne $bootstrap[0].revision) {
             throw 'Canonical reference lacks the once-pinned trusted bootstrap.'
         }
+
         $cohort = Get-TimingSavedCohort $History $event.recordPath
         if ($cohort.policyVersion -cne 'ci-timing-v2' -or $cohort.eligibility -cne 'eligible' -or
             $cohort.validation -cne 'success' -or $cohort.timingEvaluation.blocking -or

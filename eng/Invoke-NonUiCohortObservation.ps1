@@ -54,13 +54,23 @@ try {
         -CohortRunId $RunId -CohortRunAttempt $RunAttempt -WorkingDirectory (Join-Path $WorkingDirectory 'observation') `
         -HistoryRemote $HistoryRemote -AllowLocalFixture:$AllowLocalFixture -Publish -RichScale:($plan.schemaVersion -eq 2) @policy
 } catch {
+    $originalError = $_
     $savedSummary = Join-Path $WorkingDirectory 'observation\summary.md'
     $summary = if (Test-Path -LiteralPath $savedSummary -PathType Leaf) {
         (Get-Content -LiteralPath $savedSummary -Raw) + "`n`nObserver error: $([Net.WebUtility]::HtmlEncode($_.Exception.Message)). Original collection/release verdicts remain unchanged."
     } else {
         "### Non-UI cohort history unavailable`n`n$([Net.WebUtility]::HtmlEncode($_.Exception.Message))`n`nOriginal collection/release verdicts are unchanged; unavailable execution evidence is not successful verification."
     }
+    if ($ApprovedPolicyVersion -and !(Test-Path (Join-Path $WorkingDirectory 'observation\record.json')) -and
+        (Get-Variable run -ErrorAction SilentlyContinue)) {
+        try {
+            . "$PSScriptRoot\LaneHealth.ps1"
+            $commit = Publish-TimingUnavailable $run $originalError.Exception.Message `
+                (Join-Path $WorkingDirectory 'unavailable-history.git') $HistoryRemote -AllowLocalFixture:$AllowLocalFixture
+            $summary += "`n`nBaseline-ineligible unavailable attempt retained: $commit. Candidate qualification remains unknown."
+        } catch { $summary += "`n`nUnavailable-attempt publication FAILED: $([Net.WebUtility]::HtmlEncode($_.Exception.Message))" }
+    }
     $summary | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'summary.md')
     if ($env:GITHUB_STEP_SUMMARY) { $summary | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY }
-    throw
+    throw $originalError
 }

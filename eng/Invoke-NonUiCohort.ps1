@@ -94,6 +94,14 @@ if ($Stage -ceq 'Plan') {
             $_.schemaVersion -eq $(if ($RichScale) { 2 } else { 1 }) })
     }
     $collect = !@($previous | Where-Object { $_.revision -ceq $Revision }).Count
+    $unqualifiedAttempts = @()
+    if ($history) {
+        $unqualifiedAttempts = @($history.records | Where-Object {
+            $_.Contains('recordType') -and $_.recordType -ceq 'cohort-observation' -and
+            $_.cohortRunId -ceq [string]$CohortRunId
+        })
+    }
+    if ($unqualifiedAttempts.Count) { $collect = $false }
     if ($ApprovedPolicyVersion) {
         if ($InitializeBootstrap -and !@($history.records | Where-Object {
             $_.Contains('recordType') -and $_.recordType -ceq 'timing-bootstrap'
@@ -115,7 +123,9 @@ if ($Stage -ceq 'Plan') {
         samples = @(1, 2, 3); mode = if ($ApprovedPolicyVersion) { 'automatic-baseline' } else { 'observation' }; promotion = 'disabled'
         authority = if ($Pilot) { 'pilot-observation' } else { 'trusted-main-push' }
         policyVersion = if ($ApprovedPolicyVersion) { $ApprovedPolicyVersion } elseif ($RichScale) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' }
-        collect = $collect; reason = if ($collect) { 'New qualifying observation' } else { 'Already durably observed; no retry-until-green.' }
+        collect = $collect; reason = if ($collect) { 'New qualifying observation' }
+            elseif ($unqualifiedAttempts.Count) { 'Original unqualified attempt retained; reruns cannot manufacture a new eligible cohort.' }
+            else { 'Already durably observed; no retry-until-green.' }
     }
     if ($ApprovedPolicyVersion) {
         $plan.bootstrapRevision = $BootstrapRevision
@@ -182,6 +192,7 @@ $artifacts = @($pages | ForEach-Object { $_.artifacts })
 $requestedSamples = $ExpectedSamples
 $maximumObserved = 0
 foreach ($job in $jobs) {
+    if ($ApprovedPolicyVersion -and $job.conclusion -ceq 'skipped') { continue }
     if ($job.name -cmatch '(^| / )Non-UI cohort sample \((?<number>[1-9][0-9]*)\)$') {
         $maximumObserved = [Math]::Max($maximumObserved, [int]$Matches.number)
     }
@@ -303,8 +314,9 @@ $record = [ordered]@{
     revision = $Revision; cohortId = $cohortId; cohortRunId = [string]$CohortRunId; cohortRunAttempt = [string]$CohortRunAttempt
     ciRevision = $run.head_sha; ciRunId = [string]$CiRunId; ciRunAttempt = [string]$CiRunAttempt
     controllerRevision = $collection.head_sha; observedAt = [DateTimeOffset]::UtcNow.ToString('O')
+    jobOutcomes = @($jobs | ForEach-Object { @{ id = $_.id; name = $_.name; status = $_.status; outcome = $_.conclusion } })
     collectionStatus = $collection.status
-    collectionOutcome = if ($collection.ContainsKey('conclusion')) { $collection.conclusion } else { 'unavailable' }
+    collectionOutcome = if ($collection.ContainsKey('conclusion') -and $collection.conclusion) { $collection.conclusion } else { 'unavailable' }
     authority = if ($Pilot) { 'pilot-observation' } else { 'trusted-main-push' }
     mode = 'observation'; promotion = 'disabled'; richScaleAcceptance = if (!$RichScale) { 'not-executed' } elseif ($complete) { 'complete' } else { 'rejected' }
     policyVersion = if ($null -ne $TestPolicy) { $TestPolicy.version } elseif ($RichScale) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' }

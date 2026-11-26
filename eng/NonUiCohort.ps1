@@ -186,6 +186,12 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
     if ($Record.Contains('sourcePolicyRevision') -and $Record.sourcePolicyRevision -cne $Record.revision) {
         throw 'Cohort effective policy is not bound to its source candidate.'
     }
+    if ($automatic -and ($effectivePolicy -cne $Record.sourcePolicyVersion -or
+        $Record.sourcePolicyCompatible -isnot [bool] -or
+        $Record.sourcePolicyCompatible -ne ($effectivePolicy -ceq 'ci-timing-v2') -or
+        ($Record.eligibility -ceq 'eligible' -and (!$Record.sourcePolicyCompatible -or $Record.validation -cne 'success')))) {
+        throw 'Automatic eligibility cannot confer approval on incompatible or incomplete source evidence.'
+    }
     Assert-HealthNumber $Record.schemaVersion 'cohort schemaVersion'
     if ($Record.schemaVersion -notin @(1, 2) -or $Record.recordType -cne 'performance-cohort' -or
         $Record.repository -cne $FilesystemHealthRepository -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or

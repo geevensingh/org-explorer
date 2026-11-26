@@ -425,8 +425,12 @@ function Publish-HealthRecords($History, $Records) {
     $callerHistory = $History
     $pending = @{}
     foreach ($record in $Records) {
+        $registeredObservation = $record.Contains('recordType') -and $History.recordTypes.ContainsKey($record.recordType) -and
+            $History.recordTypes[$record.recordType].ContainsKey('ObservationWriterAllowed') -and
+            $History.recordTypes[$record.recordType].ObservationWriterAllowed -eq $true
         if ($record.authority -cne 'trusted-main-push' -and
-            ($record.authority -cne 'trusted-controller-observation' -or $record.recordType -cne 'lane-observation' -or
+            ($record.authority -cne 'trusted-controller-observation' -or
+                ($record.recordType -cne 'lane-observation' -and !$registeredObservation) -or
                 !$History.observationWriterAuthorized)) {
             throw 'PR, fork and manual candidate artifacts cannot authorize history writes.'
         }
