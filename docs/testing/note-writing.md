@@ -233,22 +233,8 @@ within the existing observation budget.
 
 ## Commit acknowledgment and cancellation
 
-The rich save clock starts before native input and runs through actual WPF
-post-Commit acknowledgment for the exact current owner/note/title/request.
-The shared observation lifecycle owns request, body and cleanup so an observer
-fault cannot replace an initiating input/assertion exception. Secondary faults
-remain attached/reported, and an otherwise successful body still fails when its
-observer faults or never confirms durability. Request clocks, continued typing
-and the original observation window are unchanged.
-Pending observation is diagnostic, not mandatory: a fast Commit may finish
-before the first observer call. The exact Person/Team saved-success (or Team
-saved-and-confirmed) acknowledgment and truthful complete-publication/local-only
-success projections can acknowledge the exact request, never generic Ready/Saved
-combined with optimistic editor text. The scoped accessible ItemStatus is set
-by `OwnedNotePresentation` from VM status. Retained generations
-override every core status with Pending; the worker removes a generation only
-after accepted `SaveNoteDraft` and only when it is still the latest generation.
-That core acknowledgment is returned after actual SQLite Commit.
+For the rich save clock, observation lifecycle and exact post-Commit acknowledgment, read
+[scale verification](scale-verification.md#separate-scale-commands-and-results).
 
 The existing invisible compiled selection includes one bounded negative at the
 same real public-storage/actual-BAML seams (`NOTE-COMMIT-ACK-CAUSAL`): the exact
