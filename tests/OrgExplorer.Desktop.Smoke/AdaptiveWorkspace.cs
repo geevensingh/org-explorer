@@ -598,6 +598,26 @@ internal static partial class Program
         HarnessRuntime.Checkpoint("reporting-tree-menu-complete-" + state);
     }
 
+    private static AutomationElement? ReportingMenu(AutomationElement window) =>
+        AutomationElement.RootElement.FindAll(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Menu),
+            new PropertyCondition(AutomationElement.ClassNameProperty, "ContextMenu")))
+        .Cast<AutomationElement>().FirstOrDefault(menu => !menu.Current.IsOffscreen);
+
+    private static void RightClickReportingRow(AutomationElement window, AutomationElement row, string state)
+    {
+        var bounds = row.Current.BoundingRectangle;
+        var viewport = Find(window, "People").Current.BoundingRectangle;
+        var (x, y) = TreeItemRealization.ReportingHeaderPoint(
+            (bounds.Left, bounds.Top, bounds.Width, bounds.Height),
+            (viewport.Left, viewport.Top, viewport.Width, viewport.Height), DpiScale(window));
+        if (!viewport.Contains(new Point(x, y)) || row.Current.IsOffscreen || !SetCursorPos((int)x, (int)y))
+            throw new InvalidOperationException($"The reporting row header is not reachable at {state}: {row.Current.AutomationId}, {bounds}, {viewport}.");
+        mouse_event(8, 0, 0, 0, 0);
+        mouse_event(16, 0, 0, 0, 0);
+    }
+
     private static void AssertReportingTreeMenuCore(AutomationElement window, string managerEmail, string reportEmail, string state)
     {
         var writingIds = new HashSet<string>(StringComparer.Ordinal)
@@ -658,25 +678,8 @@ internal static partial class Program
             () => treeScroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         AutomationElement Row(string email) => Find(Find(window, "People"), email);
         ExpandCollapsePattern Expansion(string email) => (ExpandCollapsePattern)Row(email).GetCurrentPattern(ExpandCollapsePattern.Pattern);
-        AutomationElement? Menu() => AutomationElement.RootElement.FindAll(TreeScope.Descendants, new AndCondition(
-                new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Menu),
-                new PropertyCondition(AutomationElement.ClassNameProperty, "ContextMenu")))
-            .Cast<AutomationElement>().FirstOrDefault(menu => !menu.Current.IsOffscreen);
-        void RightClickRow(string email)
-        {
-            var bounds = Row(email).Current.BoundingRectangle;
-            var viewport = Find(window, "People").Current.BoundingRectangle;
-            var scale = DpiScale(window);
-            var (x, y) = TreeItemRealization.ReportingHeaderPoint(
-                (bounds.Left, bounds.Top, bounds.Width, bounds.Height),
-                (viewport.Left, viewport.Top, viewport.Width, viewport.Height), scale);
-            if (!viewport.Contains(new Point(x, y)) || Row(email).Current.IsOffscreen ||
-                !SetCursorPos((int)x, (int)y))
-                throw new InvalidOperationException($"The reporting row header is not reachable at {state}: {email}, {bounds}, {viewport}.");
-            mouse_event(8, 0, 0, 0, 0);
-            mouse_event(16, 0, 0, 0, 0);
-        }
+        AutomationElement? Menu() => ReportingMenu(window);
+        void RightClickRow(string email) => RightClickReportingRow(window, Row(email), state);
         void AssertRetained(TreeItemRealization.MenuRetentionBoundary boundary = TreeItemRealization.MenuRetentionBoundary.Command)
         {
             TreeItemRealization.AssertMenuRetention(boundary, CaptureRetention, controls =>
@@ -701,13 +704,14 @@ internal static partial class Program
                 throw new InvalidOperationException($"A leaf or fully reset branch opened an empty/no-op tree menu at {state}.");
             AssertRetained();
         }
-        void CollapseFromMenu(bool keyboard)
+        void ActFromMenu(string label, bool keyboard)
         {
             AutomationElement? menu = null;
             Await(() => (menu = Menu()) is not null);
             var actions = menu!.FindAll(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>().ToArray();
-            if (actions.Length != 1 || actions[0].Current.Name != "Collapse subtree" || !actions[0].Current.IsEnabled)
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>()
+                .Where(item => !item.Current.IsOffscreen).ToArray();
+            if (actions.Length != 1 || actions[0].Current.Name != label || !actions[0].Current.IsEnabled)
                 throw new InvalidOperationException($"The tree menu contains a no-op, duplicate or unimplemented action at {state}.");
             var opening = CaptureRetention();
             if (Captured(opening, "Email").Cached.Name != owner || !before.SequenceEqual(Writing(opening)))
@@ -718,9 +722,14 @@ internal static partial class Program
                 PressCopyKey(0x0D);
             }
             else PrimaryClick(() => actions[0]);
-            Await(() => Menu() is null && Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
+            var expected = label == "Expand subtree" ? ExpandCollapseState.Expanded : ExpandCollapseState.Collapsed;
+            Await(() => Menu() is null && Expansion(managerEmail).Current.ExpandCollapseState == expected);
+            if (label == "Expand subtree")
+                Await(() => Find(window, "People").Current.ItemStatus.StartsWith("Expanded all available reporting levels:", StringComparison.Ordinal));
             AssertRetained();
         }
+        void CollapseFromMenu(bool keyboard) => ActFromMenu("Collapse subtree", keyboard);
+        void ExpandFromMenu(bool keyboard) => ActFromMenu("Expand subtree", keyboard);
         var branch = Expansion(managerEmail);
         void ObserveExpansion(string phase, string boundary, string? input = null)
         {
@@ -828,7 +837,8 @@ internal static partial class Program
         CollapseFromMenu(keyboard: false);
         Await(() => Find(window, "SearchQuery").Current.HasKeyboardFocus);
         RightClickRow(managerEmail);
-        AssertNoMenu();
+        ExpandFromMenu(keyboard: false);
+        Await(() => Find(window, "SearchQuery").Current.HasKeyboardFocus);
         if (owner == reportEmail)
         {
             ReexpandForMenu("report-focus");
@@ -849,10 +859,19 @@ internal static partial class Program
                 }
                 CollapseFromMenu(keyboard: true);
                 Await(() => Row(managerEmail).Current.HasKeyboardFocus);
-                PressCopyKey(0x5D);
-                AssertNoMenu();
+                if (appsKey) PressCopyKey(0x5D);
+                else
+                {
+                    keybd_event(0x10, 0, 0, 0);
+                    try { PressCopyKey(0x79); }
+                    finally { keybd_event(0x10, 0, 2, 0); }
+                }
+                ExpandFromMenu(keyboard: true);
+                Await(() => Row(managerEmail).Current.HasKeyboardFocus);
             }
         }
+        RightClickRow(managerEmail);
+        CollapseFromMenu(keyboard: false);
         CaptureVisualEvidence(window, state + "-tree-collapse-retained");
         Set(window, "SearchQuery", "tree action unmatched query");
         Await(() => !IsVisible(window, "People"));

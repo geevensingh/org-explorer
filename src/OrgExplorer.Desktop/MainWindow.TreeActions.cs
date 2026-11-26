@@ -9,11 +9,116 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow
 {
+    public static RoutedUICommand ExpandSubtreeCommand { get; } =
+        new("Expand subtree", nameof(ExpandSubtreeCommand), typeof(MainWindow));
     public static RoutedUICommand CollapseSubtreeCommand { get; } =
         new("Collapse subtree", nameof(CollapseSubtreeCommand), typeof(MainWindow));
     private bool changingTreePresentation;
     private IInputElement? reportingMenuReturnFocus;
     private int reportingMenuRequest;
+    private TreeViewItem? treeExpansionTarget;
+    private readonly DispatcherTimer treeExpansionTimer = new(DispatcherPriority.Background)
+        { Interval = TimeSpan.FromMilliseconds(16) };
+
+    private void InitializeTreeExpansion()
+    {
+        treeExpansionTimer.Tick += (_, _) =>
+        {
+            var previous = workflow.PeopleTreeExpansion;
+            workflow.ContinuePeopleTreeExpansion();
+            var wasChanging = changingTreePresentation;
+            changingTreePresentation = true;
+            try
+            {
+                if (workflow.PeopleNavigation.IsBrowsing &&
+                    (workflow.PeopleTreeExpansion?.ExpandedBranches != previous?.ExpandedBranches ||
+                     workflow.PeopleTreeExpansion is not { IsRunning: true }))
+                {
+                    expandedPeople.Clear();
+                    expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
+                    RestoreRealizedTreeState(PeopleList);
+                    if (treeExpansionTarget is { DataContext: ReportingNode target } row &&
+                        target.Person.Email.Equals(workflow.PeopleTreeExpansion?.TargetEmail, StringComparison.OrdinalIgnoreCase))
+                        row.BringIntoView(new Rect(0, 0, 1, Math.Min(28, row.ActualHeight)));
+                    RememberPeopleBrowsing();
+                }
+                ShowTreeExpansion();
+            }
+            finally { changingTreePresentation = wasChanging; }
+        };
+        Closed += (_, _) =>
+        {
+            treeExpansionTimer.Stop();
+            workflow.CancelPeopleTreeExpansion();
+            treeExpansionTarget = null;
+        };
+    }
+
+    private void CanExpandSubtree(object sender, CanExecuteRoutedEventArgs e)
+    {
+        e.CanExecute = e.Parameter is string email &&
+            workflow.GetPeopleTreeActions(email).Contains(PeopleTreeAction.ExpandSubtree);
+        e.Handled = true;
+    }
+
+    private void ExpandSubtree(object sender, ExecutedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (e.Parameter is not string email ||
+            ReportingItemFrom(e.OriginalSource as DependencyObject) is not { DataContext: ReportingNode node } target ||
+            !node.Person.Email.Equals(email, StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText.Text = "Expand subtree was not applied: its reporting row is unavailable.";
+            return;
+        }
+        RememberPeopleBrowsing();
+        if (!workflow.ExecutePeopleTreeAction(email, PeopleTreeAction.ExpandSubtree))
+        {
+            StatusText.Text = workflow.PeopleTreeActionFeedback;
+            return;
+        }
+        pendingSearchRevealEmail = null;
+        peopleBrowseRequest++;
+        treeExpansionTarget = target;
+        ShowTreeExpansion();
+        treeExpansionTimer.Start();
+    }
+
+    private void CancelTreeExpansion(object sender, RoutedEventArgs e)
+    {
+        workflow.CancelPeopleTreeExpansion();
+        ShowTreeExpansion();
+    }
+
+    private void CancelOutstandingTreeExpansion()
+    {
+        if (workflow.PeopleTreeExpansion is not { IsRunning: true }) return;
+        workflow.CancelPeopleTreeExpansion();
+        ShowTreeExpansion();
+    }
+
+    private void ShowTreeExpansion()
+    {
+        if (workflow.PeopleTreeExpansion is not { } progress) return;
+        TreeExpansionStatus.Text = progress.Status switch
+        {
+            PeopleTreeExpansionStatus.Running =>
+                $"Expanding subtree: {progress.VisitedPeople} imported People checked; {progress.ExpandedBranches} branches expanded.",
+            PeopleTreeExpansionStatus.Completed =>
+                $"Expanded all available reporting levels: {progress.VisitedPeople} imported People checked; {progress.ExpandedBranches} branches expanded.",
+            _ => $"{workflow.PeopleTreeActionFeedback} {progress.VisitedPeople} imported People checked; {progress.ExpandedBranches} branches expanded."
+        };
+        System.Windows.Automation.AutomationProperties.SetItemStatus(PeopleList, TreeExpansionStatus.Text);
+        TreeExpansionPanel.Visibility = progress.Status == PeopleTreeExpansionStatus.Completed
+            ? Visibility.Collapsed : Visibility.Visible;
+        CancelTreeExpansionButton.Visibility = progress.IsRunning ? Visibility.Visible : Visibility.Collapsed;
+        if (!progress.IsRunning)
+        {
+            treeExpansionTimer.Stop();
+            treeExpansionTarget = null;
+        }
+        CommandManager.InvalidateRequerySuggested();
+    }
 
     private static TreeViewItem? ReportingItemFrom(DependencyObject? source)
     {
@@ -70,6 +175,7 @@ public partial class MainWindow
             StatusText.Text = workflow.PeopleTreeActionFeedback;
             return;
         }
+        TreeExpansionPanel.Visibility = Visibility.Collapsed;
         var wasChanging = changingTreePresentation;
         changingTreePresentation = true;
         try
