@@ -84,17 +84,25 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         Assert.True(app.EditFavorite(basis.Email, true), app.Status);
         var personNote = Assert.IsType<PersonNote>(app.CreatePersonNote(basis.Email, "Empty Person context", ""));
         var teamNote = Assert.IsType<TeamNote>(app.CreateTeamNote(basis.Email, "Empty owned Team context", ""));
+        const string submitted = "  aVeRy ExAmPlE  ";
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, submitted);
 
         using (WorkspaceFixtures.LockLocalStore(folder))
-            Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "My Avery"));
+            Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, submitted));
+        var retained = Assert.IsType<RetainedPersonTextDraft>(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.Equal(basis, retained.Basis);
+        Assert.Equal(submitted, retained.Value);
+        Assert.NotNull(retained.Error);
         Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
         Assert.True(app.LocalSave.EditsPaused);
         Assert.False(app.CanSafelyClose);
         Assert.Equal("Ave", Assert.Single(app.People).Heading);
         Assert.True(app.ReconcileLocalSaves(), app.Status);
-        var accepted = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "My Avery"));
+        var accepted = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, submitted));
         Assert.True(app.CanSafelyClose);
-        Assert.Equal("My Avery", accepted.Heading);
+        Assert.Null(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.Null(accepted.PreferredName);
+        Assert.Equal("Avery Example", accepted.Heading);
         Assert.Equal("Avery Example", accepted.DirectoryName);
         Assert.True(accepted.IsFavorite);
 
@@ -117,12 +125,18 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         if (emptyBase) Assert.True(app.EditPreferredName("avery@example.com", null), app.Status);
         var basis = Assert.Single(app.People);
+        const string submitted = "  aVeRy ExAmPlE  ";
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, submitted);
         using var provider = CreateWorkflow();
         Assert.True(provider.OpenWorkspace(folder), provider.Status);
         Assert.True(provider.EditPreferredName(basis.Email, "Delivered preferred name"), provider.Status);
         Assert.True(app.RefreshWorkspace(), app.Status);
-        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Retained inline draft"));
-        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Retained inline draft"));
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, submitted));
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, submitted));
+        var retained = Assert.IsType<RetainedPersonTextDraft>(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.Equal(basis, retained.Basis);
+        Assert.Equal(submitted, retained.Value);
+        Assert.NotNull(retained.Error);
         Assert.Contains("changed externally", app.Status);
         Assert.False(app.CanSafelyClose);
         using (var reopened = CreateWorkflow())
@@ -134,6 +148,50 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
         Assert.NotNull(app.SavePersonTextDraft(Assert.Single(app.People), PersonTextField.PreferredName, null));
         Assert.Equal("Avery Example", Assert.Single(app.People).Heading);
+    }
+
+    [Theory]
+    [InlineData("Avery Example", "Avery Example")]
+    [InlineData("  aVeRy DiReCtOrY  ", null)]
+    [InlineData("  My AVERY  ", "  My AVERY  ")]
+    public void Explicit_Preferred_name_save_clear_and_later_Directory_changes_reopen_with_all_private_context(
+        string submitted, string? expected)
+    {
+        using var app = new WorkspaceViewModel(CreateWorkflow());
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
+        Assert.True(app.EditFavorite("avery@example.com", true), app.Status);
+        var basis = Assert.Single(app.People);
+        var personNote = Assert.IsType<PersonNote>(app.CreatePersonNote(basis.Email, "Person context", "Private Person writing"));
+        var teamNote = Assert.IsType<TeamNote>(app.CreateTeamNote(basis.Email, "Team context", "Private Team writing"));
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, submitted);
+        using (var provider = CreateWorkflow())
+        {
+            Assert.True(provider.OpenWorkspace(folder), provider.Status);
+            Assert.True(provider.EditPersonText(basis.Email, PersonTextField.DirectoryName, "Avery Directory"), provider.Status);
+        }
+
+        var accepted = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, submitted));
+
+        Assert.Equal(basis with { DirectoryName = "Avery Directory", PreferredName = expected }, accepted);
+        Assert.Null(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.True(app.CanSafelyClose, app.Status);
+        using (var reopened = CreateWorkflow())
+        {
+            Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+            Assert.Equal(accepted, Assert.Single(reopened.People));
+            Assert.Equal(personNote, Assert.Single(reopened.GetPersonNotes(basis.Email)));
+            Assert.Equal(teamNote, Assert.Single(reopened.GetTeamNotes(basis.Email)));
+        }
+        var cleared = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(accepted, PersonTextField.PreferredName, "AVERY DIRECTORY"));
+        Assert.Equal(accepted with { PreferredName = null }, cleared);
+        Assert.True(app.EditPersonText(basis.Email, PersonTextField.DirectoryName, "Avery Later"), app.Status);
+        using var final = CreateWorkflow();
+        Assert.True(final.OpenWorkspace(folder), final.Status);
+        Assert.Equal(cleared with { DirectoryName = "Avery Later" }, Assert.Single(final.People));
+        Assert.Equal("Avery Later", Assert.Single(final.People).Heading);
+        Assert.Equal(personNote, Assert.Single(final.GetPersonNotes(basis.Email)));
+        Assert.Equal(teamNote, Assert.Single(final.GetTeamNotes(basis.Email)));
     }
 
     [Fact]

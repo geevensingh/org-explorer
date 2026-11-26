@@ -69,7 +69,9 @@ public partial class MainWindow
         preferredNameDirty = retained is not null && retained.Value != retained.Basis.PreferredName;
         preferredNameSaveError = retained?.Error;
         loading = true;
-        PreferredName.Text = retained is null ? preferredNameBasis.PreferredName ?? "" : retained.Value ?? "";
+        PreferredName.Text = retained is null
+            ? preferredNameBasis.PreferredName ?? preferredNameBasis.DirectoryName ?? ""
+            : retained.Value ?? "";
         loading = false;
         SetPreferredNameEditing(true);
         if (IsVisible)
@@ -88,12 +90,15 @@ public partial class MainWindow
         if (!preferredNameEditing || preferredNameBasis is not { } basis || workPending) return;
         var entry = preferredNameEntryVersion;
         var text = PreferredName.Text;
+        var value = text.Length == 0 ? null : text;
+        if (RetainsPersonDrafts)
+            workflow.RetainPersonTextSubmission(basis, PersonTextField.PreferredName, value);
         preferredNameSavePending = true;
         PersonProfile? accepted;
         try
         {
             accepted = await RunWorkflowAsync(
-                () => workflow.SavePersonTextDraft(basis, PersonTextField.PreferredName, text.Length == 0 ? null : text),
+                () => workflow.SavePersonTextDraft(basis, PersonTextField.PreferredName, value),
                 "Saving Preferred name…", ordinarySave: true);
         }
         finally { preferredNameSavePending = false; }
