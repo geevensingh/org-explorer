@@ -3086,7 +3086,107 @@ internal static partial class Program
             throw new InvalidOperationException("The real archived-list restoration changed its captured mode, profile/draft or open People panel.");
         Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => model.CanSafelyClose);
+        VerifySearchDuringTreeExpansion(window, settings);
         Console.WriteLine("PASS: real tree selection/disclosure, all three non-navigating tree actions, actual cancellation/disclosure interruption, protected path/leaf scope, hidden/recycled reset, search/layout restoration and exact independent profile/note writing.");
+    }
+
+    private static void VerifySearchDuringTreeExpansion(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "search-during-tree-expansion");
+        var people = Enumerable.Range(0, 256).SelectMany(index => new[]
+        {
+            new { email = $"branch{index:000}@example.com", displayName = $"Search branch {index:000}", managerEmail = (string?)"root@example.com" },
+            new { email = $"leaf{index:000}@example.com", displayName = $"Search leaf {index:000}", managerEmail = (string?)$"branch{index:000}@example.com" }
+        }).Prepend(new { email = "root@example.com", displayName = "Root", managerEmail = (string?)null })
+          .Append(new { email = "owner@example.com", displayName = "Unrelated owner", managerEmail = (string?)null });
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport(JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1, batchId = Guid.NewGuid(), observedAt = "2026-11-01T17:00:00Z", people
+            })).Id))
+                throw new InvalidOperationException("Search during expansion fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var surface = (FrameworkElement)window.Content;
+        void Layout(double width, double height)
+        {
+            surface.Measure(new Size(width, height));
+            surface.Arrange(new Rect(0, 0, width, height));
+            surface.UpdateLayout();
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Search during expansion must not show a window or create its native handle.");
+        }
+        bool Presented(FrameworkElement control)
+        {
+            for (DependencyObject? current = control; current is not null && !ReferenceEquals(current, surface);
+                current = VisualTreeHelper.GetParent(current))
+                if (current is FrameworkElement { Visibility: not Visibility.Visible }) return false;
+            var bounds = control.TransformToAncestor(surface).TransformBounds(new Rect(control.RenderSize));
+            return bounds.Width > 0 && bounds.Height > 0 && new Rect(surface.RenderSize).Contains(bounds);
+        }
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
+        if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible)
+            Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout(1100, 900);
+        var tree = Control<TreeView>("PeopleList");
+        var model = (WorkspaceViewModel)tree.DataContext;
+        var owner = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "owner@example.com");
+        ((ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(
+            (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(owner)).GetPattern(PatternInterface.SelectionItem)).Select();
+        Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Control<TextBox>("OfficeNumber").Text = "  Search-time independent profile writing\r\n";
+        var profile = model.ProfileEdit;
+        foreach (var (width, height) in new[] { (1100d, 900d), (700d, 500d) })
+        {
+            Layout(width, height);
+            if (width == 700)
+                Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Layout(width, height);
+            var node = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "root@example.com");
+            var row = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(node);
+            var collapse = (RoutedCommand)row.ContextMenu.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Collapse subtree")).Command;
+            var expand = (RoutedCommand)row.ContextMenu.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Expand subtree")).Command;
+            if (collapse.CanExecute("root@example.com", row)) collapse.Execute("root@example.com", row);
+            expand.Execute("root@example.com", row);
+            PumpUntil(() => model.PeopleTreeExpansion is { ExpandedBranches: > 0 });
+            if (model.PeopleTreeExpansion is not { IsRunning: true, VisitedPeople: > 0 and < 513 })
+                throw new InvalidOperationException("Query entry must start during genuinely unfinished compiled expansion with retained partial branches.");
+            Control<TextBox>("SearchQuery").Text = "Search branch 255";
+            Layout(width, height);
+            var cancel = Control<Button>("CancelTreeExpansionButton");
+            var status = Control<TextBlock>("TreeExpansionStatus");
+            var results = Control<FrameworkElement>("SearchPanel");
+            if (model.PeopleTreeExpansion is not { IsRunning: true } || model.PeopleNavigation.IsBrowsing ||
+                !Presented(results) || !Presented(cancel) || !cancel.IsEnabled || !Presented(status) ||
+                !status.Text.StartsWith("Expanding subtree:", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Nonempty search must retain visible progress and actionable cancellation during unfinished expansion at {width}x{height}: " +
+                    $"running={model.PeopleTreeExpansion?.IsRunning}; browsing={model.PeopleNavigation.IsBrowsing}; " +
+                    $"results={Presented(results)}; cancel={Presented(cancel)}/{cancel.IsEnabled}; status={Presented(status)}; text={status.Text}.");
+            var partial = model.PeopleNavigation.ExpandedPeople.ToArray();
+            var progress = model.PeopleTreeExpansion;
+            cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<PersonSearchResult>()
+                .Any(result => result.Person.Email == "branch255@example.com"));
+            Layout(width, height);
+            if (model.PeopleTreeExpansion != progress with { Status = PeopleTreeExpansionStatus.Cancelled } ||
+                !partial.SequenceEqual(model.PeopleNavigation.ExpandedPeople) || !Presented(status) ||
+                !status.Text.StartsWith("Expand subtree cancelled;", StringComparison.Ordinal) ||
+                cancel.Visibility != Visibility.Collapsed || model.ProfileEdit != profile ||
+                Control<TextBox>("OfficeNumber").Text != "  Search-time independent profile writing\r\n" ||
+                Control<TextBlock>("Email").Text != "owner@example.com")
+                throw new InvalidOperationException("Cancelling from search must stop expansion and retain its exact partial state and independent profile writing.");
+            Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Layout(width, height);
+            if (!partial.SequenceEqual(model.PeopleNavigation.ExpandedPeople) || !row.IsExpanded ||
+                !expand.CanExecute("root@example.com", row) || width == 700 && !model.PeopleNavigation.OverlayOpen)
+                throw new InvalidOperationException("Search-clear must retain cancelled partial expansion, resumability and compact People.");
+        }
+        Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => model.CanSafelyClose);
+        Console.WriteLine("PASS: actual nonempty query during unfinished expansion, visible progress/cancel, exact partial-state retention and search-clear in wide/compact compiled People.");
     }
 
     private static void VerifyReportsVisibility(Window window, string settings)
