@@ -389,6 +389,114 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         Assert.True(app.CanSafelyClose, app.Status);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Successful_reorder_noop_clears_only_its_failure_after_another_client_saves(bool selfDestination)
+    {
+        var app = Seed();
+        Assert.True(app.EditFavorite("avery@example.com", true), app.Status);
+        Assert.True(app.EditFavorite("morgan@example.com", true), app.Status);
+        var note = app.CreatePersonNote("morgan@example.com", "Private", "Original note")!;
+        Assert.False(app.EditPersonNote(note.Id, "", "Independent failed note"));
+        using (WorkspaceFixtures.LockLocalStore(folder))
+            Assert.False(app.ReorderFavorite("morgan@example.com", "alex@example.com"));
+        using (var writer = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(writer.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), writer.Status);
+            Assert.True(writer.ReorderFavorite("morgan@example.com", "alex@example.com"), writer.Status);
+        }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        var revision = app.Synchronization.LocalRevision;
+        Assert.True(app.ReorderFavorite("morgan@example.com", selfDestination ? "morgan@example.com" : "alex@example.com"), app.Status);
+        Assert.Equal(revision, app.Synchronization.LocalRevision);
+        Assert.Equal(["morgan@example.com", "alex@example.com", "avery@example.com"], app.FavoritePeople.Select(person => person.Email));
+        Assert.Contains("title", app.LocalSaveError, StringComparison.OrdinalIgnoreCase);
+        Assert.False(app.CanSafelyClose);
+        Assert.True(app.EditPersonNote(note.Id, "Resolved", "Independent failed note"), app.Status);
+        Assert.Null(app.LocalSaveError);
+        Assert.True(app.CanSafelyClose, app.Status);
+    }
+
+    [Fact]
+    public void Successful_Favorite_noop_clears_only_its_failure_after_another_client_saves()
+    {
+        var app = Seed();
+        var note = app.CreatePersonNote("morgan@example.com", "Private", "Original note")!;
+        Assert.False(app.EditPersonNote(note.Id, "", "Independent failed note"));
+        using (WorkspaceFixtures.LockLocalStore(folder))
+            Assert.False(app.EditFavorite("AVERY@example.com", true));
+        using (var writer = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(writer.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), writer.Status);
+            Assert.True(writer.EditFavorite("avery@example.com", true), writer.Status);
+        }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        var revision = app.Synchronization.LocalRevision;
+        var changes = app.GetProfileTimeline("avery@example.com")!.Changes.Count;
+        Assert.True(app.EditFavorite("AVERY@example.com", true), app.Status);
+        Assert.Equal(revision, app.Synchronization.LocalRevision);
+        Assert.Equal(changes, app.GetProfileTimeline("avery@example.com")!.Changes.Count);
+        Assert.Contains("title", app.LocalSaveError, StringComparison.OrdinalIgnoreCase);
+        Assert.False(app.CanSafelyClose);
+        Assert.True(app.EditPersonNote(note.Id, "Resolved", "Independent failed note"), app.Status);
+        Assert.Null(app.LocalSaveError);
+        Assert.True(app.CanSafelyClose, app.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Writer_locked_legacy_initialization_retains_validated_browsing_until_explicit_recovery(bool emptySeed)
+    {
+        Guid? revision;
+        Guid? noteId = null;
+        if (emptySeed)
+        {
+            System.IO.Compression.ZipFile.ExtractToDirectory(Path.Combine(AppContext.BaseDirectory,
+                "Fixtures", "workspace-sqlite-v3-pristine-87c6ade.zip"), folder);
+            revision = Guid.Parse("1f32abe5-7cc4-4d72-8722-b3edf1c564a3");
+        }
+        else
+        {
+            var seed = Seed();
+            Assert.True(seed.EditFavorite("avery@example.com", true), seed.Status);
+            noteId = seed.CreatePersonNote("avery@example.com", "Private", "Locked initialization keeps writing")!.Id;
+            revision = seed.Synchronization.LocalRevision;
+            seed.Dispose();
+            ChangeStoredFixture("DROP TABLE favorite_order; UPDATE synchronization SET snapshot_format=1;");
+        }
+        using var reader = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        using (WorkspaceFixtures.LockLocalStore(folder))
+        {
+            Assert.True(reader.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reader.Status);
+            Assert.Equal(revision, reader.Synchronization.LocalRevision);
+            Assert.True(reader.IsWorkspaceCurrent);
+            Assert.False(reader.CanEditLocalWorkspace);
+            Assert.False(reader.Compatibility.SupportsOrdinaryEdits);
+            if (!emptySeed)
+            {
+                Assert.Equal(["alex@example.com", "avery@example.com"], reader.FavoritePeople.Select(person => person.Email));
+                Assert.Equal("Locked initialization keeps writing",
+                    reader.GetPersonNotes("avery@example.com").Single(item => item.Id == noteId).Markdown);
+                Assert.True(reader.CanNavigatePeople);
+            }
+        }
+        Assert.True(reader.ReconcileLocalSaves(), reader.Status);
+        Assert.True(reader.CanEditLocalWorkspace);
+        if (emptySeed)
+        {
+            Assert.Equal(revision, reader.Synchronization.LocalRevision);
+            Assert.True(reader.ConfigureSynchronizationFolder(Path.Combine(root, "transport"), true), reader.Status);
+        }
+        else
+        {
+            Assert.NotEqual(revision, reader.Synchronization.LocalRevision);
+            Assert.Equal("Locked initialization keeps writing",
+                reader.GetPersonNotes("avery@example.com").Single(item => item.Id == noteId).Markdown);
+        }
+    }
+
     [Fact]
     public void Reopening_rebuilds_local_queries_favorites_and_attributed_current_archived_and_frozen_context()
     {

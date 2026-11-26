@@ -291,44 +291,55 @@ public sealed partial class ApplicationWorkflow
             localSaveFault = null;
         }
         var canInitialize = walReady && evidenceReady && localWalFault is null && localSaveFault is null;
-        if ((loadedFavorites is null || localSnapshotFormat == 1) &&
-            loaded.Count == 0 && accepted.Count == 0 && localAncestry.Length == 1 &&
-            (Synchronization.Folder is null || joiningWorkspace) && Synchronization.PublishedRevision is null &&
-            canInitialize)
+        var initializationRevision = committedRevision;
+        try
         {
-            revision = committedRevision;
-            if (ReconcileLocalWriteEvidence())
+            if ((loadedFavorites is null || localSnapshotFormat == 1) &&
+                loaded.Count == 0 && accepted.Count == 0 && localAncestry.Length == 1 &&
+                (Synchronization.Folder is null || joiningWorkspace) && Synchronization.PublishedRevision is null &&
+                canInitialize)
             {
-                using var connection = OpenLocalConnection();
-                using var transaction = connection.BeginTransaction();
-                using var command = connection.CreateCommand();
-                command.Transaction = transaction;
-                EnsureSynchronizationHead(command, Synchronization.WorkspaceId, committedRevision);
-                var storedOrder = ReadLocalFavoriteOrder(command, loaded);
-                if ((storedOrder is null) != (loadedFavorites is null) ||
-                    ReadLocalSnapshotFormat(command) != localSnapshotFormat)
-                    throw new IOException("Workspace changed before Favorites initialization. Reopen to reconcile; nothing saved.");
-                EnsureLocalSynchronization(command);
-                WriteLocalFavoriteOrder(command, []);
-                command.Parameters.Clear();
-                command.CommandText = "UPDATE synchronization SET snapshot_format=2 WHERE singleton=1;";
-                command.ExecuteNonQuery();
-                transaction.Commit();
-                loadedFavorites = [];
-                localSnapshotFormat = 2;
+                revision = committedRevision;
+                if (ReconcileLocalWriteEvidence())
+                {
+                    using var connection = OpenLocalConnection();
+                    using var transaction = connection.BeginTransaction();
+                    using var command = connection.CreateCommand();
+                    command.Transaction = transaction;
+                    EnsureSynchronizationHead(command, Synchronization.WorkspaceId, committedRevision);
+                    var storedOrder = ReadLocalFavoriteOrder(command, loaded);
+                    if ((storedOrder is null) != (loadedFavorites is null) ||
+                        ReadLocalSnapshotFormat(command) != localSnapshotFormat)
+                        throw new IOException("Workspace changed before Favorites initialization. Reopen to reconcile; nothing saved.");
+                    EnsureLocalSynchronization(command);
+                    WriteLocalFavoriteOrder(command, []);
+                    command.Parameters.Clear();
+                    command.CommandText = "UPDATE synchronization SET snapshot_format=2 WHERE singleton=1;";
+                    command.ExecuteNonQuery();
+                    transaction.Commit();
+                    loadedFavorites = [];
+                    localSnapshotFormat = 2;
+                }
+            }
+            if (loadedFavorites is null)
+            {
+                loadedFavorites = InitialFavoriteOrder(loaded.Values);
+                if (canInitialize)
+                    committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision);
+            }
+            else if (localSnapshotFormat == 1 && canInitialize)
+            {
+                revision = committedRevision;
+                if (ReconcileLocalWriteEvidence())
+                    committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision, loaded);
             }
         }
-        if (loadedFavorites is null)
+        catch (SqliteException error) when (error.SqliteErrorCode is 5 or 6 &&
+            !LocalSave.HasUnresolvedOutcome && committedRevision == initializationRevision)
         {
-            loadedFavorites = InitialFavoriteOrder(loaded.Values);
-            if (canInitialize)
-                committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision);
-        }
-        else if (localSnapshotFormat == 1 && canInitialize)
-        {
-            revision = committedRevision;
-            if (ReconcileLocalWriteEvidence())
-                committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision, loaded);
+            LocalStorageFailed(error);
+            loadedFavorites ??= InitialFavoriteOrder(loaded.Values);
+            canInitialize = false;
         }
         people = loaded;
         batches = accepted;

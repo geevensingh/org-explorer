@@ -90,6 +90,9 @@ transaction as membership, Import or order changes. Initialization rechecks its
 expected absence before writing; snapshot adoption revalidates the local order
 before replacing any content. Older local Workspace
 formats remain unsupported and are not migrated.
+Confirmed SQLite writer-lock noncommits during initialization likewise retain
+the validated read-only projection and defer persistence to explicit recovery.
+Invalid state and unresolved outcomes are not treated as successful initialization.
 
 Synchronization metadata's `snapshot_format=2` records ordered publication
 support. An absent column or value 1 denotes a supported pre-transport store.
@@ -115,6 +118,9 @@ reason to alphabetize again.
 
 Membership changes and completed reorders commit coherently with the local
 Workspace state. New Favorites append; removing one discards its position.
+After another local client completes a failed Favorite change, a successful
+unchanged retry retires only that change's failure, without a new revision or
+Profile history. Independent failed writing remains retained.
 Renaming or archiving a Person does not move them. A failed reorder save leaves
 the previously committed sequence authoritative and reports the failure.
 Validated complete snapshots must retain the saved order together with Favorite

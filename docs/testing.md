@@ -90,6 +90,11 @@ ordering after validation: initialization and adoption must reject it without
 overwriting the old sequence or private content. Legacy stores without an order
 remain browsable through blocked WAL negotiation or unresolved receipts, then
 initialize during explicit recovery before writes resume.
+Confirmed writer-lock initialization cases preserve both populated legacy
+browsing and pristine-seed Join eligibility. Successful unchanged retries after
+a second client completes Favorite membership or ordering retire only their own
+failure; the tests retain independent note errors and assert no new revision or
+Profile history.
 `WorkspaceSnapshotTests` supplies #143's exact-order interchange-2
 publication/adoption/reopen, initialized-empty and supported unordered
 interchange-1 initialization (including equal-name input ties), pre-transport

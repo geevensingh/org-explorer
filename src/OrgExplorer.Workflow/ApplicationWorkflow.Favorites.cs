@@ -154,6 +154,7 @@ public sealed partial class ApplicationWorkflow
                     return Fail("Favorite move rejected: both identities must be current Favorites. Nothing saved.");
                 if (string.Equals(email, beforeEmail, StringComparison.OrdinalIgnoreCase))
                 {
+                    failedSaves.Remove("favorites-order");
                     Status = "Favorite arrangement unchanged; nothing saved.";
                     return true;
                 }
@@ -163,6 +164,7 @@ public sealed partial class ApplicationWorkflow
                 next.Insert(index, moving.Email);
                 if (favoriteOrder.SequenceEqual(next, StringComparer.OrdinalIgnoreCase))
                 {
+                    failedSaves.Remove("favorites-order");
                     Status = "Favorite arrangement unchanged; nothing saved.";
                     return true;
                 }
@@ -182,6 +184,7 @@ public sealed partial class ApplicationWorkflow
             if (!workspaceCurrent) return Fail("Workspace unavailable; retained information is STALE. No changes saved.");
             if (person.IsFavorite == isFavorite)
             {
+                failedSaves.Remove($"profile:{person.Email.ToLowerInvariant()}:isFavorite");
                 Status = "Favorite membership unchanged; no new arrangement or Profile change saved.";
                 return true;
             }
