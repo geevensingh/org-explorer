@@ -20,12 +20,21 @@ function Assert-TimingMainRevision($History, [string]$Revision) {
     }
 }
 
+function Assert-TimingEventVersion($Record, [int]$ExpectedVersion) {
+    if (!$Record.Contains('schemaVersion') -or
+        ($Record.schemaVersion -isnot [int] -and $Record.schemaVersion -isnot [long]) -or
+        $Record.schemaVersion -ne $ExpectedVersion) {
+        throw "Unsupported or missing $($Record.recordType) schema version; expected integer schemaVersion $ExpectedVersion."
+    }
+}
+
 function Get-TimingControlPath($Record) {
     if ($Record.recordType -ceq 'timing-bootstrap') { return "timing-bootstrap/$($Record.policyVersion).json" }
     return "timing-plans/$($Record.revision)/$($Record.cohortRunId)/$($Record.cohortRunAttempt).json"
 }
 
 function Assert-TimingControl($Record, [string]$Path) {
+    Assert-TimingEventVersion $Record $(if ($Record.recordType -ceq 'timing-bootstrap') { 1 } else { 2 })
     if ($Record.recordType -cnotin @('timing-bootstrap', 'timing-plan') -or
         $Record.repository -cne $FilesystemHealthRepository -or $Record.authority -cne 'trusted-main-push' -or
         $Record.policyVersion -cne 'ci-timing-v2' -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
@@ -119,6 +128,7 @@ function Assert-TimingAutomation($Collection, [long]$RunId, [int]$RunAttempt, [s
 }
 
 function Assert-TimingUnavailable($Record, [string]$Path) {
+    Assert-TimingEventVersion $Record 1
     if ($Record.recordType -cne 'cohort-observation' -or $Record.schemaVersion -ne 1 -or
         $Record.repository -cne $FilesystemHealthRepository -or $Record.authority -cne 'trusted-controller-observation' -or
         $Record.controllerRevision -cnotmatch '^[0-9a-f]{40}$' -or $Record.baselineEligible -isnot [bool] -or
@@ -158,6 +168,7 @@ function Get-TimingReferencePath($Record) {
 }
 
 function Assert-TimingDecision($Record, [string]$Path) {
+    Assert-TimingEventVersion $Record 1
     if ($Record.recordType -cne 'timing-decision' -or $Record.repository -cne $FilesystemHealthRepository -or
         $Record.authority -cne 'trusted-main-push' -or $Record.policyVersion -cne 'ci-timing-v2' -or
         $Path -cne (Get-TimingDecisionPath $Record) -or $Record.cohort.samples.Count -ne 3 -or
@@ -167,6 +178,7 @@ function Assert-TimingDecision($Record, [string]$Path) {
 }
 
 function Assert-TimingReference($Record, [string]$Path) {
+    Assert-TimingEventVersion $Record 1
     if ($Record.recordType -cne 'timing-reference' -or $Record.repository -cne $FilesystemHealthRepository -or
         $Record.authority -cne 'trusted-main-push' -or $Record.policyVersion -cne 'ci-timing-v2' -or
         $Record.seriesKey -cnotmatch '^[0-9a-f]{64}$' -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or

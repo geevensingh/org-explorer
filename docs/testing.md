@@ -2884,6 +2884,13 @@ share the existing validated data branch with all original namespaces. Control/
 reference events are not attempts or ordinary metric samples. The existing
 bounded nonforce publisher preserves concurrent attempts and frozen comparison
 inputs; malformed history and publication failures are explicit.
+Event protocol versions are strict JSON integers: bootstrap1, plan2, decision1
+and reference1 (unavailable cohort observations also use1). Missing, unsupported,
+string, boolean, null or floating versions are refused before replay/publication/
+consumer selection; they never imply current protocol or empty history.
+`AutomaticBaselines.Tests.ps1 -EventVersionMetadata <exported metadata.json>`
+mutates only those real producer event versions in isolated Git and checks
+public replay, publication and consumer refusal.
 Collection keeps one noncancelling queued cohort, sequential samples and at most
 two measurement workers per sample, separate from production release concurrency.
 Neither release nor ordinary PR selection waits for this battery.

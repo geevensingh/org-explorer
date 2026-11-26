@@ -1,4 +1,5 @@
-param([switch]$PlanOnly, [switch]$SmokeOnly, [string]$GateSnapshotDirectory)
+param([switch]$PlanOnly, [switch]$SmokeOnly, [string]$GateSnapshotDirectory,
+    [string]$EventVersionMetadata, [string]$EventVersionCase)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -170,6 +171,84 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
     }
 }
 try {
+    if ($EventVersionMetadata) {
+        . "$root\eng\LaneHealth.ps1"
+        . "$root\eng\TimingPolicy.ps1"
+        $metadata = Get-Content -LiteralPath $EventVersionMetadata -Raw | ConvertFrom-Json -AsHashtable
+        if ($metadata.kind -cne 'isolated-non-production-public-contract-fixture' -or $metadata.hostedMeasurement) {
+            throw 'Version refusal requires an explicitly isolated publisher-produced contract fixture.'
+        }
+        $types = Get-LaneHealthRecordTypes
+        $original = Open-HealthHistory (Join-Path $fixture 'original.git') $metadata.rejectedHistoryRemote `
+            -AllowLocalFixture -RecordTypes $types
+        $known = Get-TimingCanonicalReference $original $metadata.seriesKey $metadata.sourceB
+        Assert ($known.revision -ceq $metadata.sourceA -and $known.eligibility -ceq 'eligible') `
+            'The current producer fixture does not expose its valid non-self canonical predecessor.'
+        $bundle = $metadata.sampleDirectories[0]
+        $execution = New-TimingExecutionRecord (Join-Path $bundle 'non-ui') (Join-Path $bundle 'rich\prefix') `
+            (Join-Path $bundle 'rich\tail') $metadata.sourceB '102' '1'
+        foreach ($type in @('timing-bootstrap', 'timing-plan', 'timing-decision', 'timing-reference')) {
+            $events = @($original.records | Where-Object { $_.recordType -ceq $type })
+            $event = if ($type -ceq 'timing-plan') {
+                @($events | Where-Object { $_.revision -ceq $metadata.sourceB })[0]
+            } else { $events[0] }
+            $path = Get-HealthRecordPath $event $types
+            foreach ($variant in @(
+                @{ name = 'unsupported'; value = 999 },
+                @{ name = 'missing' },
+                @{ name = 'string'; value = [string]$event.schemaVersion },
+                @{ name = 'null'; value = $null },
+                @{ name = 'floating'; value = [double]$event.schemaVersion },
+                @{ name = 'boolean'; value = $true }
+            )) {
+                $case = "$type-$($variant.name)"
+                if ($EventVersionCase -and $EventVersionCase -cne $case) { continue }
+                $remote = Join-Path $fixture "$case.git"
+                Copy-Item -LiteralPath $metadata.rejectedHistoryRemote -Destination $remote -Recurse
+                $tip = Invoke-HealthGit $remote @('rev-parse', 'refs/heads/ci-health-data')
+                $record = (Invoke-HealthGit $remote @('show', "${tip}:$path")) |
+                    ConvertFrom-Json -AsHashtable -DateKind String -Depth 30
+                if ($variant.name -ceq 'missing') { $record.Remove('schemaVersion') }
+                else { $record.schemaVersion = $variant.value }
+                $inputPath = Join-Path $fixture "$case.json"
+                $record | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $inputPath
+                $null = Invoke-HealthGit $remote @('read-tree', $tip)
+                $blob = Invoke-HealthGit $remote @('hash-object', '-w', $inputPath)
+                $null = Invoke-HealthGit $remote @('update-index', '--add', '--cacheinfo', "100644,$blob,$path")
+                $tree = Invoke-HealthGit $remote @('write-tree')
+                $commit = Invoke-HealthGit $remote @('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit-tree', $tree, '-p', $tip, '-m', "Mutate only $case event schema")
+                $null = Invoke-HealthGit $remote @('update-ref', 'refs/heads/ci-health-data', $commit, $tip)
+                $reason = $null
+                $pointer = $null
+                try {
+                    $replay = Open-HealthHistory (Join-Path $fixture "$case-reader.git") $remote -AllowLocalFixture -RecordTypes $types
+                    $pointer = Get-TimingCanonicalReference $replay $metadata.seriesKey $metadata.sourceB
+                } catch { $reason = $_.Exception.Message }
+                Assert ($null -eq $pointer -and $reason -match '(?i)schema|version') `
+                    "Unknown $case protocol replay obtained a canonical pointer or failed for an unrelated reason: $reason"
+                $publication = @{} + $original
+                $publication.remote = $remote
+                $publicationReason = $null
+                try { $null = Publish-HealthRecord $publication $record }
+                catch { $publicationReason = $_.Exception.Message }
+                Assert ($publicationReason -match '(?i)schema|version') `
+                    "Unknown $case version reached immutable publication without explicit protocol refusal: $publicationReason"
+                $consumer = $execution | ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable -DateKind String -Depth 30
+                $consumerReason = $null
+                try {
+                    $consumerHistory = Open-HealthHistory (Join-Path $fixture "$case-consumer.git") $remote -AllowLocalFixture -RecordTypes $types
+                    Set-TimingExecutionComparison $consumer $consumerHistory
+                } catch { $consumerReason = $_.Exception.Message }
+                Assert (!$consumer.Contains('timingEvaluation') -and $consumerReason -match '(?i)schema|version') `
+                    "Unknown $case protocol yielded an enforced consumer comparison instead of refusal: $consumerReason"
+            }
+        }
+        Assert ($checks -gt 1) 'Requested event version case did not run any protocol mutation.'
+        Write-Host "PASS: $checks public publisher-event version refusal checks."
+        $global:LASTEXITCODE = 0
+        return
+    }
     $remote = Join-Path $fixture 'remote with spaces.git'
     $source = Join-Path $fixture 'source'
     & git init --bare --quiet $remote
