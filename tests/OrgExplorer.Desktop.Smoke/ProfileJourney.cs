@@ -13,23 +13,32 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private const string ProfileJourneyInitialImport = """
+        {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
+         "observedAt":"2026-11-01T17:00:00Z","people":[
+         {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"007B",
+          "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
+          "managerEmail":"morgan@example.com","photoPath":"avery.png"},
+         {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
+         {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
+         {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+         {"email":"archived.reference@example.com","displayName":"Archived reference","managerEmail":null,"archived":true}]}
+        """;
+
+    private const string ProfileJourneyInheritedImport = """
+        {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000089",
+         "observedAt":"2026-11-02T16:00:00Z","people":[
+         {"email":"morgan@example.com","managerEmail":"rowan@example.com"},
+         {"email":"rowan@example.com","displayName":"Rowan Example","managerEmail":null}]}
+        """;
+
     private static void RunProfileJourney(string executable, string root)
     {
         var producer = Path.Combine(root, "producer");
         Directory.CreateDirectory(producer);
         CreatePhotoFixture(Path.Combine(producer, "avery.png"));
         var import = Path.Combine(producer, "import.json");
-        File.WriteAllText(import, """
-            {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
-             "observedAt":"2026-11-01T17:00:00Z","people":[
-             {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"007B",
-              "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
-              "managerEmail":"morgan@example.com","photoPath":"avery.png"},
-             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
-             {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
-             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
-             {"email":"archived.reference@example.com","displayName":"Archived reference","managerEmail":null,"archived":true}]}
-            """);
+        File.WriteAllText(import, ProfileJourneyInitialImport);
         var workspace = Path.Combine(root, "workspace");
         Directory.CreateDirectory(workspace);
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -447,12 +456,7 @@ internal static partial class Program
 
     private static void AssertInheritedTeamNameEditing(AutomationElement window, string import, string workspace)
     {
-        File.WriteAllText(import, """
-            {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000089",
-             "observedAt":"2026-11-02T16:00:00Z","people":[
-             {"email":"morgan@example.com","managerEmail":"rowan@example.com"},
-             {"email":"rowan@example.com","displayName":"Rowan Example","managerEmail":null}]}
-            """);
+        File.WriteAllText(import, ProfileJourneyInheritedImport);
         ApplyReviewedHistoryImport(window);
         Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
         NavigateToManager(window, "rowan@example.com");

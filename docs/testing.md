@@ -139,6 +139,21 @@ actual complete glyph geometry after outer scrolling. The text provider's
 own ScrollIntoView did not move this enclosing list in the observed regression;
 compiled success is still not a hosted physical-input or screen-rectangle pass.
 
+Those selectors and the full profile-refresh contract also replay the accepted
+ProfileJourney history before the actual adaptive, tall and many-warning inputs:
+the shared initial photo import, copied-profile Save/restore evidence, owned
+Team-name changes, the shared Morgan-to-Rowan import, inherited-owner edits,
+Preferred name and LinkedIn Save. The replay pins local recording time and checks
+the independently known restored values and Manager evidence. It retains the
+separate 700x500 glyph regression; the complete-history adaptive phase uses the
+hosted journey's 700-DIP height, followed by tall review and sixteen complete
+diagnostics at 700x700/500. Preview diagnostics record CanApply, errors, warnings,
+exact impact and per-Person changes. Sixteen genuine older warnings must produce
+only Avery's `007B` to `FINAL-0099` Office-number change, with four unchanged
+People and every action count zero: Morgan's supplied Manager remains Rowan.
+The entire preview sequence preserves saved bytes. Native keyboard, all required
+character rectangles and captures remain separate hosted acceptance.
+
 The collector workflow cases cross the same public helper/compiled-CLI seam:
 atomic standing-policy startup, serial/two-worker leasing, exact prepared
 requests, original lookup timestamps, stopped-worker handoff, compact sampled

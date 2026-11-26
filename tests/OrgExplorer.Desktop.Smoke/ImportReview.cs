@@ -250,6 +250,54 @@ internal static partial class Program
         return true;
     }
 
+    private static string AdaptiveImportFixture(string longValue, string multiline) => $$"""
+        {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000090",
+         "observedAt":"2026-11-03T17:00:00Z","people":[
+         {"email":"avery@example.com","displayName":"Avery updated","alias":"avery.updated",
+          "jobTitle":"Principal researcher","department":"Applied research","officeBuilding":{{JsonSerializer.Serialize(longValue)}},
+          "officeNumber":"0099","officeState":"Washington","officeCountry":"United States","isFavorite":true,"photoPath":null},
+         {"email":"morgan@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}}},
+         {"email":"V-reference@example.com","officeBuilding":{{JsonSerializer.Serialize(multiline)}}},
+         {"email":"v-child@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"managerEmail":null,"archived":true,"isFavorite":true},
+         {"email":"archived.reference@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"archived":false},
+         {"email":"new.reference@example.com","displayName":"New reference","managerEmail":null}]}
+        """;
+
+    private static string TallImportFixture(string multiline) => $$"""
+        {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000091",
+         "observedAt":"2026-11-03T17:00:00Z","people":[
+         {"email":"avery@example.com","officeBuilding":{{JsonSerializer.Serialize(multiline)}},"officeNumber":"FINAL-0099","officeState":"WA"}]}
+        """;
+
+    private const string ManyImportDiagnosticsFixture = """
+        {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000092",
+         "observedAt":"2026-10-02T17:00:00Z","people":[
+         {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"FINAL-0099",
+          "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada","managerEmail":"morgan@example.com"},
+         {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"rowan@example.com"},
+         {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
+         {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+         {"email":"archived.reference@example.com","displayName":"Archived reference","managerEmail":null,"archived":true}]}
+        """;
+
+    private static void AssertManyImportDiagnosticsFixture(ImportPreview preview)
+    {
+        var diagnostic = JsonSerializer.Serialize(new
+        {
+            preview.CanApply, preview.Errors, WarningCount = preview.Warnings.Count, preview.Warnings, preview.Impact,
+            People = preview.People.Select(person => new { person.Email, person.IsNew, person.Changes })
+        });
+        Console.WriteLine("IMPORT-MANY-DIAGNOSTICS-PREVIEW " + diagnostic);
+        if (!preview.CanApply || preview.Errors.Count != 0 || preview.Warnings.Count != 16 ||
+            preview.Warnings.Any(warning => !warning.Contains("older evidence", StringComparison.Ordinal)) ||
+            preview.Impact != new ImportBatchImpact(0, 1, 4, 0, 0, 0, 0, 0))
+            throw new InvalidOperationException("The many-diagnostics fixture must contain sixteen real older-evidence warnings and one changed Person. " + diagnostic);
+        var changed = preview.People.Single(person => person.Changes.Count > 0);
+        if (changed.Email != "avery@example.com" ||
+            changed.Changes is not [{ Field: "officeNumber", Kind: ImportChangeKind.Text, Before: "007B", After: "FINAL-0099" }])
+            throw new InvalidOperationException("The many-diagnostics fixture must change only Avery's known Office number. " + diagnostic);
+    }
+
     private static void ExerciseAdaptiveImportReview(AutomationElement window, string workspace, string import)
     {
         var before = WorkspaceFixtures.Bytes(workspace);
@@ -294,18 +342,7 @@ internal static partial class Program
                 ["Office state: (none) → Washington", "Office country: Canada → United States of America"], "adaptive-pair");
             var longValue = new string('W', 160) + " complete end";
             const string multiline = "North floor\nSouth floor";
-            File.WriteAllText(import, $$"""
-                {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000090",
-                 "observedAt":"2026-11-03T17:00:00Z","people":[
-                 {"email":"avery@example.com","displayName":"Avery updated","alias":"avery.updated",
-                  "jobTitle":"Principal researcher","department":"Applied research","officeBuilding":{{JsonSerializer.Serialize(longValue)}},
-                  "officeNumber":"0099","officeState":"Washington","officeCountry":"United States","isFavorite":true,"photoPath":null},
-                 {"email":"morgan@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}}},
-                 {"email":"V-reference@example.com","officeBuilding":{{JsonSerializer.Serialize(multiline)}}},
-                 {"email":"v-child@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"managerEmail":null,"archived":true,"isFavorite":true},
-                 {"email":"archived.reference@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"archived":false},
-                 {"email":"new.reference@example.com","displayName":"New reference","managerEmail":null}]}
-                """);
+            File.WriteAllText(import, AdaptiveImportFixture(longValue, multiline));
             using (var workflow = OpenSmokeWorkspace(workspace))
             {
                 var preview = workflow.PreviewImportFile(import);
@@ -347,11 +384,7 @@ internal static partial class Program
         const string tail = "Final building characters";
         var multiline = string.Join("\n", Enumerable.Range(1, 80).Select(line => $"Floor {line:00} complete value")) +
             "\n" + tail;
-        File.WriteAllText(import, $$"""
-            {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000091",
-             "observedAt":"2026-11-03T17:00:00Z","people":[
-             {"email":"avery@example.com","officeBuilding":{{JsonSerializer.Serialize(multiline)}},"officeNumber":"FINAL-0099","officeState":"WA"}]}
-            """);
+        File.WriteAllText(import, TallImportFixture(multiline));
         using (var workflow = OpenSmokeWorkspace(workspace))
         {
             var preview = workflow.PreviewImportFile(import);
@@ -404,25 +437,14 @@ internal static partial class Program
 
     private static void ExerciseManyImportDiagnostics(AutomationElement window, string workspace, string import)
     {
-        File.WriteAllText(import, """
-            {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000092",
-             "observedAt":"2026-10-02T17:00:00Z","people":[
-             {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"FINAL-0099",
-              "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada","managerEmail":"morgan@example.com"},
-             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
-             {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
-             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
-             {"email":"archived.reference@example.com","displayName":"Archived reference","managerEmail":null,"archived":true}]}
-            """);
+        File.WriteAllText(import, ManyImportDiagnosticsFixture);
         string expected;
         string first;
         string last;
         using (var workflow = OpenSmokeWorkspace(workspace))
         {
             var preview = workflow.PreviewImportFile(import);
-            if (!preview.CanApply || preview.Warnings.Count != 16 ||
-                preview.Impact is not { PeopleAdded: 0, ExistingPeopleChanged: 1, NoPersonChanges: 4 })
-                throw new InvalidOperationException("The native many-diagnostics fixture must contain sixteen real older-evidence warnings and one changed Person.");
+            AssertManyImportDiagnosticsFixture(preview);
             expected = string.Join("\n", preview.Errors.Concat(preview.Warnings).Concat(preview.Messages));
             first = preview.Warnings.First();
             last = preview.Warnings.Last();
