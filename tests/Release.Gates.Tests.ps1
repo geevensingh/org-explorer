@@ -87,10 +87,12 @@ try {
         $note | ConvertTo-Json -Depth 12 | Set-Content $path
     }
     $activeUnion = Join-Path $root 'active-union'
+    $timingRemote = Join-Path $root 'timing-history.git'
+    git init --bare --quiet $timingRemote
     & "$PSScriptRoot\..\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $active.prefix -TailDirectory $active.tail `
         -ExpectedRevision $candidate -RunId 123 -RunAttempt 2 -ExpectedPolicyVersion ci-timing-v2 -ResultsDirectory $activeUnion
     Assert-ReleaseVerification -PerformanceDirectory "$root\non-ui-performance" -UiScaleDirectory $activeUnion `
-        -Candidate $candidate -StartedAt $started -ExpectedPolicyVersion ci-timing-v2
+        -Candidate $candidate -StartedAt $started -ExpectedPolicyVersion ci-timing-v2 -TimingHistoryRemote $timingRemote -AllowLocalFixture
     $timing = @(Get-Content (Join-Path $activeUnion 'timing-evaluation.json') -Raw | ConvertFrom-Json)
     if ($timing.Count -ne 2 -or $timing[0].timingEvaluation.health -cne 'yellow' -or
         $timing[0].timingEvaluation.blocking -or $timing[0].timingEvaluation.version -cne 'ci-timing-v2' -or

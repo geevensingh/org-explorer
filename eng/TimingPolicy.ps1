@@ -52,7 +52,7 @@ function Set-TimingPolicyPreview($Record, $History,
     $richNoteCeiling = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 1050 } else { 1500 }
     $prefixWatchdog = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 17 } else { 30 }
     $approval = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 'pending' } else { 'approved' }
-    if ($Record.recordType -cne 'performance-cohort') {
+    if ($Record.recordType -cne 'performance-cohort' -and !($Active -and $Record.recordType -ceq 'release-timing')) {
         $metrics = @{}
         if ($Record.measurements) {
             $metrics.executionSeconds = @{
@@ -264,7 +264,7 @@ function Set-TimingPolicyPreview($Record, $History,
 }
 
 function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$HistoryTip = $null) {
-    if ($Record.recordType -ceq 'performance-cohort') {
+    if ($Record.recordType -cin @('performance-cohort', 'release-timing')) {
         foreach ($entry in @($Record.metrics.GetEnumerator())) {
             $metric = $entry.Value
             foreach ($field in @('median', 'minimum', 'maximum', 'range', 'count')) {

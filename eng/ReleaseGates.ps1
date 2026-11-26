@@ -1,6 +1,8 @@
 function Assert-ReleaseVerification(
     [string]$PerformanceDirectory, [string]$UiScaleDirectory, [string]$Candidate, [DateTimeOffset]$StartedAt,
-    [string]$ExpectedPolicyVersion
+    [string]$ExpectedPolicyVersion,
+    [string]$TimingHistoryRemote = 'https://github.com/geevensingh/org-explorer.git',
+    [switch]$AllowLocalFixture
 ) {
     . "$PSScriptRoot\PerformanceSuite.ps1"
     . "$PSScriptRoot\DesktopResults.ps1"
@@ -78,5 +80,89 @@ function Assert-ReleaseVerification(
             if ($env:GITHUB_STEP_SUMMARY) { Format-TimingPolicyEvaluation $record.timingEvaluation | Add-Content $env:GITHUB_STEP_SUMMARY }
         }
         ConvertTo-Json -InputObject @($evaluations) -Depth 30 | Set-Content (Join-Path $UiScaleDirectory 'timing-evaluation.json')
+        . "$PSScriptRoot\LaneHealth.ps1"
+        $comparison = @{
+            schemaVersion = 2; recordType = 'release-timing'; revision = $Candidate; validation = 'success'
+            runId = $union.runId; runAttempt = $union.runAttempt; policyVersion = 'ci-timing-v2'
+            observedAt = [DateTimeOffset]::UtcNow.ToString('O'); unexpectedExecutions = $false; measurements = $null
+            samples = @(); metrics = @{}; comparisonDiagnostics = @()
+        }
+        $sample = @{ configuration = $null; rich = @{ seriesKey = $null } }
+        foreach ($worker in @('prefix', 'tail')) {
+            $sample.rich[$worker] = Get-UiScaleWorkerResult (Join-Path $owned $worker) $worker $Candidate $union.runId $union.runAttempt -ExpectedPolicyVersion $ExpectedPolicyVersion
+            $comparison.metrics["$worker-executionSeconds"] = @{
+                count = 1; minimum = $sample.rich[$worker].report.executionSeconds; maximum = $sample.rich[$worker].report.executionSeconds
+                median = $sample.rich[$worker].report.executionSeconds; range = 0
+            }
+        }
+        $performanceReport = Get-Content (Join-Path $PerformanceDirectory 'result.json') -Raw | ConvertFrom-Json -AsHashtable
+        if ($performanceReport.Contains('configuration')) { $sample.configuration = $performanceReport.configuration }
+        $comparison.metrics.executionSeconds = @{ count = 1; minimum = $performanceReport.executionSeconds
+            maximum = $performanceReport.executionSeconds; median = $performanceReport.executionSeconds; range = 0 }
+        $sample.rich.handoff = Get-Content (Join-Path $sample.rich.prefix.run 'handoff\handoff.json') -Raw | ConvertFrom-Json -AsHashtable
+        foreach ($phase in @('normal-executable', 'background-export')) {
+            $note = Get-Content (Join-Path $sample.rich.prefix.run "scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json") -Raw | ConvertFrom-Json
+            $comparison.metrics["prefix-$phase-localDurability-p95-ms"] = @{
+                count = 1; minimum = $note.localDurability.p95Ms; maximum = $note.localDurability.p95Ms
+                median = $note.localDurability.p95Ms; range = 0
+            }
+        }
+        foreach ($worker in @('prefix', 'tail')) {
+            $phase = if ($worker -ceq 'prefix') { 'background-export' } else { 'normal-executable' }
+            $scenario = if ($worker -ceq 'prefix') { 'scale-mutation-save-prefix' } else { 'scale-mutation-delivery-tail' }
+            $profile = Get-Content (Join-Path $sample.rich[$worker].run "$scenario-ui-sqlite-rich-profile-latency-$phase.json") -Raw | ConvertFrom-Json
+            $comparison.metrics["$worker-profile-p95-ms"] = @{ count = 1; minimum = $profile.p95Ms
+                maximum = $profile.p95Ms; median = $profile.p95Ms; range = 0 }
+        }
+        $performanceLog = Join-Path $PerformanceDirectory "$($performanceReport.runDirectory)\scale-measurements.log"
+        $profileLines = @()
+        if (Test-Path -LiteralPath $performanceLog) {
+            $profileLines = @(Get-Content $performanceLog | Where-Object { $_.StartsWith('SCALE ORDINARY-PROFILE ') })
+        }
+        if ($profileLines.Count -eq 1) {
+            $profile = $profileLines[0].Substring('SCALE ORDINARY-PROFILE '.Length) | ConvertFrom-Json -AsHashtable
+            $metric = Read-HealthLatency $profile 'profile-save' 21
+            $comparison.metrics.'profile-p95-ms' = @{ count = 1; minimum = $metric.value
+                maximum = $metric.value; median = $metric.value; range = 0 }
+        } else { $comparison.comparisonDiagnostics += 'Non-UI profile timing unavailable; no substitute or zero was supplied.' }
+        $comparison.samples = @($sample)
+        $history = $null; $reference = $null; $knownBlocking = @()
+        try {
+            if ($null -eq $sample.configuration) { throw 'Resolved non-UI comparison configuration is unavailable.' }
+            $sample.rich.seriesKey = Get-RichCohortSeriesKey $sample ci-timing-v2
+            $history = Open-HealthHistory (Join-Path $UiScaleDirectory ('timing-history-' + [guid]::NewGuid().ToString('N') + '.git')) `
+                $TimingHistoryRemote -AllowLocalFixture:$AllowLocalFixture -RecordTypes (Get-LaneHealthRecordTypes)
+            if (@($history.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-reference' }).Count) {
+                Set-TimingMainContext $history
+                $reference = Get-TimingCanonicalReference $history $sample.rich.seriesKey $Candidate
+                foreach ($cohort in @($history.records | Where-Object {
+                    $_.Contains('recordType') -and $_.recordType -ceq 'performance-cohort' -and
+                    $_.policyVersion -ceq 'ci-timing-v2' -and $_.revision -ceq $Candidate -and
+                    $_.samples.Count -eq 5 -and $_.validation -ceq 'success' -and
+                    (Get-TimingCohortKey $_) -ceq $sample.rich.seriesKey
+                })) {
+                    $copy = $cohort | ConvertTo-Json -Depth 40 | ConvertFrom-Json -AsHashtable -Depth 40
+                    $pinned = Get-TimingPinnedReference $copy $history
+                    Set-TimingPolicyEvaluation $copy $pinned $history.tip
+                    if (@($copy.timingEvaluation.metrics.Values | Where-Object { $_.Contains('seriousRegression') -and $_.seriousRegression }).Count) {
+                        $knownBlocking += $copy.cohortId
+                    }
+                }
+            }
+        } catch {
+            $comparison.comparisonDiagnostics += "Available-reference comparison is unavailable: $($_.Exception.Message)"
+            Write-Warning $comparison.comparisonDiagnostics[-1]
+            $reference = $null
+        }
+        Set-TimingPolicyEvaluation $comparison $reference $(if ($history) { $history.tip } else { $null })
+        $comparison.knownSeriousCohorts = $knownBlocking
+        $comparison.verificationScope = 'one fresh exact-candidate execution; never a three-to-five collection cohort'
+        if ($comparison.comparisonDiagnostics.Count -and $comparison.timingEvaluation.health -ceq 'green') {
+            $comparison.timingEvaluation.health = 'inconclusive'
+        }
+        if ($knownBlocking.Count) { $comparison.timingEvaluation.blocking = $true; $comparison.timingEvaluation.health = 'red' }
+        $comparison | ConvertTo-Json -Depth 40 | Set-Content (Join-Path $UiScaleDirectory 'timing-comparison.json')
+        if ($env:GITHUB_STEP_SUMMARY) { Format-TimingPolicyEvaluation $comparison.timingEvaluation | Add-Content $env:GITHUB_STEP_SUMMARY }
+        if ($comparison.timingEvaluation.blocking) { throw 'Fresh release validation passed, but already available approved serious-relative evidence blocks this candidate.' }
     }
 }
