@@ -7,6 +7,44 @@ public sealed class TreeItemRealizationTests
 {
     [Fact]
     [Trait("Category", "Runner")]
+    public void Menu_retention_captures_once_per_boundary_and_never_reuses_a_frame_after_input()
+    {
+        var captures = 0;
+        var writing = "  Exact retained profile\r\n";
+        var contentFrames = new List<(int Capture, string Writing)>();
+        var targetFrames = new List<(int Capture, string Writing)>();
+        (int Capture, string Writing) Capture() => (++captures, writing);
+
+        TreeItemRealization.AssertMenuRetention(TreeItemRealization.MenuRetentionBoundary.Command,
+            Capture, contentFrames.Add, targetFrames.Add);
+        writing = "New writing after a later input";
+        TreeItemRealization.AssertMenuRetention(TreeItemRealization.MenuRetentionBoundary.Command,
+            Capture, contentFrames.Add, targetFrames.Add);
+
+        Assert.Equal(2, captures);
+        Assert.Equal([(1, "  Exact retained profile\r\n"), (2, "New writing after a later input")], contentFrames);
+        Assert.Equal(contentFrames, targetFrames);
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Batched_retention_still_rejects_lost_content_and_an_invisible_command_target(bool contentLost)
+    {
+        var captures = 0;
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            TreeItemRealization.AssertMenuRetention(TreeItemRealization.MenuRetentionBoundary.Command,
+                () => { captures++; return (ContentLost: contentLost, TargetTop: 461d); },
+                frame => { if (frame.ContentLost) throw new InvalidOperationException("Profile/writing or People changed."); },
+                frame => { if (frame.TargetTop < 478) throw new InvalidOperationException("Collapse subtree lost its target row."); }));
+
+        Assert.Equal(1, captures);
+        Assert.Equal(contentLost ? "Profile/writing or People changed." : "Collapse subtree lost its target row.", error.Message);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Menu_preparation_targets_the_disclosure_identity_without_a_scrolling_pointer_request()
     {
         var expanded = false;

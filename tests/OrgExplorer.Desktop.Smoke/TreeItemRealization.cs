@@ -30,6 +30,13 @@ internal static class TreeItemRealization
         if (boundary != MenuRetentionBoundary.OrdinaryFixtureRestoration) assertTargetVisible();
     }
 
+    internal static void AssertMenuRetention<T>(MenuRetentionBoundary boundary, Func<T> capture,
+        Action<T> assertContentRetained, Action<T> assertTargetVisible)
+    {
+        var observation = capture();
+        AssertMenuRetention(boundary, () => assertContentRetained(observation), () => assertTargetVisible(observation));
+    }
+
     internal static void PrepareMenuBranch(Func<bool> isExpanded, Action<MenuBranchInput> requestInput,
         Action<Func<bool>> awaitState) =>
         AwaitExpanded(true, isExpanded, () => requestInput(MenuBranchInput.DisclosureToggle), awaitState);
