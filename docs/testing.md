@@ -115,6 +115,15 @@ passed. Each menu subjourney now records the existing nested harness-runtime
 costs, followed by a parent checkpoint so completed-state costs survive a later
 watchdog interruption. These measurements are diagnostic, not product latency
 or budget deductions; all matrices, assertions and deadlines remain unchanged.
+Run `45730328088` measured 376.68 seconds across the nine reading menu calls,
+including approximately 252.28 seconds in 1,635 UIA discoveries. Menu retention
+now captures its original writing fields, Person identity, panel visibility and
+target/viewport geometry in one fresh cached-UIA batch per boundary, rather than
+rediscovering each control. The original value/help-text/name snapshot and exact
+target predicate are unchanged. A frame is never reused across an input or
+later boundary; runner regressions reject repeated capture, stale writing,
+changed content and invisible command targets. UIA caches are not atomic native
+snapshots, and reduced discovery count is not proof of meeting the hosted budget.
 
 ## Placement
 

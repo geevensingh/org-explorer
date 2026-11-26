@@ -600,30 +600,48 @@ internal static partial class Program
 
     private static void AssertReportingTreeMenuCore(AutomationElement window, string managerEmail, string reportEmail, string state)
     {
-        var panelWasOpen = IsVisible(window, "PeopleNavigation");
-        var compact = IsVisible(window, "OpenPeople");
-        var owner = CurrentPersonEmail(window);
-        string[] Snapshot()
+        var writingIds = new HashSet<string>(StringComparer.Ordinal)
         {
-            var ids = new[] { "Email", "DirectoryName", "ProfileEditingState", "DirectoryNameEditor", "Alias", "JobTitle",
-                "Department", "OfficeBuilding", "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl",
-                "PersonNoteHeading", "TeamNoteHeading", "PersonNoteTitle", "PersonNoteMarkdown", "TeamNoteTitle",
-                "TeamNoteMarkdown", "PersonNoteStatus", "TeamNoteStatus" };
+            "Email", "DirectoryName", "ProfileEditingState", "DirectoryNameEditor", "Alias", "JobTitle",
+            "Department", "OfficeBuilding", "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl",
+            "PersonNoteHeading", "TeamNoteHeading", "PersonNoteTitle", "PersonNoteMarkdown", "TeamNoteTitle",
+            "TeamNoteMarkdown", "PersonNoteStatus", "TeamNoteStatus"
+        };
+        AutomationElement[] CaptureRetention()
+        {
+            var ids = writingIds.Concat(["People", "PeopleNavigation", "OpenPeople", "ClosePeople"]);
+            var conditions = ids.Select(id => (System.Windows.Automation.Condition)new PropertyCondition(AutomationElement.AutomationIdProperty, id))
+                .Append(new AndCondition(
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, managerEmail),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TreeItem))).ToArray();
             using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
             var cache = new CacheRequest { TreeScope = TreeScope.Element };
             cache.Add(AutomationElement.AutomationIdProperty);
             cache.Add(AutomationElement.NameProperty);
             cache.Add(AutomationElement.HelpTextProperty);
+            cache.Add(AutomationElement.IsOffscreenProperty);
+            cache.Add(AutomationElement.BoundingRectangleProperty);
             cache.Add(ValuePattern.ValueProperty);
             AutomationElementCollection controls;
             using (cache.Activate())
-                controls = window.FindAll(TreeScope.Descendants, new OrCondition(ids.Select(id =>
-                    new PropertyCondition(AutomationElement.AutomationIdProperty, id)).ToArray()));
-            return controls.Cast<AutomationElement>().OrderBy(element => element.Cached.AutomationId)
+                controls = window.FindAll(TreeScope.Descendants, new OrCondition(conditions));
+            return controls.Cast<AutomationElement>().ToArray();
+        }
+        string[] Writing(AutomationElement[] controls) =>
+            controls.Where(element => writingIds.Contains(element.Cached.AutomationId))
+                .OrderBy(element => element.Cached.AutomationId)
                 .Select(element => $"{element.Cached.AutomationId}:{element.Cached.Name}:{element.Cached.HelpText}:" +
                     element.GetCachedPropertyValue(ValuePattern.ValueProperty)).ToArray();
-        }
-        var before = Snapshot();
+        AutomationElement Captured(AutomationElement[] controls, string id) =>
+            controls.FirstOrDefault(element => element.Cached.AutomationId == id) ??
+                throw new InvalidOperationException("Missing actual UI control: " + id);
+        bool Visible(AutomationElement[] controls, string id) =>
+            controls.FirstOrDefault(element => element.Cached.AutomationId == id) is { } control && !control.Cached.IsOffscreen;
+        var initial = CaptureRetention();
+        var panelWasOpen = Visible(initial, "PeopleNavigation");
+        var compact = Visible(initial, "OpenPeople");
+        var owner = Captured(initial, "Email").Cached.Name;
+        var before = Writing(initial);
         EnsurePeopleBrowsing(window);
         bool ArchivedListShown() => ((TogglePattern)Find(window, "ShowArchivedPeople")
             .GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState == ToggleState.On;
@@ -661,16 +679,17 @@ internal static partial class Program
         }
         void AssertRetained(TreeItemRealization.MenuRetentionBoundary boundary = TreeItemRealization.MenuRetentionBoundary.Command)
         {
-            TreeItemRealization.AssertMenuRetention(boundary, () =>
+            TreeItemRealization.AssertMenuRetention(boundary, CaptureRetention, controls =>
             {
-                if (CurrentPersonEmail(window) != owner || !before.SequenceEqual(Snapshot()) ||
-                    !IsVisible(window, "People") || compact && !IsVisible(window, "ClosePeople"))
+                if (Captured(controls, "Email").Cached.Name != owner || !before.SequenceEqual(Writing(controls)) ||
+                    !Visible(controls, "People") || compact && !Visible(controls, "ClosePeople"))
                     throw new InvalidOperationException($"A tree presentation action changed the profile/writing or dismissed compact People at {state}.");
-            }, () =>
+            }, controls =>
             {
-                var bounds = Row(managerEmail).Current.BoundingRectangle;
-                var viewport = Find(window, "People").Current.BoundingRectangle;
-                if (Row(managerEmail).Current.IsOffscreen || bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
+                var row = Captured(controls, managerEmail);
+                var bounds = row.Cached.BoundingRectangle;
+                var viewport = Captured(controls, "People").Cached.BoundingRectangle;
+                if (row.Cached.IsOffscreen || bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
                     throw new InvalidOperationException($"Collapse subtree lost its target row at {state}.");
             });
         }
@@ -690,7 +709,8 @@ internal static partial class Program
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>().ToArray();
             if (actions.Length != 1 || actions[0].Current.Name != "Collapse subtree" || !actions[0].Current.IsEnabled)
                 throw new InvalidOperationException($"The tree menu contains a no-op, duplicate or unimplemented action at {state}.");
-            if (CurrentPersonEmail(window) != owner || !before.SequenceEqual(Snapshot()))
+            var opening = CaptureRetention();
+            if (Captured(opening, "Email").Cached.Name != owner || !before.SequenceEqual(Writing(opening)))
                 throw new InvalidOperationException($"Opening the tree menu navigated or submitted retained writing at {state}.");
             if (keyboard)
             {
@@ -843,8 +863,9 @@ internal static partial class Program
         AssertRetained();
         ReexpandForMenu("restore-fixture", TreeItemRealization.MenuRetentionBoundary.OrdinaryFixtureRestoration);
         TreeItemRealization.RestoreArchivedListAfterMenu(archivedInitiallyShown, ArchivedListShown, ToggleArchivedList, Await);
-        if (CurrentPersonEmail(window) != owner || !before.SequenceEqual(Snapshot()) ||
-            !IsVisible(window, "PeopleNavigation") || compact && !IsVisible(window, "ClosePeople"))
+        var restored = CaptureRetention();
+        if (Captured(restored, "Email").Cached.Name != owner || !before.SequenceEqual(Writing(restored)) ||
+            !Visible(restored, "PeopleNavigation") || compact && !Visible(restored, "ClosePeople"))
             throw new InvalidOperationException($"Archived-list fixture restoration changed the profile/writing or closed People at {state}.");
         if (compact && !panelWasOpen)
         {
