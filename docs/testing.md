@@ -3167,6 +3167,21 @@ viewport offset and selected email; it retains the existing 180-second bound.
 
 ## Nightly and manual execution
 
+The temporary registered `ci.yml` input `sqlite_native_trace_stage1` defaults
+false. Selecting it runs only isolated hosted Windows permission/provider-schema
+feasibility metadata; it starts no fixture, trace, reader, lock or elevation.
+Ordinary and optional execution are suppressed for this investigative dispatch.
+Their normal commands, partitions and budgets remain unchanged when false.
+The existing `CI` aggregate is unchanged and cannot accept its skipped lanes.
+The diagnostic job also fails closed with `RefusedHost`,
+`BlockedPreCollectionFiltering` or `FeasibilityError`, retaining bounded
+`feasibility.json` under `diagnostic-sqlite-stage1-<sha>-<run>-<attempt>`.
+Provider metadata and generic PID filters do not demonstrate kernel-provider
+PID/known-file pre-collection isolation. This check includes no collector; its
+result requires owner reconciliation before any passive capture is implemented.
+It is not native tracing, normal CI, or STAGE2 authorization.
+Local contract check: `.\tests\SqliteNativeTraceStage1.Tests.ps1`.
+
 `.github\workflows\scale-verification.yml` owns the independent non-UI job, the
 two isolated rich workers and their strict union collector. Separate invocations
 can overlap on the same ref; no scale concurrency group serializes or cancels
