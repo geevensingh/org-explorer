@@ -333,6 +333,32 @@ internal static partial class Program
                 throw new InvalidOperationException("The reopened owned Team designation cannot be changed explicitly.");
             if (listener.Pending()) throw new InvalidOperationException("Team Markdown fetched remote content.");
             ClosePublishedWorkspace(process, workspace);
+            var recoverySettings = ReadSmokeWorkspacePreferences();
+            var remembered = recoverySettings.GetLastView(workspace) ??
+                throw new InvalidOperationException("The Team-note reopen fixture lost its remembered destination.");
+            remembered = remembered with { NoteId = Guid.NewGuid() };
+            if (!recoverySettings.SetLastView(workspace, remembered))
+                throw new InvalidOperationException(recoverySettings.PreferenceError);
+            var preferencesPath = Path.Combine(root, "app-settings", "workspace-settings.json");
+            var recoveryPreferences = File.ReadAllBytes(preferencesPath);
+            var writing = WorkspaceFixtures.Bytes(workspace);
+            process = Launch(executable);
+            window = Window(process);
+            AssertUnavailableRememberedNote(window, workspace, remembered, preferencesPath, recoveryPreferences, writing);
+            CaptureVisualEvidence(window, "team-note-missing-exact-recovery");
+            if (responsive)
+                foreach (var size in new[] { (Width: 700d, Height: 500d), (Width: 1100d, Height: 900d) })
+                {
+                    ResizeWindow(window, size.Width, size.Height);
+                    AssertUnavailableRememberedNote(window, workspace, remembered, preferencesPath, recoveryPreferences, writing);
+                    CaptureVisualEvidence(window, $"team-note-missing-exact-recovery-{size.Width:0}");
+                }
+            Click(window, "OpenOngoingTeamNote");
+            Await(() => Find(window, "TeamNoteHeading").Current.Name == "Secondary empty Team note" &&
+                !IsVisible(window, "ViewPreferenceStatus"));
+            AssertNoteView(window, "Team", editing: false);
+            AssertWorkspaceBytes(workspace, writing);
+            ClosePublishedWorkspace(process, workspace);
             Console.WriteLine("PASS: exact secondary owned-Team GUID restored before deliberate navigation, with frozen/current context retained.");
         }
         finally { if (process is not null) StopApplication(process); }

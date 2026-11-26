@@ -2115,14 +2115,18 @@ internal static partial class Program
         VerifyAutomaticPeopleReading(windowType, root, importRetry: true);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: true, invalidateReview: true);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: false);
+        VerifyAutomaticPeopleReading(windowType, root, importRetry: false, recoveryScope: NoteScope.Person);
+        VerifyAutomaticPeopleReading(windowType, root, importRetry: false, recoveryScope: NoteScope.Team);
     }
 
-    private static void VerifyAutomaticPeopleReading(Type windowType, string root, bool importRetry, bool invalidateReview = false)
+    private static void VerifyAutomaticPeopleReading(Type windowType, string root, bool importRetry,
+        bool invalidateReview = false, NoteScope? recoveryScope = null)
     {
-        var path = Path.Combine(root, invalidateReview ? "automatic-import-invalidated" :
+        var path = Path.Combine(root, recoveryScope is { } scope ? $"remembered-{scope}-recovery" :
+            invalidateReview ? "automatic-import-invalidated" :
             importRetry ? "automatic-import-reading" : "automatic-reading");
-        var email = importRetry ? "morgan@example.com" : "casey@example.com";
-        var heading = importRetry ? "Morgan Example" : "Casey";
+        var email = recoveryScope is not null ? "avery@example.com" : importRetry ? "morgan@example.com" : "casey@example.com";
+        var heading = recoveryScope is not null ? "Avery" : importRetry ? "Morgan Example" : "Casey";
         var ancestorEmail = importRetry ? "z-context@example.com" : "anchor@example.com";
         var records = (importRetry ? """
             {"email":"z-context@example.com","displayName":"Z single-report ancestor","managerEmail":null},
@@ -2137,11 +2141,35 @@ internal static partial class Program
             {"email":"second@example.com","displayName":"Second","managerEmail":"casey@example.com"},
             """) + string.Join(",", Enumerable.Range(0, 24).Select(i =>
                 $$"""{"email":"context{{i:00}}@example.com","displayName":"A context {{i:00}}","managerEmail":null}"""));
+        RememberedView? remembered = null;
+        byte[]? preferences = null;
+        var preferencesPath = Path.Combine(Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY")!,
+            "workspace-settings.json");
         using (var seed = ApplicationWorkflow.CreateFileBacked())
         {
             if (!seed.OpenWorkspace(path) || !importRetry && !seed.ApplyImport(seed.PreviewImport(SearchImport(records, 902)).Id))
                 throw new InvalidOperationException(seed.Status);
+            if (recoveryScope is { } noteScope)
+            {
+                var settings = ReadSmokeWorkspacePreferences();
+                if (!settings.OpenWorkspace(seed, path)) throw new InvalidOperationException(seed.Status);
+                var person = seed.CreatePersonNote(email, "Person ongoing", "Never substitute this Person writing") ??
+                    throw new InvalidOperationException(seed.Status);
+                var team = seed.CreateTeamNote(email, "Team ongoing", "Never substitute this Team writing") ??
+                    throw new InvalidOperationException(seed.Status);
+                var archived = seed.CreatePersonNote(email, "Archived exact note", "Retained archived writing") ??
+                    throw new InvalidOperationException(seed.Status);
+                if (!seed.ArchivePersonNote(archived.Id)) throw new InvalidOperationException(seed.Status);
+                remembered = new(email, noteScope == NoteScope.Person ? SearchSource.PersonNote : SearchSource.OwnedTeamNote,
+                    noteScope == NoteScope.Person ? archived.Id : Guid.NewGuid(), email);
+                if (!settings.SetOngoingNote(path, NoteScope.Person, email, person.Id) ||
+                    !settings.SetOngoingNote(path, NoteScope.Team, email, team.Id) ||
+                    !settings.SetLastView(path, remembered))
+                    throw new InvalidOperationException(settings.PreferenceError);
+                preferences = File.ReadAllBytes(preferencesPath);
+            }
         }
+        var writing = recoveryScope is not null ? WorkspaceFixtures.Bytes(path) : null;
         var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
             [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => path)], null)!;
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
@@ -2168,9 +2196,9 @@ internal static partial class Program
                 window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
                 PumpUntil(() => settled);
             }
-            void Layout()
+            void Layout(Size? requestedSize = null)
             {
-                var size = importRetry ? new Size(1024, 697) : new Size(1100, 736);
+                var size = requestedSize ?? (importRetry ? new Size(1024, 697) : new Size(1100, 736));
                 content.Measure(size);
                 content.Arrange(new Rect(size));
                 content.UpdateLayout();
@@ -2303,9 +2331,28 @@ internal static partial class Program
             var ancestor = tree.Items.Cast<ReportingNode>().Single(item => item.Person.Email == ancestorEmail);
             if (tree.ItemContainerGenerator.ContainerFromItem(ancestor) is not TreeViewItem { IsExpanded: true })
                 throw new InvalidOperationException("Automatic opening did not expand the selected Manager's ancestor.");
+            if (recoveryScope is not null)
+                foreach (var size in new[] { new Size(700, 500), new Size(1100, 736) })
+                {
+                    Layout(size);
+                    if (browsing.PeopleNavigation.SelectedEmail != email || browsing.PeopleNavigation.SelectedResult is not null ||
+                        browsing.ProfileEdit is not null || browsing.ViewRecoveryFeedback is null ||
+                        Control<TextBlock>("ViewPreferenceStatus").Visibility != Visibility.Visible ||
+                        !Control<TextBlock>("ViewPreferenceStatus").Text.Contains("no replacement was opened") ||
+                        browsing.PersonNotesView.SelectedNote is not null || browsing.TeamNotesView.SelectedNote is not null ||
+                        browsing.PersonNotesView.IsEmpty || browsing.TeamNotesView.IsEmpty ||
+                        ((TextBlock)Control<FrameworkElement>("PersonNotes").FindName("NoteHeading")).Visibility != Visibility.Collapsed ||
+                        ((TextBlock)Control<FrameworkElement>("TeamNotes").FindName("NoteHeading")).Visibility != Visibility.Collapsed ||
+                        ReadSmokeWorkspacePreferences().GetLastView(path) != remembered ||
+                        !File.ReadAllBytes(preferencesPath).SequenceEqual(preferences!))
+                        throw new InvalidOperationException("Compiled remembered-note recovery lost its Person, warning, unchanged preferences or unselected writing.");
+                    AssertWorkspaceBytes(path, writing!);
+                }
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Automatic-reading verification cannot create a native window.");
             Console.WriteLine("PASS: actual compiled automatic opening exposes the exact reading Person, selected named header and expanded ancestor within the no-window viewport.");
+            if (recoveryScope is { } recoveredScope)
+                Console.WriteLine($"PASS: unavailable exact {recoveredScope} note retains its remembered Person, visible recovery, unselected writing and unchanged preferences/Workspace bytes at 700/1100.");
         }
         finally { ClosePublishedCompiledWindow(window); }
     }

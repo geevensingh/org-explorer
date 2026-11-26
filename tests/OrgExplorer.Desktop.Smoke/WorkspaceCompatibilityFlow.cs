@@ -256,7 +256,8 @@ internal static partial class Program
             Path.GetFullPath(workspace), preferences, awaitState);
     }
 
-    private static void AwaitUnavailableView(AutomationElement window, string workspace, string expectedEmail)
+    private static void AwaitUnavailableView(AutomationElement window, string workspace, string expectedEmail,
+        params string[] ancestors)
     {
         Await(() => Find(window, "WorkspaceName").Current.HelpText == Path.GetFullPath(workspace) &&
             Activity(window) == "Ready" &&
@@ -265,11 +266,31 @@ internal static partial class Program
             !IsVisible(window, "WorkspaceStart") &&
             !Find(window, "ViewPreferenceStatus").Current.IsOffscreen &&
             Find(window, "ViewPreferenceStatus").Current.Name.Contains("unavailable or archived"));
-        AssertSelectedPeopleRow(window, expectedEmail);
+        AssertSelectedPeopleRow(window, expectedEmail, ancestors);
         var startup = window.FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
         if (startup?.Current.IsOffscreen == false)
             throw new InvalidOperationException("A valid Workspace with unavailable selection falsely reported Workspace reopen failure.");
+    }
+
+    private static void AssertUnavailableRememberedNote(AutomationElement window, string workspace,
+        RememberedView remembered, string preferencesPath, byte[] preferences,
+        Dictionary<string, byte[]> writing, params string[] ancestors)
+    {
+        AwaitUnavailableView(window, workspace, remembered.PersonEmail, ancestors);
+        foreach (var scope in new[] { "Person", "Team" })
+        {
+            var heading = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, scope + "NoteHeading"));
+            if (!string.IsNullOrEmpty(heading?.Current.HelpText) ||
+                IsVisible(window, scope + "NoteHeading") || IsVisible(window, scope + "NoteMarkdown"))
+                throw new InvalidOperationException("Remembered-note recovery silently opened substitute owned writing.");
+            AssertNoEmptyInvitation(window, scope);
+        }
+        if (ReadSmokeWorkspacePreferences().GetLastView(workspace) != remembered ||
+            !preferences.SequenceEqual(File.ReadAllBytes(preferencesPath)))
+            throw new InvalidOperationException("Automatic remembered-Person recovery replaced the saved destination or other preferences.");
+        AssertWorkspaceBytes(workspace, writing);
     }
 
     private static void AssertAutomaticImportContext(AutomationElement window, string preferences)
