@@ -43,13 +43,19 @@ public sealed partial class WorkspaceViewModel
         }
         candidate ??= fallback;
         if (candidate is null) return;
+        NavigateAutomaticPerson(candidate.Email);
+    }
+
+    private bool NavigateAutomaticPerson(string email, SearchResult? destination = null, string? noteRecovery = null)
+    {
         var overlay = PeopleNavigation.OverlayOpen;
         changingDestination = true;
         try
         {
-            if (!NavigatePeopleCore(candidate.Email, null)) return;
-            ExpandPeoplePath(candidate.Email);
+            if (!NavigatePeopleCore(email, destination, noteRecovery: noteRecovery)) return false;
+            ExpandPeoplePath(email);
             PeopleNavigation = PeopleNavigation with { OverlayOpen = overlay };
+            return true;
         }
         finally { changingDestination = false; }
     }
@@ -73,6 +79,10 @@ public sealed partial class WorkspaceViewModel
             Compatibility.WorkspacePath is not { } path || PeopleNavigation.SelectedEmail is not { } email ||
             workflow.GetRelationships(email)?.Person is not { Archived: false }) return;
         if (result?.NoteArchived == true) return;
+        if (ViewRecoveryFeedback is { } recovery)
+            foreach (var noteScope in Enum.GetValues<NoteScope>())
+                if (NoteViewFor(noteScope) is { Exact: true, Selected: null } recovered && recovered.Error == recovery)
+                    noteViews[noteScope] = recovered with { Error = null, Exact = false };
         if (scope is null && result?.NoteId is null &&
             PeopleNavigation.LastValidView is { Source: SearchSource.OwnedTeamNote } previous &&
             previous.PersonEmail.Equals(email, StringComparison.OrdinalIgnoreCase) &&
@@ -99,21 +109,23 @@ public sealed partial class WorkspaceViewModel
         if (settings?.GetLastView(Compatibility.WorkspacePath!) is not { } view) return;
         var person = workflow.GetRelationships(view.PersonEmail)?.Person;
         var destination = person is { Archived: false } && view.Source is not null ? ResolveRememberedNote(person, view) : null;
-        if (person is not { Archived: false } || view.Source is not null && destination is null)
+        if (person is not { Archived: false })
         {
             ViewRecoveryFeedback = "The remembered Person or exact note is unavailable or archived. " +
                 "Your preference and writing are retained; no replacement was opened. Find a Person using search, Favorites or People to deliberately select another view.";
             return;
         }
-        changingDestination = true;
-        try
+        var noteUnavailable = view.Source is not null && destination is null;
+        if (noteUnavailable)
+            ViewRecoveryFeedback = "The remembered exact note is unavailable or archived. " +
+                "Your preference and writing are retained; no replacement was opened. Find a Person using search, Favorites or People to deliberately select another view.";
+        if (!NavigateAutomaticPerson(person.Email, destination, ViewRecoveryFeedback))
         {
-            if (!NavigatePeopleCore(person.Email, destination))
-            {
-                ViewRecoveryFeedback = "The remembered view could not be restored. " +
-                    (navigationError ?? workflow.Status) + " Your preference and writing are retained; no replacement was opened.";
-                return;
-            }
+            ViewRecoveryFeedback = "The remembered view could not be restored. " +
+                (navigationError ?? workflow.Status) + " Your preference and writing are retained; no replacement was opened.";
+            return;
+        }
+        if (!noteUnavailable)
             PeopleNavigation = PeopleNavigation with
             {
                 SelectedResult = destination?.Source is SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote
@@ -122,8 +134,6 @@ public sealed partial class WorkspaceViewModel
                     ? destination.NoteTitle! : "",
                 LastValidView = view
             };
-        }
-        finally { changingDestination = false; }
     }
 
     private SearchResult? ResolveRememberedNote(PersonProfile person, RememberedView view)
@@ -339,7 +349,8 @@ public sealed partial class WorkspaceViewModel
         return accepted;
     });
 
-    private bool NavigatePeopleCore(string email, SearchResult? result, bool requireNavigation = false)
+    private bool NavigatePeopleCore(string email, SearchResult? result, bool requireNavigation = false,
+        string? noteRecovery = null)
     {
         var person = workflow.GetRelationships(email)?.Person;
         if (person is null)
@@ -354,7 +365,12 @@ public sealed partial class WorkspaceViewModel
                 (workflow.LocalSaveError ?? workflow.Status);
             return false;
         }
-        if (!OpenOwnedNotes(NoteScope.Person, person.Email) || !OpenOwnedNotes(NoteScope.Team, person.Email)) return false;
+        if (noteRecovery is not null)
+        {
+            foreach (var scope in Enum.GetValues<NoteScope>())
+                noteViews[scope] = new(person.Email, Error: noteRecovery, Exact: true);
+        }
+        else if (!OpenOwnedNotes(NoteScope.Person, person.Email) || !OpenOwnedNotes(NoteScope.Team, person.Email)) return false;
         if (requireNavigation)
         {
             foreach (var scope in Enum.GetValues<NoteScope>())

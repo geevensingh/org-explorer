@@ -267,8 +267,12 @@ independence, both fallback levels, current/Archived selection precedence and
 non-activating search with Import retained. Real-folder startup cases independently
 compare preference and Workspace bytes, exact secondary notes, unavailable-Person
 recovery and failed-reopen clearing. A valid remembered Person with an unavailable
-exact note is not redirected by this slice; its recovery and accepted-refresh
-integration remain separate work.
+exact owned, inherited or frozen note now opens its normal profile with explicit
+recovery and neither owned-note default selected. Missing/archived Person and
+owned-note cases, unavailable inherited/frozen contexts, deliberate same-Person
+reselection and explicit ongoing access retain independent preference/Workspace
+byte checks. Exact secondary/owned-Team/inherited/frozen restoration and retained
+writing guards remain. Accepted-refresh fallback remains separate work.
 Existing hosted profile/reopen, archival and search/responsive journeys observe
 the actual profile identity, selected row's rendered text and clickable point
 inside the tree viewport, expanded ancestors and deferred reveal after Import
@@ -276,6 +280,14 @@ or search. The profile fixture places a qualifying Manager behind offscreen
 single-report ancestor context. These assertions do not realize, expand or scroll
 the expected row themselves. Existing scenario selections, full responsive
 matrices and budgets remain; compiled invisible checks are not hosted evidence.
+The existing Person-note reopen journey additionally observes archived exact-note
+recovery with the remembered Person and actual selected row. The ordinary and
+responsive Team-context journeys observe missing exact-note recovery without
+substitute Person/Team writing, preserving their complete 700/1100 reopen matrix
+and original budgets. The compiled automatic-opening contract covers both note
+scopes and their recovery presentation without showing a native window; it
+does not replace exact-candidate hosted evidence or complete the whole fallback
+design's joint delivery.
 The clickable target is the rendered header text, not an expanded TreeViewItem's
 whole-subtree centre. The latter can lie below the viewport while the entire
 selected header is visible. The compiled automatic-opening case exercises this
