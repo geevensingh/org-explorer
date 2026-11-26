@@ -3643,10 +3643,47 @@ internal static partial class Program
         using (File.Open(settings, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             Invoke("DesignateButton");
-            PumpUntil(() => Control<TextBlock>("OngoingStatus").Text.Contains("NOT saved", StringComparison.Ordinal));
-            if (Control<TextBlock>("NoteKind").Text != "Other Team note" ||
+            var kind = Control<TextBlock>("NoteKind");
+            var kindId = System.Windows.Automation.AutomationProperties.GetAutomationId(kind);
+            if (kindId != "TeamNoteKind")
+                throw new InvalidOperationException("The compiled failed-designation replay lost its actual named note-kind control.");
+            var kindReads = 0;
+            string ReadKind()
+            {
+                // Replay unavailable discovery without changing the actual selected note or its presentation.
+                if (++kindReads == 1)
+                    System.Windows.Automation.AutomationProperties.SetAutomationId(kind, "UnavailableTeamNoteKind");
+                try
+                {
+                    var observed = LogicalDescendants(notes).OfType<TextBlock>().SingleOrDefault(control =>
+                        System.Windows.Automation.AutomationProperties.GetAutomationId(control) == "TeamNoteKind");
+                    if (observed is null) throw new InvalidOperationException("Missing actual UI control: TeamNoteKind");
+                    return UIElementAutomationPeer.CreatePeerForElement(observed).GetName();
+                }
+                finally { System.Windows.Automation.AutomationProperties.SetAutomationId(kind, kindId); }
+            }
+            var observedKind = ControlReadiness.AwaitFailedTeamDesignation(
+                () => UIElementAutomationPeer.CreatePeerForElement(Control<TextBlock>("OngoingStatus")).GetName(),
+                ReadKind, condition =>
+                {
+                    // Match native Await's missing-control policy and retain its one successful observation.
+                    var ready = false;
+                    PumpUntil(() =>
+                    {
+                        if (ready) return true;
+                        try { return ready = condition(); }
+                        catch (InvalidOperationException error) when (error.Message == "Missing actual UI control: TeamNoteKind")
+                        {
+                            return false;
+                        }
+                    });
+                });
+            if (observedKind != "Other Team note" || kindReads != 2 ||
+                workspace.PeopleNavigation.SelectedEmail != owner || workspace.TeamNotesView.SelectedNote?.Id != secondaryId ||
+                Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab") ||
                 !File.ReadAllBytes(settings).SequenceEqual(preference))
                 throw new InvalidOperationException("Failed Team designation must retain both the exact secondary note and durable choice.");
+            Console.WriteLine("PASS: actual failed Team designation retains its exact Other-note reading after one unavailable named-control discovery, without replaying the action.");
         }
         Control<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
         if (SmokeNoteId(folder, owner, "Secondary Team", team: true) != secondaryId)

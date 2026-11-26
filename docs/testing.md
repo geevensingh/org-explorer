@@ -2099,6 +2099,19 @@ real-store regressions for diagnosis; they remain included in the complete
 handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
 remain in the representative hosted profile journey.
+The Team-context designation-refusal assertion observes the actual failed
+preference feedback and exact `Other Team note` kind within one existing
+20-second wait, rather than following feedback readiness with an unguarded
+Kind lookup. The original unchanged-preference-byte assertion remains.
+The compiled owned-Team path replays one unavailable named-control discovery
+using actual BAML, a real preference-file refusal and one Designate action.
+Only that discovery is withheld; the actual secondary note, owner, Read mode
+and original automation identity remain intact afterward. It uses native
+Await's missing-control policy without changing the general dispatcher pump.
+Runner cases require permanently missing/wrong kinds and wrong feedback to
+fail bounded observation. This covers the observation gap in the failed hosted
+context artifact, not the Windows provider's transient-absence actor or a
+causal claim about the remembered-note feature.
 `--verify-inherited-note-mode` and `--verify-people-opening` isolate the existing
 inherited Edit/Read and automatic-opening cases; both remain in the complete
 profile-refresh selection. The inherited fixture creates and saves its subject

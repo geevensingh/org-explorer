@@ -37,6 +37,19 @@ internal static class ControlReadiness
     internal static string AwaitReading(Func<string> read, string expected, Action<Func<bool>> awaitState) =>
         AwaitControl(read, text => text.Contains(expected), awaitState);
 
+    internal static string AwaitFailedTeamDesignation(Func<string> readFeedback, Func<string> readKind,
+        Action<Func<bool>> awaitState)
+    {
+        string? kind = null;
+        awaitState(() =>
+        {
+            if (!readFeedback().Contains("NOT saved")) return false;
+            kind = readKind();
+            return kind.Contains("Other Team note");
+        });
+        return kind!;
+    }
+
     internal sealed record SelectedRowHeader<THeader>(bool RowOffscreen, bool Selected, THeader? Header) where THeader : class;
 
     internal static THeader AwaitSelectedHeader<THeader>(Func<SelectedRowHeader<THeader>?> observe,

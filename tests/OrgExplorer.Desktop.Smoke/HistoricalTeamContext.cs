@@ -124,9 +124,10 @@ internal static partial class Program
             using (File.Open(preferences, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 Click(window, "UseAsOngoingTeamNote");
-                Await(() => Find(window, "TeamOngoingNoteStatus").Current.Name.Contains("NOT saved"));
-                if (!Find(window, "TeamNoteKind").Current.Name.Contains("Other Team note") ||
-                    !savedPreferences.SequenceEqual(File.ReadAllBytes(preferences)))
+                ControlReadiness.AwaitFailedTeamDesignation(
+                    () => Find(window, "TeamOngoingNoteStatus").Current.Name,
+                    () => Find(window, "TeamNoteKind").Current.Name, Await);
+                if (!savedPreferences.SequenceEqual(File.ReadAllBytes(preferences)))
                     throw new InvalidOperationException("Failed Team designation changed the durable ongoing choice.");
                 CaptureVisualEvidence(window, "team-note-designation-failure");
             }

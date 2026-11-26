@@ -71,6 +71,40 @@ public sealed class ControlReadinessTests
 
     [Fact]
     [Trait("Category", "Runner")]
+    public void Failed_Team_designation_observes_feedback_and_exact_secondary_kind_within_one_wait()
+    {
+        var feedbackReads = 0;
+        var kindReads = 0;
+        var kind = ControlReadiness.AwaitFailedTeamDesignation(
+            () => ++feedbackReads == 1 ? "Saving preference" : "Preference was NOT saved",
+            () => ++kindReads switch
+            {
+                1 => throw new InvalidOperationException("Missing actual UI control: TeamNoteKind"),
+                2 => "Other Team note",
+                _ => throw new InvalidOperationException("No unguarded second kind lookup is allowed")
+            }, AwaitReady);
+
+        Assert.Equal("Other Team note", kind);
+        Assert.Equal(3, feedbackReads);
+        Assert.Equal(2, kindReads);
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData("missing-kind")]
+    [InlineData("wrong-kind")]
+    [InlineData("wrong-feedback")]
+    public void Failed_Team_designation_keeps_missing_or_wrong_controls_as_bounded_failures(string failure)
+    {
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitFailedTeamDesignation(
+            () => failure == "wrong-feedback" ? "Preference saved" : "Preference was NOT saved",
+            () => failure == "missing-kind"
+                ? throw new InvalidOperationException("Missing actual UI control: TeamNoteKind")
+                : failure == "wrong-kind" ? "Ongoing Team note" : "Other Team note", AwaitReady));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Search_result_discovery_waits_for_the_queried_note_instead_of_missing_or_stale_profile_rows()
     {
         var observations = 0;
