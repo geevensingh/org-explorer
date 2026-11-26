@@ -16,6 +16,11 @@ on:
     - cron: '23 10 * * *'
   workflow_dispatch:
     inputs:
+      cleanup_lifetime_diagnostic:
+        description: Focused non-UI owned-process/image cleanup observation; no native UI, cohort or promotion
+        required: false
+        default: false
+        type: boolean
       prefix_only_diagnostic:
         description: One prefix-only 900s observation, 30m watchdog; nonaccepting and baseline-ineligible
         required: false
@@ -55,7 +60,7 @@ permissions:
 
 jobs:
   non-ui-cohort-pilot:
-    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prefix_only_diagnostic && (inputs.non_ui_cohort_pilot || inputs.rich_cohort_pilot) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.cleanup_lifetime_diagnostic && !inputs.prefix_only_diagnostic && (inputs.non_ui_cohort_pilot || inputs.rich_cohort_pilot) }}
     permissions:
       contents: read
       actions: read
@@ -93,7 +98,11 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Run fresh complete non-UI performance verification
+        if: ${{ !inputs.cleanup_lifetime_diagnostic }}
         run: .\eng\Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION
+      - name: Trace owned process and native-image lifetime through original cleanup
+        if: ${{ inputs.cleanup_lifetime_diagnostic }}
+        run: .\eng\Trace-PerformanceCleanup.ps1 -Repository $pwd.Path -ExpectedRevision $env:TESTED_REVISION
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -104,9 +113,13 @@ jobs:
             .ci-results/performance/**/*.json
             .ci-results/performance/**/*.log
             .ci-results/performance/**/*.trx
+            .ci-results/cleanup-observed/**/*.json
+            .ci-results/cleanup-observed/**/*.log
+            .ci-results/cleanup-observed/**/*.trx
+            .ci-results/cleanup-observed/**/*.tsv
 
   ui-scale-prefix:
-    if: ${{ inputs.prefix_only_diagnostic || (!inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot) }}
+    if: ${{ !inputs.cleanup_lifetime_diagnostic && (inputs.prefix_only_diagnostic || (!inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot)) }}
     name: Rich combined normal and held-export saves
     runs-on: windows-latest
     timeout-minutes: 30
@@ -149,7 +162,7 @@ jobs:
             .ci-results/ui-scale-prefix/**/*.oesnapshot
 
   ui-scale-tail:
-    if: ${{ !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
+    if: ${{ !inputs.cleanup_lifetime_diagnostic && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
     name: Rich logical Join, delivery, reopen and navigation
     needs: ui-scale-prefix
     runs-on: windows-latest
@@ -194,7 +207,7 @@ jobs:
   ui-scale:
     name: Complete scale acceptance union
     needs: [non-ui-performance, ui-scale-prefix, ui-scale-tail]
-    if: ${{ always() && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
+    if: ${{ always() && !inputs.cleanup_lifetime_diagnostic && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
     runs-on: windows-latest
     timeout-minutes: 13
     steps:
