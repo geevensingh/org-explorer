@@ -2113,12 +2113,14 @@ internal static partial class Program
     private static void VerifyAutomaticPeopleReading(Type windowType, string root)
     {
         VerifyAutomaticPeopleReading(windowType, root, importRetry: true);
+        VerifyAutomaticPeopleReading(windowType, root, importRetry: true, invalidateReview: true);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: false);
     }
 
-    private static void VerifyAutomaticPeopleReading(Type windowType, string root, bool importRetry)
+    private static void VerifyAutomaticPeopleReading(Type windowType, string root, bool importRetry, bool invalidateReview = false)
     {
-        var path = Path.Combine(root, importRetry ? "automatic-import-reading" : "automatic-reading");
+        var path = Path.Combine(root, invalidateReview ? "automatic-import-invalidated" :
+            importRetry ? "automatic-import-reading" : "automatic-reading");
         var email = importRetry ? "morgan@example.com" : "casey@example.com";
         var heading = importRetry ? "Morgan Example" : "Casey";
         var ancestorEmail = importRetry ? "z-context@example.com" : "anchor@example.com";
@@ -2182,48 +2184,33 @@ internal static partial class Program
                 var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
                 var import = Path.Combine(root, "automatic-import.json");
                 File.WriteAllText(import, SearchImport(records, 903));
-                var previewAttempt = 0;
-                void Preview()
+                void RequestPreview()
                 {
-                    previewAttempt++;
                     Invoke("OpenSettingsButton");
                     Invoke("OpenImportButton");
                     Control<TextBox>("ImportPath").Text = import;
                     Invoke("PreviewButton");
-                    try
+                }
+                void AwaitPreview(bool settleReview = false)
+                {
+                    var observedApplicable = false;
+                    var reviewSettled = false;
+                    PumpUntil(() =>
                     {
-                        PumpUntil(() => Control<Button>("ApplyButton").IsEnabled);
-                    }
-                    catch (TimeoutException) when (previewAttempt == 2)
-                    {
-                        static string? Bounded(string? value) => value is { Length: > 512 } ? value[..512] : value;
-                        var save = model.LocalSave;
-                        HarnessRuntime.Checkpoint("DEBUG-136-PREVIEW " + JsonSerializer.Serialize(new
+                        var applicable = Control<Button>("ApplyButton").IsEnabled;
+                        if (settleReview && applicable && !observedApplicable)
                         {
-                            previewAttempt,
-                            model.IsImportOpen,
-                            model.CanEnterImport,
-                            model.HasFailedImport,
-                            importVisible = Control<FrameworkElement>("ImportPanel").Visibility.ToString(),
-                            activity = Bounded(Control<TextBlock>("WorkflowActivity").Text),
-                            openEnabled = Control<Button>("OpenWorkspaceButton").IsEnabled,
-                            previewEnabled = Control<Button>("PreviewButton").IsEnabled,
-                            applyEnabled = Control<Button>("ApplyButton").IsEnabled,
-                            previewItems = Control<ItemsControl>("PreviewText").Items.Count,
-                            savePhase = save.Phase.ToString(),
-                            saveOutcome = save.Outcome.ToString(),
-                            save.EditsPaused,
-                            operationError = Bounded(model.OperationError),
-                            localSaveError = Bounded(model.LocalSaveError),
-                            status = Bounded(model.Status)
-                        }));
-                        throw;
-                    }
+                            observedApplicable = true;
+                            window.Dispatcher.BeginInvoke(() => reviewSettled = true, DispatcherPriority.ContextIdle);
+                        }
+                        return applicable && (!settleReview || reviewSettled);
+                    });
                 }
                 void BackToPeople() => LogicalDescendants(Control<FrameworkElement>("ImportPanel")).OfType<Button>()
                     .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople")
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                Preview();
+                RequestPreview();
+                AwaitPreview();
                 using (WorkspaceFixtures.LockLocalStore(path))
                 {
                     Invoke("ApplyButton");
@@ -2231,9 +2218,46 @@ internal static partial class Program
                     BackToPeople();
                     Invoke("DiscardImportButton");
                 }
-                Invoke("NoticeRetryButton");
-                PumpUntil(() => !model.LocalSave.EditsPaused && Control<TextBlock>("WorkflowActivity").Text == "Ready");
-                Preview();
+                DispatcherOperation? recoveredPreview = null;
+                var open = Control<Button>("OpenWorkspaceButton");
+                DependencyPropertyChangedEventHandler enterWhenReady = (_, _) =>
+                {
+                    if (!open.IsEnabled || model.LocalSave.EditsPaused || recoveredPreview is not null) return;
+                    recoveredPreview = window.Dispatcher.InvokeAsync(RequestPreview, DispatcherPriority.Send);
+                };
+                open.IsEnabledChanged += enterWhenReady;
+                try
+                {
+                    Invoke("NoticeRetryButton");
+                    PumpUntil(() => recoveredPreview?.Task.IsCompleted == true);
+                }
+                finally { open.IsEnabledChanged -= enterWhenReady; }
+                var requestedPreview = recoveredPreview ??
+                    throw new InvalidOperationException("Recovered controls did not admit the single preview request.");
+                requestedPreview.Task.GetAwaiter().GetResult();
+                AwaitPreview(settleReview: true);
+                if (invalidateReview)
+                {
+                    var reviewedRevision = model.Synchronization.LocalRevision;
+                    using (var delivered = ApplicationWorkflow.CreateFileBacked())
+                    {
+                        if (!delivered.OpenWorkspace(path) || !delivered.ApplyImport(delivered.PreviewImport(SearchImport("""
+                            {"email":"delivered@example.com","displayName":"Delivered after review","managerEmail":null}
+                            """, 904)).Id))
+                            throw new InvalidOperationException(delivered.Status);
+                    }
+                    if (!model.RefreshWorkspace()) throw new InvalidOperationException(model.Status);
+                    Settle();
+                    if (model.Synchronization.LocalRevision == reviewedRevision ||
+                        model.GetRelationships("delivered@example.com")?.Person.Heading != "Delivered after review" ||
+                        Control<Button>("ApplyButton").IsEnabled || !model.IsImportOpen ||
+                        !Control<Button>("PreviewButton").IsEnabled)
+                        throw new InvalidOperationException("A different accepted revision did not invalidate the recovered Import review.");
+                    if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                        throw new InvalidOperationException("Import invalidation verification cannot create a native window.");
+                    Console.WriteLine("PASS: a genuinely different accepted revision still invalidates the recovered applicable review without replaying or accepting it.");
+                    return;
+                }
                 Invoke("ApplyButton");
                 PumpUntil(() => model.PeopleNavigation.SelectedEmail == email &&
                     Control<TextBlock>("WorkflowActivity").Text == "Ready");

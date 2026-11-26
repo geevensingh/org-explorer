@@ -62,7 +62,9 @@ public partial class MainWindow
             if (externalRefreshPending)
             {
                 externalRefreshPending = false;
-                _ = Dispatcher.BeginInvoke(RefreshExternalWorkspace, DispatcherPriority.ContextIdle);
+                // Recovery must not leave an old invalidation behind the next reviewed Import.
+                if (browseSafeRecovery) RefreshExternalWorkspace();
+                else _ = Dispatcher.BeginInvoke(RefreshExternalWorkspace, DispatcherPriority.ContextIdle);
             }
         }
     }

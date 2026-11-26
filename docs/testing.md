@@ -2000,6 +2000,13 @@ profile-refresh selection. The inherited fixture creates and saves its subject
 through the real compiled New-note action before invalid editing, rather than
 assuming a synthetic selection of an already automatically selected Person
 loads a note created directly through the workflow.
+The automatic-opening recovery fixture requests its one new Preview at the
+actual reenabled Open control boundary, then requires Apply to remain enabled
+after queued recovery presentation settles within the same 20-second observation.
+Recovery drains its pending refresh before returning, rather than leaving an old
+invalidation behind the new applicable review. An independent real-folder case
+adopts a genuinely different revision after that review and still requires Apply
+to become disabled; no stale review is accepted or replayed.
 The same invisible-control regression exercises all ordinary facts, labelled
 missing-value slots, long identity/facts, matching photo/initials footprints, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
