@@ -517,12 +517,13 @@ Workspace reopen.
 Remembered view preferences do not imply restoration of unsaved drafts or a new
 draft-recovery system. Preserve the existing save/navigation/restart safeguards.
 
-### Agreed hierarchy fallback
+### Implemented hierarchy fallback
 
 These requirements supersede the earlier search/Favorites-first starting view
-when no valid Person is selected. The hierarchy fallback and valid-Person,
-missing-note recovery are agreed changes awaiting implementation and joint
-delivery with this documentation, not claims of implemented behavior.
+when no valid Person is selected. Shared observable People navigation implements
+the hierarchy fallback and valid-Person, missing-note recovery. The behavior
+and this documentation must reach the default branch together; this records
+implementation, not hosted acceptance of an unverified candidate.
 
 Preserve a valid current selection or remembered Person before considering the
 fallback, regardless of hierarchy position or report count. Deliberately
@@ -584,13 +585,13 @@ destination is valid when no note was selected. No synchronized schema changes
 or unsaved-buffer persistence are involved.
 
 Unavailable/archived Persons or notes leave the remembered preference and all
-writing intact. The existing implementation explains the failure and offers
-search/Favorites/People re-selection without opening ongoing replacement writing,
-creating records or unarchiving anything. First use and absent view preferences
-currently use the same purposeful start. The agreed rules above replace this
-no-Person starting policy and allow valid-Person, missing-note recovery without
-silently opening replacement writing. Failed Workspace reopen never attempts
-selection restoration or creates a missing folder.
+writing intact. The UI explains the failure and selects the still-valid remembered
+Person without replacement writing, or uses the hierarchy fallback when no
+Person is valid. First use and absent view preferences use the same hierarchy
+rule; an empty current population retains the purposeful search/Favorites start.
+Neither automatic path rewrites the saved destination, creates records or
+unarchives anything. Failed Workspace reopen never attempts selection restoration
+or creates a missing folder.
 
 All preference writes preserve ongoing choices, pane proportions, other
 Workspaces and the successful startup folder. Atomic publication and explicit
