@@ -2096,7 +2096,7 @@ internal static partial class Program
         var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(scroll).GetPattern(PatternInterface.Scroll);
         Console.WriteLine($"EMPTY-READING: people={workflow.People.Count}; viewport={scroll.ViewportHeight}; " +
             $"extent={scroll.ExtentHeight}; verticallyScrollable={provider.VerticallyScrollable}; offset={scroll.VerticalOffset}.");
-        if (workflow.People.Count != 44 || workflow.GetPersonNotes("avery@example.com").Count != 0 ||
+        if (workflow.People.Count != 46 || workflow.GetPersonNotes("avery@example.com").Count != 0 ||
             workflow.GetTeamNotes("avery@example.com").Count != 0 || scroll.ViewportHeight <= 0 ||
             provider.VerticallyScrollable || scroll.VerticalOffset != 0)
             throw new InvalidOperationException("The full wide empty-reading fixture did not establish the non-scrollable precondition.");
