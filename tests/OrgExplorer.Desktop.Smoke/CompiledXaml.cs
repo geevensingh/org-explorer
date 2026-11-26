@@ -1494,6 +1494,12 @@ internal static partial class Program
             if (profileJourneyHistory)
             {
                 VerifyTallImportDetail(window, import);
+                var tallDisclosure = VisualDescendants(review).OfType<Expander>().Single();
+                var tallHeader = VisualDescendants(tallDisclosure).OfType<ToggleButton>().First();
+                FocusManager.SetFocusedElement(window, tallHeader);
+                scrolling.ScrollToTop();
+                ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(tallHeader).GetPattern(PatternInterface.Toggle)).Toggle();
+                rootVisual.UpdateLayout();
                 AssertWorkspaceBytes(folder, before);
                 File.WriteAllText(import, ManyImportDiagnosticsFixture);
                 string diagnostics;
@@ -1503,7 +1509,7 @@ internal static partial class Program
                     AssertManyImportDiagnosticsFixture(many);
                     diagnostics = string.Join("\n", many.Errors.Concat(many.Warnings).Concat(many.Messages));
                 }
-                VerifyImportDiagnosticsLayout(window, diagnostics);
+                VerifyImportDiagnosticsLayout(window, diagnostics, verifyKeyboardEndpoints: true);
             }
             AssertWorkspaceBytes(folder, before);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
@@ -1797,7 +1803,7 @@ internal static partial class Program
         Console.WriteLine("PASS: ten complete wrapping diagnostics scroll independently while impact and usable Person review remain inside 700x700/500 compiled layouts.");
     }
 
-    private static void VerifyImportDiagnosticsLayout(Window window, string expected)
+    private static void VerifyImportDiagnosticsLayout(Window window, string expected, bool verifyKeyboardEndpoints = false)
     {
         ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
@@ -1820,12 +1826,78 @@ internal static partial class Program
             var scrolling = UIElementAutomationPeer.CreatePeerForElement(diagnostics)?.GetPattern(PatternInterface.Scroll) as IScrollProvider;
             if (scrolling is null || !scrolling.VerticallyScrollable)
                 throw new InvalidOperationException("All Import diagnostics must be independently scrollable rather than clipped or hidden by Person disclosures.");
-            scrolling.SetScrollPercent(-1, 100);
-            window.Dispatcher.Invoke(root.UpdateLayout, DispatcherPriority.ContextIdle);
             var reading = (TextBox)diagnostics;
+            if (verifyKeyboardEndpoints)
+            {
+                var priorFocus = FocusManager.GetFocusedElement(window);
+                Console.WriteLine($"IMPORT-DIAGNOSTICS-KEYBOARD before-focus: logicalFocus={priorFocus?.GetType().Name}; caret={reading.CaretIndex}; selection={reading.SelectionStart}/{reading.SelectionLength}; offset={reading.VerticalOffset}.");
+                FocusManager.SetFocusedElement(window, reading);
+                var inner = VisualDescendants(reading).OfType<ScrollViewer>().First();
+                foreach (var (command, atStart, visible) in new[]
+                {
+                    (EditingCommands.MoveToDocumentStart, true, expected.Split('\n').First()),
+                    (EditingCommands.MoveToDocumentEnd, false, expected.Split('\n').Last())
+                })
+                {
+                    command.Execute(null, reading);
+                    if (reading.SelectionLength != 0 || reading.CaretIndex != (atStart ? 0 : reading.Text.Length))
+                        throw new InvalidOperationException($"Diagnostics command did not move its actual caret: command={command.Name}; canExecute={command.CanExecute(null, reading)}; caret={reading.CaretIndex}; selection={reading.SelectionStart}/{reading.SelectionLength}.");
+                    // An invisible window cannot activate a native caret; reveal its actual rendered rectangle.
+                    var caret = reading.GetRectFromCharacterIndex(atStart ? 0 : reading.CaretIndex - 1, trailingEdge: !atStart);
+                    reading.ScrollToVerticalOffset(reading.VerticalOffset +
+                        (atStart ? caret.Top : caret.Bottom - reading.ViewportHeight));
+                    window.Dispatcher.Invoke(root.UpdateLayout, DispatcherPriority.ContextIdle);
+                    var start = reading.Text.IndexOf(visible, StringComparison.Ordinal);
+                    var glyphs = Enumerable.Range(start, visible.Length).Select(index =>
+                    {
+                        var character = reading.GetRectFromCharacterIndex(index);
+                        character.Union(reading.GetRectFromCharacterIndex(index, trailingEdge: true));
+                        return character;
+                    }).ToArray();
+                    var state = $"command={command.Name}; canExecute={command.CanExecute(null, reading)}; readOnly={reading.IsReadOnly}; caretVisible={reading.IsReadOnlyCaretVisible}; " +
+                        $"logicalFocus={FocusManager.GetFocusedElement(window) == reading}; " +
+                        $"keyboardFocus={reading.IsKeyboardFocused}; selection={reading.SelectionStart}/{reading.SelectionLength}; " +
+                        $"caret={reading.CaretIndex}; offset={inner.VerticalOffset}; extent={inner.ExtentHeight}; " +
+                        $"viewport={inner.ViewportHeight}; percent={scrolling.VerticalScrollPercent}; " +
+                        $"requestedFirst={glyphs.First()}; requestedLast={glyphs.Last()}; reading={reading.RenderSize}.";
+                    Console.WriteLine("IMPORT-DIAGNOSTICS-KEYBOARD " + state);
+                    foreach (var character in glyphs)
+                        if (character.IsEmpty || character.Width <= 0 || character.Height <= 0 ||
+                            character.Left < -1 || character.Right > reading.ActualWidth + 1 ||
+                            character.Top < -1 || character.Bottom > reading.ActualHeight + 1)
+                            throw new InvalidOperationException("Diagnostics keyboard endpoint lost a required visible character: " + state);
+                }
+            }
+            if (!verifyKeyboardEndpoints) scrolling.SetScrollPercent(-1, 100);
+            window.Dispatcher.Invoke(root.UpdateLayout, DispatcherPriority.ContextIdle);
             var glyph = reading.GetRectFromCharacterIndex(reading.Text.Length - 1);
             if (reading.Text != expected || glyph.IsEmpty || glyph.Top < 0 || glyph.Bottom > reading.ActualHeight)
                 throw new InvalidOperationException("Independent diagnostics scrolling must expose the final warning characters without suppressing any messages.");
+            if (verifyKeyboardEndpoints)
+            {
+                var disclosure = VisualDescendants(review).OfType<Expander>().Single(entry =>
+                    System.Windows.Automation.AutomationProperties.GetAutomationId(entry) == "ImportPerson:avery@example.com");
+                var header = VisualDescendants(disclosure).OfType<ToggleButton>().First();
+                var toggle = (IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(header).GetPattern(PatternInterface.Toggle);
+                FocusManager.SetFocusedElement(window, header);
+                toggle.Toggle();
+                root.UpdateLayout();
+                var detail = VisualDescendants(disclosure).OfType<TextBox>().Single(value =>
+                    System.Windows.Automation.AutomationProperties.GetAutomationId(value) == "ImportDetail" &&
+                    value.Text == "Office number: 007B → FINAL-0099");
+                FocusManager.SetFocusedElement(window, detail);
+                for (var index = 0; index < detail.Text.Length; index++)
+                {
+                    var character = detail.GetRectFromCharacterIndex(index);
+                    character.Union(detail.GetRectFromCharacterIndex(index, trailingEdge: true));
+                    if (character.IsEmpty || character.Width <= 0 || character.Height <= 0 ||
+                        !list.Contains(detail.TransformToAncestor(root).TransformBounds(character)))
+                        throw new InvalidOperationException("Person review lost a character after reading diagnostics.");
+                }
+                FocusManager.SetFocusedElement(window, header);
+                toggle.Toggle();
+                root.UpdateLayout();
+            }
         }
     }
 

@@ -461,21 +461,121 @@ internal static partial class Program
                 throw new InvalidOperationException("Many diagnostics must be independently keyboard-scrollable without consuming usable Person review space.");
             AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 4");
             AssertImportDiagnostic(window, expected);
-            foreach (var (key, percent, visible) in new[] { ((byte)0x24, 0d, first), ((byte)0x23, 100d, last) })
-            {
-                diagnostics.SetFocus();
-                keybd_event(0x11, 0, 0, 0);
-                try { PressCopyKey(key); }
-                finally { keybd_event(0x11, 0, 2, 0); }
-                Await(() => scroll.Current.VerticalScrollPercent == percent);
-                AssertImportCharacters(window, diagnostics, expected, diagnostics.Current.BoundingRectangle,
-                    singleLine: false, visibleText: visible);
-            }
+            AssertImportDiagnosticsEndpoint(window, diagnostics, expected, first, atStart: true);
+            AssertImportDiagnosticsEndpoint(window, diagnostics, expected, last, atStart: false);
             CaptureVisualEvidence(window, "import-many-diagnostics-end-" + height);
             AssertGroupedImportDisclosure(window, "avery@example.com", "1 change",
                 ["Office number: 007B → FINAL-0099"], capture: "many-diagnostics-person-" + height);
             AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 4");
             AssertImportDiagnostic(window, expected);
         }
+    }
+
+    private static void AssertImportDiagnosticsEndpoint(AutomationElement window, AutomationElement diagnostics,
+        string expected, string visible, bool atStart)
+    {
+        Console.WriteLine("IMPORT-DIAGNOSTICS-KEYBOARD " +
+            ImportDiagnosticsState(window, diagnostics, visible, atStart, "before-focus"));
+        diagnostics.SetFocus();
+        try { Await(() => diagnostics.Current.HasKeyboardFocus); }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException("Diagnostics did not acquire the requested keyboard focus: " +
+                ImportDiagnosticsState(window, diagnostics, visible, atStart, "focus-timeout"), error);
+        }
+        Console.WriteLine("IMPORT-DIAGNOSTICS-KEYBOARD " +
+            ImportDiagnosticsState(window, diagnostics, visible, atStart, "before-key"));
+        keybd_event(0x11, 0, 0, 0);
+        try { PressCopyKey(atStart ? (byte)0x24 : (byte)0x23); }
+        finally { keybd_event(0x11, 0, 2, 0); }
+        var failure = "";
+        bool Observe()
+        {
+            var text = (TextPattern)diagnostics.GetCurrentPattern(TextPattern.Pattern);
+            var document = text.DocumentRange;
+            var selection = text.GetSelection();
+            if (!diagnostics.Current.HasKeyboardFocus || selection.Length != 1 || selection[0].GetText(-1).Length != 0 ||
+                selection[0].CompareEndpoints(TextPatternRangeEndpoint.Start, document,
+                    atStart ? TextPatternRangeEndpoint.Start : TextPatternRangeEndpoint.End) != 0)
+            {
+                failure = "The focused diagnostics caret has not reached the requested document endpoint.";
+                return false;
+            }
+            return ObserveImportCharacters(window, diagnostics, expected, diagnostics.Current.BoundingRectangle,
+                singleLine: false, visible, out _, out failure);
+        }
+        try { Await(Observe); }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException("Diagnostics keyboard endpoint did not expose its exact caret and every requested warning character: " +
+                ImportDiagnosticsState(window, diagnostics, visible, atStart, "timeout") + "; lastObservation=" + failure, error);
+        }
+        var impact = Find(window, "ImportImpact").Current;
+        var review = Find(window, "Preview").Current;
+        if (impact.IsOffscreen || impact.BoundingRectangle.IsEmpty ||
+            impact.BoundingRectangle.Bottom > review.BoundingRectangle.Top ||
+            review.BoundingRectangle.Height < 72 * DpiScale(window))
+            throw new InvalidOperationException("Diagnostics keyboard navigation displaced impact or usable Person review: " +
+                ImportDiagnosticsState(window, diagnostics, visible, atStart, "layout-failure"));
+        Console.WriteLine("IMPORT-DIAGNOSTICS-KEYBOARD " +
+            ImportDiagnosticsState(window, diagnostics, visible, atStart, "visible"));
+    }
+
+    private static string ImportDiagnosticsState(AutomationElement window, AutomationElement diagnostics,
+        string visible, bool atStart, string phase)
+    {
+        object? Describe(AutomationElement? element)
+        {
+            if (element is null) return null;
+            var current = element.Current;
+            return new { current.AutomationId, Type = current.ControlType.ProgrammaticName,
+                current.HasKeyboardFocus, current.IsOffscreen, Bounds = current.BoundingRectangle.ToString() };
+        }
+        object ScrollState(AutomationElement element)
+        {
+            var scroll = ((ScrollPattern)element.GetCurrentPattern(ScrollPattern.Pattern)).Current;
+            var bar = element.FindAll(TreeScope.Descendants, new AndCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ScrollBar),
+                new PropertyCondition(AutomationElement.OrientationProperty, OrientationType.Vertical)))
+                .Cast<AutomationElement>().FirstOrDefault(candidate =>
+                    candidate.TryGetCurrentPattern(RangeValuePattern.Pattern, out _));
+            RangeValuePattern.RangeValuePatternInformation? range = bar is null ? null :
+                ((RangeValuePattern)bar.GetCurrentPattern(RangeValuePattern.Pattern)).Current;
+            double? viewport = range is { } values && scroll.VerticalViewSize is > 0 and < 100 ?
+                (values.Maximum - values.Minimum) * scroll.VerticalViewSize / (100 - scroll.VerticalViewSize) : null;
+            return new { scroll.VerticalScrollPercent, scroll.VerticalViewSize, Offset = range?.Value,
+                ScrollableHeight = range is { } measured ? measured.Maximum - measured.Minimum : (double?)null,
+                ViewportFromNativeRange = viewport, ExtentFromNativeRange = viewport + range?.Maximum - range?.Minimum,
+                NativeScrollbarAvailable = bar is not null };
+        }
+        var text = (TextPattern)diagnostics.GetCurrentPattern(TextPattern.Pattern);
+        var document = text.DocumentRange;
+        var selections = text.GetSelection().Select(selection =>
+        {
+            var prefix = document.Clone();
+            prefix.MoveEndpointByRange(TextPatternRangeEndpoint.End, selection, TextPatternRangeEndpoint.Start);
+            var start = prefix.GetText(-1).Length;
+            prefix.MoveEndpointByRange(TextPatternRangeEndpoint.End, selection, TextPatternRangeEndpoint.End);
+            return new { Start = start, End = prefix.GetText(-1).Length, TextLength = selection.GetText(-1).Length };
+        }).ToArray();
+        var requested = document.FindText(visible, false, false)
+            ?? throw new InvalidOperationException("Diagnostics lost the complete requested warning.");
+        var first = requested.Clone();
+        first.MoveEndpointByRange(TextPatternRangeEndpoint.End, first, TextPatternRangeEndpoint.Start);
+        first.MoveEndpointByUnit(TextPatternRangeEndpoint.End, TextUnit.Character, 1);
+        var last = requested.Clone();
+        last.MoveEndpointByRange(TextPatternRangeEndpoint.Start, last, TextPatternRangeEndpoint.End);
+        last.MoveEndpointByUnit(TextPatternRangeEndpoint.Start, TextUnit.Character, -1);
+        return JsonSerializer.Serialize(new
+        {
+            Phase = phase, Endpoint = atStart ? "start" : "end", Focused = Describe(AutomationElement.FocusedElement),
+            Diagnostics = Describe(diagnostics), Selections = selections,
+            CaretOffset = selections is [{ Start: var start, End: var end }] && start == end ? start : (int?)null,
+            DocumentLength = document.GetText(-1).Length, DiagnosticsScroll = ScrollState(diagnostics),
+            Impact = Describe(Find(window, "ImportImpact")), OuterReview = Describe(Find(window, "Preview")),
+            OuterReviewScroll = ScrollState(Find(window, "Preview")),
+            RequestedFirstGlyph = first.GetBoundingRectangles().Select(rectangle => rectangle.ToString()).ToArray(),
+            RequestedLastGlyph = last.GetBoundingRectangles().Select(rectangle => rectangle.ToString()).ToArray()
+        });
     }
 }

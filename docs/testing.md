@@ -154,6 +154,23 @@ People and every action count zero: Morgan's supplied Manager remains Rowan.
 The entire preview sequence preserves saved bytes. Native keyboard, all required
 character rectangles and captures remain separate hosted acceptance.
 
+Read-only diagnostics retain a visible reading caret: WPF disables document
+navigation commands when a read-only TextBox hides its caret. The complete-history
+loop executes the actual document-start/end commands, requires the collapsed
+selection at the exact endpoint, and observes every first/last warning character.
+Its invisible window cannot activate native keyboard focus, so it explicitly
+reveals the command's actual caret rectangle through the public scrolling surface.
+That is not evidence of automatic scrolling or physical keyboard input.
+The hosted loop confirms focus before one Ctrl+Home/End action, then requires the
+exact native caret endpoint, complete document/typography and every requested
+warning glyph within the existing 20-second observation budget. Scroll percentage
+is diagnostic, not a substitute for visible content. State records include the
+actual focused element, selection/caret, native scrollbar offset/range and
+derived extent/viewport, outer review geometry and first/last glyph bounds.
+The tall disclosure's closing focus and the intervening Person disclosure are
+retained across both compact heights, with usable counts/list and saved bytes.
+Neither input nor scroll actions are retried; native glyph tolerances are unchanged.
+
 The collector workflow cases cross the same public helper/compiled-CLI seam:
 atomic standing-policy startup, serial/two-worker leasing, exact prepared
 requests, original lookup timestamps, stopped-worker handoff, compact sampled

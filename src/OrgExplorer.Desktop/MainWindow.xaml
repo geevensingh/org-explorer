@@ -602,7 +602,7 @@
         <TextBlock DockPanel.Dock="Top" Text="Reviewed changes — no data changes until Apply." Margin="0,0,0,4"/>
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
           <TextBox x:Name="ImportDiagnostics" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,4"
-                     IsReadOnly="True" MaxHeight="56" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                     IsReadOnly="True" IsReadOnlyCaretVisible="True" MaxHeight="56" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                      BorderThickness="0" Background="Transparent" Padding="0"
                      AutomationProperties.AutomationId="ImportDiagnostics"/>
           <TextBlock x:Name="ImportImpactText" Visibility="Collapsed" FontWeight="SemiBold"
