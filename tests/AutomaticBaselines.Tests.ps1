@@ -421,23 +421,6 @@ try {
     Assert (Test-Path (Join-Path $expiredWork 'record.json')) `
         'Unavailable comparison keys erased the observed cohort instead of retaining its pinned metadata and all five outcomes.'
     $global:BaselineFixture.artifacts = $availableArtifacts
-    $configurationPath = Join-Path $global:BaselineFixture.evidence["non-ui-cohort-$fourth-101-1-sample-1"] 'result.json'
-    $completeConfiguration = Get-Content $configurationPath -Raw
-    $unresolvedConfiguration = $completeConfiguration | ConvertFrom-Json -AsHashtable
-    $unresolvedConfiguration.configuration.Remove('sdk')
-    $unresolvedConfiguration | ConvertTo-Json -Depth 15 | Set-Content $configurationPath
-    $configurationRun = $unresolvedConfiguration.runDirectory
-    Copy-Item -LiteralPath $configurationPath -Destination (Join-Path (Split-Path $configurationPath -Parent) "$configurationRun\result.json")
-    $unknownConfigurationWork = Join-Path $fixture 'unknown-runtime-configuration'
-    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $fourth -CiRunId 44 -CiRunAttempt 1 `
-        -CohortRunId 101 -CohortRunAttempt 1 -WorkingDirectory $unknownConfigurationWork -RichScale `
-        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
-    $unknownConfiguration = Get-Content (Join-Path $unknownConfigurationWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
-    Assert ($unknownConfiguration.validation -ceq 'success' -and $unknownConfiguration.eligibility -ceq 'inconclusive' -and
-        !$unknownConfiguration.timingEvaluation.blocking -and $unknownConfiguration.extraSamples.Count -eq 0) `
-        'Unknown runtime configuration either fabricated eligible comparison/promotion or blocked complete strict product validation.'
-    $completeConfiguration | Set-Content $configurationPath
-    Copy-Item -LiteralPath $configurationPath -Destination (Join-Path (Split-Path $configurationPath -Parent) "$configurationRun\result.json")
     $olderRevision = Add-MainFixtureRevision 'Older eligible cohort awaiting publication'
     Select-BaselineFixture $olderRevision 45 102
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $olderRevision -CiRunId 45 -CiRunAttempt 1 `
@@ -507,7 +490,7 @@ try {
     $conflictHistory = Open-HealthHistory (Join-Path $fixture 'mixed-canonical-reader.git') $remote -AllowLocalFixture `
         -RecordTypes (Get-LaneHealthRecordTypes)
     Assert ($conflict.historySnapshot -ceq $beforeConflict -and $conflict.reference.revision -ceq $newerRevision -and
-        @($conflictHistory.records | Where-Object { $_.recordType -ceq 'lane-health' -and $_.runId -ceq '88' }).Count -eq 7 -and
+        @($conflictHistory.records | Where-Object { $_.recordType -ceq 'lane-health' -and $_.runId -ceq '88' }).Count -eq 9 -and
         @($conflictHistory.records | Where-Object { $_.recordType -ceq 'performance-cohort' -and $_.revision -ceq $conflictRevision }).Count -eq 1) `
         'Real nonforce conflict reconciliation discarded a simultaneous namespace or recalculated the pinned comparison.'
     $changedRevision = Add-MainFixtureRevision 'New environment series establishes automatically'
@@ -536,6 +519,23 @@ try {
         New-CompleteBaselineSample $number $failureRevision @(149, 150, 151)[$number - 1] @(496, 500, 504)[$number - 1] '20261117'
     }
     $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+    $configurationPath = Join-Path $global:BaselineFixture.evidence["non-ui-cohort-$failureRevision-106-1-sample-1"] 'result.json'
+    $completeConfiguration = Get-Content $configurationPath -Raw
+    $unresolvedConfiguration = $completeConfiguration | ConvertFrom-Json -AsHashtable
+    $unresolvedConfiguration.configuration.Remove('sdk')
+    $unresolvedConfiguration | ConvertTo-Json -Depth 15 | Set-Content $configurationPath
+    $configurationRun = $unresolvedConfiguration.runDirectory
+    Copy-Item -LiteralPath $configurationPath -Destination (Join-Path (Split-Path $configurationPath -Parent) "$configurationRun\result.json")
+    $unknownConfigurationWork = Join-Path $fixture 'unknown-runtime-configuration'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $failureRevision -CiRunId 49 -CiRunAttempt 1 `
+        -CohortRunId 106 -CohortRunAttempt 1 -WorkingDirectory $unknownConfigurationWork -RichScale `
+        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    $unknownConfiguration = Get-Content (Join-Path $unknownConfigurationWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($unknownConfiguration.validation -ceq 'success' -and $unknownConfiguration.eligibility -ceq 'inconclusive' -and
+        !$unknownConfiguration.timingEvaluation.blocking -and $unknownConfiguration.extraSamples.Count -eq 0) `
+        'Unknown runtime configuration either fabricated eligible comparison/promotion or blocked complete strict product validation.'
+    $completeConfiguration | Set-Content $configurationPath
+    Copy-Item -LiteralPath $configurationPath -Destination (Join-Path (Split-Path $configurationPath -Parent) "$configurationRun\result.json")
     $failedJob = @($global:BaselineFixture.jobs | Where-Object { $_.name -ceq 'Non-UI cohort sample (2)' })[0]
     foreach ($outcome in @('failure', 'cancelled', 'skipped', 'timed_out')) {
         $failedJob.conclusion = $outcome

@@ -2887,6 +2887,12 @@ inputs; malformed history and publication failures are explicit.
 Collection keeps one noncancelling queued cohort, sequential samples and at most
 two measurement workers per sample, separate from production release concurrency.
 Neither release nor ordinary PR selection waits for this battery.
+Only main-qualified planning/decision jobs in `non-ui-cohorts.yml` receive
+write permissions; the reused measurement workers and manual/pilot execution
+remain read-only. Automatic and pilot collection share the noncancelling
+execution group, without recursively acquiring it through a reusable workflow.
+Unavailable plans remain compact, baseline-ineligible cohort observations;
+they do not invent a candidate or authorize a retry-to-green.
 
 The registered scale workflow's default-off `rich_cohort_pilot=true` bridge
 executes the selected pushed workflow SHA without history/publication authority:

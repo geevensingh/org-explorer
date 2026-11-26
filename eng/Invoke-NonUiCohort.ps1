@@ -264,6 +264,16 @@ for ($number = 1; $number -le $ExpectedSamples; $number++) {
     }
     $samples += $sample
 }
+if ($ApprovedPolicyVersion -and $ExpectedSamples -eq 5 -and $decisions.Count -eq 1) {
+    for ($index = 0; $index -lt 3; $index++) {
+        $initial = ConvertTo-HealthCanonicalValue $decisions[0].cohort.samples[$index] | ConvertTo-Json -Depth 30 -Compress
+        $current = ConvertTo-HealthCanonicalValue $samples[$index] | ConvertTo-Json -Depth 30 -Compress
+        if ($initial -cne $current) {
+            $samples[$index].validation = 'incomplete'
+            $samples[$index].diagnostics += 'The preserved original three-execution evidence changed or became unavailable; replacements cannot authorize an eligible extension.'
+        }
+    }
+}
 $seen = @{}
 foreach ($sample in $samples) {
     $parts = @($sample)
