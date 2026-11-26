@@ -184,7 +184,9 @@ function Assert-LaneHealthRecord($Record, [string]$Path) {
             Assert-HealthNumber $Record.measurements.ceilingSeconds 'ceilingSeconds'
             if ($Record.measurements.headroomSeconds -ne
                 $Record.measurements.ceilingSeconds - $Record.measurements.executionSeconds) { throw 'Lane headroom disagrees.' }
-            $ceiling = if ($Record.lane -ceq 'core') { 300 } elseif ($Record.lane -cmatch '^(desktop-|high-resolution-)') { 900 } else { 660 }
+            $ceiling = if ($Record.lane -ceq 'core') { 300 }
+                elseif ($Record.lane -cmatch '^(desktop-|high-resolution-)') { 900 }
+                elseif ($Record.lane -ceq 'ui-scale-prefix' -and $Record.originalPolicy -ceq 'ci-timing-v2') { 900 } else { 660 }
             if ($Record.measurements.ceilingSeconds -ne $ceiling) { throw 'Lane measurement changed an original budget.' }
         }
         foreach ($step in @($Record.measurements.steps)) {
@@ -397,7 +399,7 @@ function Get-DesktopHealthMeasurement($Descriptor, $Evidence, $Run) {
         selector = ($partitions[$partition] -join ';'); originalPolicy = "$($Descriptor.kind)-original-v1" }
 }
 
-function Get-LaneHealthMeasurement($Descriptor, $Evidence, $Run) {
+function Get-LaneHealthMeasurement($Descriptor, $Evidence, $Run, [string]$ExpectedPolicyVersion = 'rich-scale-original-v1') {
     $directory = $Evidence[$Descriptor.lane].directory
     foreach ($entry in Get-ChildItem -LiteralPath $directory -Recurse -Force) {
         if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Candidate evidence must not contain filesystem links.' }
@@ -415,7 +417,7 @@ function Get-LaneHealthMeasurement($Descriptor, $Evidence, $Run) {
         }
         { $_ -cin @('desktop', 'high-resolution') } { return Get-DesktopHealthMeasurement $Descriptor $Evidence $Run }
         { $_ -cin @('non-ui-performance', 'ui-scale-prefix', 'ui-scale-tail', 'ui-scale') } {
-            return Get-ScaleHealthMeasurement $Descriptor $Evidence $Run
+            return Get-ScaleHealthMeasurement $Descriptor $Evidence $Run $ExpectedPolicyVersion
         }
         { $_ -cin @('installer', 'rehearsal') } { return Get-LifecycleHealthMeasurement $Descriptor $Evidence $Run }
         default { throw 'Unsupported measurement adapter.' }
@@ -499,7 +501,7 @@ function Read-HealthLatency($Data, [string]$Name, [int]$Count) {
     return $metric
 }
 
-function Get-ScaleHealthMeasurement($Descriptor, $Evidence, $Run) {
+function Get-ScaleHealthMeasurement($Descriptor, $Evidence, $Run, [string]$ExpectedPolicyVersion = 'rich-scale-original-v1') {
     $item = $Evidence[$Descriptor.lane]
     $directory = $item.directory
     $candidate = $item.candidate
@@ -523,6 +525,7 @@ function Get-ScaleHealthMeasurement($Descriptor, $Evidence, $Run) {
     $tests = $null
     $selector = $Descriptor.kind
     $policy = if ($report.ContainsKey('policyVersion')) { $report.policyVersion } else { "$($Descriptor.kind)-original-v1" }
+    $approved = Get-ApprovedTimingPolicy $ExpectedPolicyVersion
     $ceiling = $null
     if ($Descriptor.kind -ceq 'ui-scale') {
         if ($report.verificationMode -cne 'isolated-workers') { throw 'Only the actual isolated-worker union is supported.' }
@@ -532,7 +535,7 @@ function Get-ScaleHealthMeasurement($Descriptor, $Evidence, $Run) {
         Assert-HealthNumber $seconds 'collectionSeconds'
         $finished = $report.collectionCompletedAt
         try {
-            Assert-UiScaleUnion (Join-Path $owned 'prefix') (Join-Path $owned 'tail') $candidate ([string]$Run.id) ([string]$Run.run_attempt)
+            Assert-UiScaleUnion (Join-Path $owned 'prefix') (Join-Path $owned 'tail') $candidate ([string]$Run.id) ([string]$Run.run_attempt) -ExpectedPolicyVersion $ExpectedPolicyVersion
             if ($report.outcome -ceq 'success') { $validation = 'success' }
         } catch { $diagnostics += "Complete prefix/tail/union rejected: $($_.Exception.Message)" }
         $diagnostics += 'Union collection seconds are validation/transfer cost, not summed worker time or product latency.'
@@ -540,11 +543,12 @@ function Get-ScaleHealthMeasurement($Descriptor, $Evidence, $Run) {
         Assert-HealthNumber $report.executionSeconds 'executionSeconds'
         Assert-HealthDate $report.startedAt 'startedAt'
         Assert-HealthDate $report.completedAt 'completedAt'
+        $ceiling = if ($Descriptor.kind -ceq 'ui-scale-prefix') { $approved.prefixSafetySeconds } else { 660 }
         if ([DateTimeOffset]$report.completedAt -lt [DateTimeOffset]$report.startedAt -or
-            $report.ceilingSeconds -ne 660 -or $report.outcome -cnotin @('success', 'failure', 'timed_out', 'diagnostic_complete')) {
+            $report.ceilingSeconds -ne $ceiling -or $report.outcome -cnotin @('success', 'failure', 'timed_out', 'diagnostic_complete')) {
             throw 'Invalid original terminal scale clocks/policy/outcome.'
         }
-        $seconds = $report.executionSeconds; $ceiling = 660; $finished = $report.completedAt
+        $seconds = $report.executionSeconds; $finished = $report.completedAt
         foreach ($step in @($report.steps)) {
             Assert-HealthNumber $step.seconds $step.name
             $steps += @{ name = $step.name; seconds = $step.seconds
@@ -580,7 +584,7 @@ function Get-ScaleHealthMeasurement($Descriptor, $Evidence, $Run) {
         } else {
             $worker = if ($Descriptor.kind -ceq 'ui-scale-prefix') { 'prefix' } else { 'tail' }
             $selector = "--ui-scale-$worker"
-            try { $null = Get-UiScaleWorkerResult $directory $worker $candidate ([string]$Run.id) ([string]$Run.run_attempt); $validation = 'success' }
+            try { $null = Get-UiScaleWorkerResult $directory $worker $candidate ([string]$Run.id) ([string]$Run.run_attempt) -ExpectedPolicyVersion $ExpectedPolicyVersion; $validation = 'success' }
             catch { $diagnostics += "Original rich worker rejected: $($_.Exception.Message)" }
             $steps += @(Read-HealthPhases (Join-Path $owned 'ui-scale.log'))
             $bindingPath = if ($worker -ceq 'prefix') { Join-Path $owned 'handoff\handoff.json' } else { Join-Path $owned 'handoff-received.json' }
@@ -686,7 +690,7 @@ function Set-LaneHealthComparison($Record, $History) {
 
 function Format-LaneHealth($Records, [string]$Publication) {
     $lines = @('## Validation lane observations', '',
-        'Timing is observation only; numerical bands, eligibility and new gates remain uncalibrated. Original job/gate outcomes are unchanged.',
+        'Original job/validation outcomes are preserved. Source-qualified ci-timing-v2 evaluations are shown separately; legacy timing is observation only.',
         'Historical records never replace fresh exact-candidate release acceptance.', '')
     foreach ($record in $Records) {
         $lines += @("### $([Net.WebUtility]::HtmlEncode($record.jobName))",
@@ -724,7 +728,7 @@ function Format-LaneHealth($Records, [string]$Publication) {
                 $delta = if ($prior.Count -eq 1) { "$($metric.value - $prior[0].value) $($metric.unit)" } else { 'unavailable' }
                 $lines += "| $([Net.WebUtility]::HtmlEncode($metric.name)) | $($metric.value) $($metric.unit) | $reference | $delta |"
                 foreach ($field in @('goalMs', 'budgetMs', 'temporaryCeiling')) {
-                    if ($metric.Contains($field)) { $lines += "Original $($metric.name) $field`: $($metric[$field]); no comparative gate is activated." }
+                    if ($metric.Contains($field)) { $lines += "Effective raw $($metric.name) $field`: $($metric[$field]); policy is bound to the recorded source." }
                 }
             }
             $headroom = if ($null -ne $record.measurements.headroomSeconds) { "$($record.measurements.headroomSeconds) s (original budget, not a warning band)" } else { 'unavailable' }

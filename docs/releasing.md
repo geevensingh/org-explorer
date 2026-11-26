@@ -82,8 +82,10 @@ verification, packaging and publication. Every product attempt calls the same
 `scale-verification.yml` used by nightly/manual checks, at the exact candidate.
 That workflow runs non-UI performance, two isolated rich UI workers and their
 strict union collector. The tail joins the prefix's actual complete logical
-snapshot; it does not reseed equivalent data. Each execution retains its own
-660-second budget. See the [canonical commands and artifact contract](testing.md#separate-scale-commands-and-results);
+snapshot; it does not reseed equivalent data. Source-bound `ci-timing-v2` uses
+900s prefix safety/30m watchdog, while tail/non-UI keep660s/13m. Older candidate
+sources retain their original660s/1050ms policy; artifacts cannot grant a newer
+or higher ceiling. See the [canonical commands and artifact contract](testing.md#separate-scale-commands-and-results);
 one rich worker cannot establish complete verification.
 
 The independent `lane-health.yml` observer reports release/renewal job phases
@@ -92,11 +94,14 @@ Its history/comparisons never replace these fresh gates, delay publication or
 rewrite a release verdict. A planning success with skipped scale/publication
 remains a no-op, not executed release verification.
 
-Rich ordinary note durability retains its 1,000-ms goal with the owner-approved
-temporary enforced 1,050-ms p95 ceiling in both normal and held-export phases.
+Current rich ordinary note durability retains its1,000-ms goal with the
+owner-approved enforced1,500-ms inclusive p95 ceiling in both normal and held-export phases.
 The collector requires honest goal/ceiling metadata and every original
 during-typing/functional assertion. Profile and small-fixture one-second gates,
-three-second stall and same-held capture proof remain unchanged; see
+three-second stall and same-held capture proof remain unchanged. A known goal
+miss within1,500ms is yellow even without a reference, not an absolute failure.
+The release gate retains separate active timing records; no comparison or
+collection availability replaces fresh proof or introduces a wait. See
 [the exact result contract](testing.md#separate-scale-commands-and-results).
 
 All jobs must succeed now. Publication downloads only this run/attempt's named

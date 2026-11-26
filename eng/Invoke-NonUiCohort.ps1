@@ -21,7 +21,8 @@ param(
     [switch]$PublishPlan,
     [switch]$PublishDecision,
     [switch]$Publish,
-    [string]$HistoryRemote = 'https://github.com/geevensingh/org-explorer.git'
+    [string]$HistoryRemote = 'https://github.com/geevensingh/org-explorer.git',
+    [string]$SourceGitDirectory
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -30,6 +31,17 @@ Set-StrictMode -Version Latest
 . "$PSScriptRoot\NonUiCohort.ps1"
 . "$PSScriptRoot\TimingPolicy.ps1"
 $ReleaseRepository = $FilesystemHealthRepository
+if ($SourceGitDirectory -and !$AllowLocalFixture) {
+    throw 'A local source Git directory is reserved for explicit isolated public-contract fixtures.'
+}
+$effectivePolicy = $null
+if (!$ApprovedPolicyVersion) {
+    $effectivePolicy = if ($SourceGitDirectory) {
+        Get-SourceTimingPolicyVersion $Revision -GitDirectory $SourceGitDirectory
+    } else { Get-SourceTimingPolicyVersion $Revision -Hosted }
+} elseif ($SourceGitDirectory) {
+    throw 'Automatic baseline source policy comes only from its verified actual-main object store.'
+}
 New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
 if ($Publish -and ($Pilot -or $null -ne $TestPolicy)) { throw 'Manual pilot/TEST policy cannot publish authoritative live history.' }
 if ($TimingPolicyPreview -and ($Publish -or $Stage -cne 'Summarize')) {
@@ -154,6 +166,7 @@ if ($ApprovedPolicyVersion) {
     if ($plans.Count -ne 1 -or !$plans[0].collect -or $plans[0].ciRunId -cne [string]$CiRunId -or
         $plans[0].ciRunAttempt -cne [string]$CiRunAttempt) { throw 'Automatic collection requires its uniquely durable authenticated plan.' }
     $sourcePolicyVersion = Get-SourceTimingPolicyVersion $Revision -GitDirectory $history.directory
+    $effectivePolicy = $sourcePolicyVersion
     $decisions = @($history.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-decision' -and
         $_.revision -ceq $Revision -and $_.cohortRunId -ceq [string]$CohortRunId -and $_.cohortRunAttempt -ceq [string]$CohortRunAttempt })
     if ($decisions.Count -eq 1 -and ($decisions[0].cohort.extraSamples -join ',') -ceq '4,5') { $ExpectedSamples = 5 }
@@ -236,11 +249,7 @@ for ($number = 1; $number -le $ExpectedSamples; $number++) {
         }
     } else { $sample.diagnostics += 'Missing or duplicate exact-sample artifact; other executions cannot fill the gap.' }
     if ($RichScale) {
-        if ($ApprovedPolicyVersion) {
-            Read-RichCohortSample $sample $WorkingDirectory $Revision $cohortId ([string]$CohortRunId) ([string]$CohortRunAttempt) $jobs $artifacts $collection $sourcePolicyVersion
-        } else {
-            Read-RichCohortSample $sample $WorkingDirectory $Revision $cohortId ([string]$CohortRunId) ([string]$CohortRunAttempt) $jobs $artifacts $collection
-        }
+        Read-RichCohortSample $sample $WorkingDirectory $Revision $cohortId ([string]$CohortRunId) ([string]$CohortRunAttempt) $jobs $artifacts $collection $effectivePolicy
     }
     $samples += $sample
 }
@@ -299,6 +308,7 @@ $record = [ordered]@{
     authority = if ($Pilot) { 'pilot-observation' } else { 'trusted-main-push' }
     mode = 'observation'; promotion = 'disabled'; richScaleAcceptance = if (!$RichScale) { 'not-executed' } elseif ($complete) { 'complete' } else { 'rejected' }
     policyVersion = if ($null -ne $TestPolicy) { $TestPolicy.version } elseif ($RichScale) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' }
+    effectivePolicyVersion = $effectivePolicy; sourcePolicyRevision = $Revision
     testPolicy = $TestPolicy; samples = $samples; reliability = $reliability
     validation = if ($complete) { 'success' } else { 'rejected' }
     timingHealth = if ($complete) { 'unbaselined' } else { 'inconclusive' }
@@ -317,6 +327,7 @@ if ($ApprovedPolicyVersion) {
 } elseif ($null -ne $history) { Set-NonUiCohortComparison $record $history }
 Assert-NonUiCohortRecord $record (Get-NonUiCohortPath $record)
 if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history $TimingPolicyVersion }
+elseif (!$ApprovedPolicyVersion -and $effectivePolicy -ceq 'ci-timing-v2') { Set-TimingPolicyEvaluation $record }
 $record | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'record.json')
 $publication = 'read-only observation'
 $publicationError = $null
@@ -340,8 +351,11 @@ elseif ($Publish) {
 }
 $summary = Format-NonUiCohort $record $publication
 if ($TimingPolicyPreview) { $summary += Format-TimingPolicyPreview $record.policyPreview }
-if ($ApprovedPolicyVersion) { $summary += Format-TimingPolicyEvaluation $record.timingEvaluation }
+elseif ($record.Contains('timingEvaluation')) { $summary += Format-TimingPolicyEvaluation $record.timingEvaluation }
 $summary | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'summary.md')
 if ($env:GITHUB_STEP_SUMMARY) { $summary | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY }
 if ($null -ne $historyError) { throw $historyError }
 if ($null -ne $publicationError) { throw $publicationError }
+if ($record.Contains('timingEvaluation') -and $record.timingEvaluation.blocking) {
+    throw 'Approved timing policy rejects this cohort; all original attempts remain recorded.'
+}

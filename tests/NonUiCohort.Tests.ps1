@@ -1,4 +1,4 @@
-param([switch]$BootstrapPreviewOnly, [switch]$RichPolicyPreviewOnly)
+param([switch]$BootstrapPreviewOnly, [switch]$RichPolicyPreviewOnly, [switch]$ActivePolicyOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -51,6 +51,7 @@ function gh {
         return
     }
     switch -Regex ($args[1]) {
+        '/git/trees/[0-9a-f]{40}\?recursive=1$' { @{ truncated = $false; tree = @() } | ConvertTo-Json -Depth 5; return }
         '/actions/runs/42/attempts/1$' { $global:NonUiCohortFixture.run | ConvertTo-Json -Depth 10; return }
         '/actions/runs/42/attempts/2$' { $global:NonUiCohortFixture.run | ConvertTo-Json -Depth 10; return }
         '/actions/runs/42$' { $global:NonUiCohortFixture.latest | ConvertTo-Json -Depth 10; return }
@@ -148,6 +149,82 @@ try {
             expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('d' * 64)
             workflow_run = @{ id = 99; head_sha = $revision } }
     }
+    $originalState = $global:NonUiCohortFixture
+    try {
+        . "$PSScriptRoot\UiScaleUnionFixture.ps1"
+        $source = Join-Path $fixture 'source checkout with spaces'
+        $sourceGit = Join-Path $fixture 'source objects with spaces.git'
+        git init --quiet $source
+        git -C $source -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet --allow-empty -m 'Legacy policy fixture'
+        New-Item -ItemType Directory (Join-Path $source 'eng') | Out-Null
+        Copy-Item (Join-Path $root 'eng\timing-policy.json') (Join-Path $source 'eng\timing-policy.json')
+        git -C $source add eng
+        git -C $source -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Approved policy source fixture'
+        $sourceRevision = (git -C $source rev-parse HEAD).Trim()
+        git clone --quiet --bare $source $sourceGit
+        $global:NonUiCohortFixture = @{
+            run = @{} + $run; latest = @{} + $latest; jobs = $jobs; revision = $sourceRevision
+            collection = @{} + $originalState.collection; sampleJobs = @(); artifacts = @(); evidence = @{}
+        }
+        $global:NonUiCohortFixture.run.head_sha = $sourceRevision
+        $global:NonUiCohortFixture.latest.head_sha = $sourceRevision
+        $global:NonUiCohortFixture.collection.head_sha = $sourceRevision
+        for ($number = 1; $number -le 3; $number++) {
+            $name = "non-ui-cohort-$sourceRevision-99-1-sample-$number"
+            $directory = Join-Path $fixture "active-non-ui-$number"
+            Copy-Item -LiteralPath $originalState.evidence["non-ui-cohort-$cohortId-sample-$number"] -Destination $directory -Recurse
+            $path = Join-Path $directory 'result.json'
+            (Get-Content $path -Raw).Replace($revision, $sourceRevision) | Set-Content $path
+            $global:NonUiCohortFixture.evidence[$name] = $directory
+            $global:NonUiCohortFixture.sampleJobs += @{ id = 100 + $number; runner_id = 200 + $number
+                name = "Non-UI cohort sample ($number)"; status = 'completed'; conclusion = 'success' }
+            $global:NonUiCohortFixture.artifacts += @{ id = 300 + $number; name = $name; expired = $false
+                expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('d' * 64)
+                workflow_run = @{ id = 99; head_sha = $sourceRevision } }
+            $rich = New-RichCohortSampleFixture (Join-Path $fixture "active-rich-$number") $sourceRevision $number '99' '1' ci-timing-v2
+            $path = Join-Path $rich.prefix 'result.json'
+            $prefix = Get-Content $path -Raw | ConvertFrom-Json
+            $prefix.executionSeconds = @(659, 661, 899)[$number - 1]
+            $prefix.startedAt = [DateTimeOffset]::UtcNow.AddMinutes(-16).ToString('O')
+            $prefix.completedAt = ([DateTimeOffset]$prefix.startedAt).AddSeconds($prefix.executionSeconds).ToString('O')
+            $prefix | ConvertTo-Json -Depth 15 | Set-Content $path
+            $prefix | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $rich.prefix "$($prefix.runDirectory)\result.json")
+            foreach ($phase in @('normal-executable', 'background-export')) {
+                $path = Join-Path $rich.prefix "$($prefix.runDirectory)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
+                $note = Get-Content $path -Raw | ConvertFrom-Json
+                $note.localDurability.samplesMs = @(400) * 19 + @(1500, 1600)
+                $note.localDurability.p95Ms = 1500; $note.localDurability.goalMet = $false
+                $note | ConvertTo-Json -Depth 15 | Set-Content $path
+            }
+            & "$root\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $rich.prefix -TailDirectory $rich.tail `
+                -ExpectedRevision $sourceRevision -RunId 99 -RunAttempt 1 -CohortId "$sourceRevision-99-1" -Sample $number `
+                -ResultsDirectory $rich.union -ExpectedPolicyVersion ci-timing-v2
+            foreach ($worker in @('prefix', 'tail', 'union')) {
+                $name = "rich-cohort-$sourceRevision-99-1-sample-$number-$worker"
+                $index = [array]::IndexOf(@('prefix', 'tail', 'union'), $worker)
+                $global:NonUiCohortFixture.evidence[$name] = $rich[$worker]
+                $global:NonUiCohortFixture.sampleJobs += @{ id = 1000 + $number * 10 + $index
+                    runner_id = 2000 + $number * 10 + $index; name = "Rich cohort $worker ($number)"
+                    status = 'completed'; conclusion = 'success' }
+                $global:NonUiCohortFixture.artifacts += @{ id = 3000 + $number * 10 + $index
+                    name = $name; expired = $false; expires_at = '2099-01-01T00:00:00Z'
+                    digest = 'sha256:' + ('d' * 64); workflow_run = @{ id = 99; head_sha = $sourceRevision } }
+            }
+        }
+        $activeWork = Join-Path $fixture 'active-source-public-flow'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $sourceRevision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $activeWork -RichScale -AllowLocalFixture -SourceGitDirectory $sourceGit
+        $active = Get-Content (Join-Path $activeWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($active.validation -ceq 'success' -and $active.effectivePolicyVersion -ceq 'ci-timing-v2' -and
+            $active.reliability.success -eq 3 -and $active.metrics.'prefix-executionSeconds'.maximum -eq 899 -and
+            $active.samples[1].rich.prefix.report.executionSeconds -eq 661 -and
+            $active.samples[1].rich.prefix.notes.'background-export'.localDurability.samplesMs.Count -eq 21) `
+            "Real Git public source policy failed current raw consumption: $(@($active.samples | ForEach-Object { $_.diagnostics }) -join '; ')"
+        Assert (!$active.timingEvaluation.blocking -and $active.timingEvaluation.health -ceq 'yellow' -and
+            $active.timingEvaluation.version -ceq 'ci-timing-v2' -and
+            $active.timingEvaluation.additionalSamples.Count -eq 2) 'Current cohort hid its accepted boundary/headroom warning or blocked without a reference.'
+    } finally { $global:NonUiCohortFixture = $originalState }
+    if ($ActivePolicyOnly) { Write-Host 'PASS: real-Git spaced-path source policy consumes three complete v2 raw samples.'; return }
     $summaryWork = Join-Path $fixture 'summary'
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
         -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $summaryWork -TimingPolicyPreview `
@@ -238,6 +315,7 @@ try {
         $headroomReference = $bootstrap | ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable
         $headroomReference.Remove('policyPreview')
         $headroomReference.revision = 'c' * 40; $headroomReference.ciRevision = $headroomReference.revision
+        $headroomReference.sourcePolicyRevision = $headroomReference.revision
         $headroomReference.controllerRevision = $headroomReference.revision; $headroomReference.ciRunId = '40'
         $headroomReference.cohortRunId = '88'; $headroomReference.cohortId = "$($headroomReference.revision)-88-1"
         $headroomReference.observedAt = [DateTimeOffset]::UtcNow.AddMinutes(-30).ToString('O')
@@ -282,6 +360,7 @@ try {
             'Five complete stable values with28s headroom versus40s reference range did not retain the prior reference.'
         $durationReference = $headroomReference | ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable
         $durationReference.revision = 'd' * 40; $durationReference.ciRevision = $durationReference.revision
+        $durationReference.sourcePolicyRevision = $durationReference.revision
         $durationReference.controllerRevision = $durationReference.revision
         $durationReference.cohortRunId = '87'; $durationReference.cohortId = "$($durationReference.revision)-87-1"
         $durationReference.observedAt = [DateTimeOffset]::UtcNow.AddMinutes(-10).ToString('O')
@@ -328,6 +407,7 @@ try {
         function Write-PracticalReference([string]$Digit, [string]$RunId, [double[]]$Durations, [double[]]$Profiles) {
             $reference = $headroomReference | ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable
             $reference.revision = $Digit * 40; $reference.ciRevision = $reference.revision
+            $reference.sourcePolicyRevision = $reference.revision
             $reference.controllerRevision = $reference.revision
             $reference.cohortRunId = $RunId; $reference.cohortId = "$($reference.revision)-$RunId-1"
             $reference.observedAt = [DateTimeOffset]::UtcNow.AddMinutes(-1).ToString('O')
@@ -387,6 +467,13 @@ try {
             if ($case.name -ceq 'duration-zero-median') {
                 Assert ($null -eq $metric.deltaPercent -and $null -eq $metric.practicalSignificance) `
                     'Zero reference median fabricated percentage significance.'
+                $pinned = Get-Content (Join-Path $headroomPeer "performance-cohorts\$($case.digit * 40)\$($case.run)\1.json") -Raw |
+                    ConvertFrom-Json -AsHashtable
+                $pinned.policyVersion = 'ci-timing-v2'
+                Set-TimingPolicyEvaluation $result $pinned
+                Assert ($result.timingEvaluation.eligibility -ceq 'inconclusive' -and
+                    !$result.timingEvaluation.blocking -and $result.timingEvaluation.additionalSamples.Count -eq 0) `
+                    'Approved comparison uncertainty became eligible promotion or a blocking absence.'
             }
         }
         foreach ($series in @(
@@ -966,6 +1053,7 @@ try {
     git clone --quiet --branch ci-health-data $remote $peer
     $prior = ($saved | ConvertTo-Json -Depth 30) | ConvertFrom-Json -AsHashtable
     $prior.revision = 'c' * 40; $prior.ciRevision = $prior.revision; $prior.ciRunId = '40'
+    $prior.sourcePolicyRevision = $prior.revision
     $prior.cohortRunId = '88'; $prior.cohortId = "$($prior.revision)-88-1"
     $prior.observedAt = [DateTimeOffset]::UtcNow.AddMinutes(-30).ToString('O')
     for ($index = 0; $index -lt 3; $index++) {

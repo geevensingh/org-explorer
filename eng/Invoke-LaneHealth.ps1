@@ -42,6 +42,7 @@ $pages = Invoke-HealthApi "actions/runs/$RunId/artifacts?per_page=100" @('--pagi
 $artifacts = @($pages | ForEach-Object { $_.artifacts })
 $descriptors = @(Get-LaneHealthJobs $run $jobs)
 $downloads = @{}
+$sourcePolicies = @{}
 foreach ($descriptor in $descriptors) {
     $evidence = @{ state = 'missing'; artifactId = $null; digest = $null; expiresAt = $null
         url = "https://github.com/$FilesystemHealthRepository/actions/runs/$RunId/attempts/$RunAttempt" }
@@ -81,9 +82,14 @@ foreach ($descriptor in $descriptors) {
     $diagnostics = @($download.diagnostics)
     if ($writerRevisionError) { $diagnostics += $writerRevisionError }
     $measurement = $null
+    $sourceRevision = $download.candidate
+    if (!$sourcePolicies.ContainsKey($sourceRevision)) {
+        $sourcePolicies[$sourceRevision] = Get-SourceTimingPolicyVersion $sourceRevision -Hosted
+    }
+    $effectivePolicy = $sourcePolicies[$sourceRevision]
     if ($descriptor.kind -cne 'controller' -and $evidence.state -ceq 'available') {
         try {
-            $measurement = Get-LaneHealthMeasurement $descriptor $downloads $run
+            $measurement = Get-LaneHealthMeasurement $descriptor $downloads $run $effectivePolicy
             if ($measurement.ContainsKey('diagnostics')) { $diagnostics += $measurement.diagnostics }
         } catch { $evidence.state = 'rejected'; $diagnostics += "Runner evidence rejected: $($_.Exception.Message)" }
     }
@@ -121,6 +127,7 @@ foreach ($descriptor in $descriptors) {
         observedAt = [DateTimeOffset]::UtcNow.ToString('O'); hosted = Get-HostedHealth $job
         measuredAt = if ($measurement) { $measurement.measuredAt } else { $null }
         policyVersion = 'lane-observation-v2'; originalPolicy = if ($measurement) { $measurement.originalPolicy } else { 'unverified' }
+        effectivePolicyVersion = $effectivePolicy; sourcePolicyRevision = $sourceRevision
         seriesKey = $seriesKey; configuration = if ($measurement) { $measurement.configuration } else { $null }
         selector = if ($measurement) { $measurement.selector } else { $null }
         validation = $validation
@@ -137,6 +144,9 @@ foreach ($descriptor in $descriptors) {
     }
     if ($history) { Set-LaneHealthComparison $record $history }
     if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history $TimingPolicyVersion }
+    if (!$TimingPolicyPreview -and $effectivePolicy -ceq 'ci-timing-v2') {
+        Set-TimingPolicyEvaluation $record
+    }
     $records += $record
 }
 ConvertTo-Json -InputObject @($records) -Depth 30 | Set-Content (Join-Path $WorkingDirectory 'records.json')
@@ -151,6 +161,9 @@ elseif ($Publish -or $PublishObservations) {
 $summary = Format-LaneHealth $records $publication
 if ($TimingPolicyPreview) {
     foreach ($record in $records) { $summary += Format-TimingPolicyPreview $record.policyPreview }
+}
+foreach ($record in $records) {
+    if ($record.Contains('timingEvaluation')) { $summary += Format-TimingPolicyEvaluation $record.timingEvaluation }
 }
 $summary | Set-Content (Join-Path $WorkingDirectory 'summary.md')
 if ($env:GITHUB_STEP_SUMMARY) { $summary | Add-Content $env:GITHUB_STEP_SUMMARY }

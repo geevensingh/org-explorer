@@ -101,9 +101,9 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
 }
 
 function New-RichCohortSampleFixture([string]$Directory, [string]$Candidate, [int]$Sample,
-    [string]$RunId, [string]$RunAttempt) {
+    [string]$RunId, [string]$RunAttempt, [string]$TimingPolicyVersion = 'rich-scale-original-v1') {
     $fixture = New-UiScaleUnionFixture $Directory $Candidate $RunId $RunAttempt `
-        -RunName ('run-' + [guid]::NewGuid().ToString('N')) -TailRunName ('run-' + [guid]::NewGuid().ToString('N'))
+        -RunName ('run-' + [guid]::NewGuid().ToString('N')) -TailRunName ('run-' + [guid]::NewGuid().ToString('N')) -TimingPolicyVersion $TimingPolicyVersion
     $cohortId = "$Candidate-$RunId-$RunAttempt"
     foreach ($worker in @('prefix', 'tail')) {
         $path = Join-Path $fixture[$worker] 'result.json'
@@ -114,6 +114,6 @@ function New-RichCohortSampleFixture([string]$Directory, [string]$Candidate, [in
     }
     $fixture.union = Join-Path $Directory 'union'
     & "$PSScriptRoot\..\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $fixture.prefix -TailDirectory $fixture.tail `
-        -ExpectedRevision $Candidate -RunId $RunId -RunAttempt $RunAttempt -ResultsDirectory $fixture.union -CohortId $cohortId -Sample $Sample -ExpectedPolicyVersion rich-scale-original-v1
+        -ExpectedRevision $Candidate -RunId $RunId -RunAttempt $RunAttempt -ResultsDirectory $fixture.union -CohortId $cohortId -Sample $Sample -ExpectedPolicyVersion $TimingPolicyVersion
     return $fixture
 }

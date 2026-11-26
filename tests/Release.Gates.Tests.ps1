@@ -73,6 +73,35 @@ try {
     $scenarios.scenarios[1].status = 'NotRun'
     $scenarios | ConvertTo-Json -Depth 6 | Set-Content $scenarioPath
     Rejects { Verify } 'missing named WPF scale scenario'
+    $active = New-UiScaleUnionFixture (Join-Path $root 'active') $candidate -StartedAt $started.AddSeconds(1) -TimingPolicyVersion ci-timing-v2
+    $report = Get-Content (Join-Path $active.prefix 'result.json') -Raw | ConvertFrom-Json
+    $report.executionSeconds = 661
+    $report.completedAt = ([DateTimeOffset]$report.startedAt).AddSeconds(661).ToString('O')
+    $report | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $active.prefix 'result.json')
+    $report | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $active.prefix "$($active.runName)\result.json")
+    foreach ($phase in @('normal-executable', 'background-export')) {
+        $path = Join-Path $active.prefix "$($active.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
+        $note = Get-Content $path -Raw | ConvertFrom-Json
+        $note.localDurability.samplesMs = @(400) * 19 + @(1030.138, 1600)
+        $note.localDurability.p95Ms = 1030.138; $note.localDurability.goalMet = $false
+        $note | ConvertTo-Json -Depth 12 | Set-Content $path
+    }
+    $activeUnion = Join-Path $root 'active-union'
+    & "$PSScriptRoot\..\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $active.prefix -TailDirectory $active.tail `
+        -ExpectedRevision $candidate -RunId 123 -RunAttempt 2 -ExpectedPolicyVersion ci-timing-v2 -ResultsDirectory $activeUnion
+    Assert-ReleaseVerification -PerformanceDirectory "$root\non-ui-performance" -UiScaleDirectory $activeUnion `
+        -Candidate $candidate -StartedAt $started -ExpectedPolicyVersion ci-timing-v2
+    $timing = @(Get-Content (Join-Path $activeUnion 'timing-evaluation.json') -Raw | ConvertFrom-Json)
+    if ($timing.Count -ne 2 -or $timing[0].timingEvaluation.health -cne 'yellow' -or
+        $timing[0].timingEvaluation.blocking -or $timing[0].timingEvaluation.version -cne 'ci-timing-v2' -or
+        $timing[0].measurements.executionSeconds -ne 661) {
+        throw 'Fresh661s release failed v2 or a known1030ms goal warning became blocking without a reference.'
+    }
+    $checks++
+    Rejects {
+        Assert-ReleaseVerification -PerformanceDirectory "$root\non-ui-performance" -UiScaleDirectory $activeUnion `
+            -Candidate $candidate -StartedAt $started -ExpectedPolicyVersion rich-scale-original-v1
+    } 'v2 artifacts claiming acceptance under an old source policy'
     Write-Host "PASS: $checks fail-closed fresh exact-candidate release gate checks."
 } finally {
     if (Test-Path $root) { Remove-Item $root -Recurse -Force }

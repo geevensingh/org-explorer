@@ -302,7 +302,15 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
         elseif ($evaluation.validationBlocking) { 'inconclusive' }
         elseif (!$evaluation.metrics.Count -or @($evaluation.metrics.Values | Where-Object { $_.health -cne 'green' }).Count) { 'unbaselined' } else { 'green' }
     $evaluation.blocking = $evaluation.validationBlocking -or $red
+    $relativeUncertain = @($evaluation.metrics.Values | Where-Object {
+        $_.Contains('relativeRule') -and $_.relativeRule -cne 'informational' -and $_.relativeHealth -ceq 'inconclusive'
+    }).Count -gt 0
+    if ($Record.recordType -ceq 'performance-cohort' -and !$evaluation.blocking -and !$relativeUncertain -and
+        (Get-TimingCohortKey $Record) -and $Record.samples.Count -eq 3 -and $yellow) {
+        $evaluation.additionalSamples = @(4, 5)
+    }
     $evaluation.eligibility = if ($evaluation.blocking) { 'rejected' }
+        elseif ($relativeUncertain) { 'inconclusive' }
         elseif ($evaluation.additionalSamples.Count) { 'extend' }
         elseif ($evaluation.eligibility -ceq 'inconclusive') { 'inconclusive' } else { 'eligible' }
     foreach ($metric in $evaluation.metrics.Values) {

@@ -43,6 +43,17 @@ function gh {
     }
     if ($arguments[0] -cne 'api') { throw 'Unexpected external operation.' }
     switch -Regex ($arguments[1]) {
+        '/git/trees/[0-9a-f]{40}\?recursive=1$' {
+            $tree = @{ truncated = $false; tree = @() }
+            if ($global:LaneHealthFixture.ContainsKey('activePolicy') -and $global:LaneHealthFixture.activePolicy) {
+                $tree.tree = @(@{ path = 'eng/timing-policy.json'; type = 'blob'; sha = 'c' * 40 })
+            }
+            $tree | ConvertTo-Json -Depth 8; return
+        }
+        '/git/blobs/[0-9a-f]{40}$' {
+            @{ encoding = 'base64'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"version":"ci-timing-v2"}')) } |
+                ConvertTo-Json; return
+        }
         '/actions/runs/51/attempts/[1-9][0-9]*$' { $global:LaneHealthFixture.run | ConvertTo-Json -Depth 10 -Compress; return }
         '/actions/runs/51/attempts/[1-9][0-9]*/jobs\?per_page=100$' {
             ConvertTo-Json -InputObject @(@{ jobs = $global:LaneHealthFixture.jobs }) -Depth 10 -Compress; return
@@ -315,6 +326,32 @@ try {
     $missingHandoff = Observe
     $unionRecord = @($missingHandoff.records | Where-Object { $_.lane -ceq 'ui-scale' })[0]
     Assert ($unionRecord.validation -ceq 'incomplete') 'A green union artifact substituted for actual complete prefix-to-tail proof.'
+    $global:LaneHealthFixture.activePolicy = $true
+    $active = New-UiScaleUnionFixture (Join-Path $fixture 'active') $run.head_sha '51' '1' -TimingPolicyVersion ci-timing-v2
+    foreach ($phase in @('normal-executable', 'background-export')) {
+        $path = Join-Path $active.prefix "$($active.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
+        $note = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable
+        $note.localDurability.samplesMs = @(400) * 19 + @(1030.138, 1600)
+        $note.localDurability.p95Ms = 1030.138; $note.localDurability.goalMet = $false
+        $note | ConvertTo-Json -Depth 12 | Set-Content $path
+    }
+    $activeUnion = Join-Path $fixture 'active-union'
+    & "$root\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $active.prefix -TailDirectory $active.tail `
+        -ExpectedRevision $run.head_sha -RunId 51 -RunAttempt 1 -ResultsDirectory $activeUnion -ExpectedPolicyVersion ci-timing-v2
+    foreach ($item in @(@('ui-scale-prefix', $active.prefix), @('ui-scale-tail', $active.tail), @('ui-scale', $activeUnion))) {
+        $destination = Join-Path $evidence "$($item[0])-$($run.head_sha)-51-1"
+        Remove-Item -LiteralPath $destination -Recurse -Force
+        Copy-Item -LiteralPath $item[1] -Destination $destination -Recurse
+    }
+    $activeObservation = Observe -Publish
+    $activePrefix = @($activeObservation.records | Where-Object { $_.lane -ceq 'ui-scale-prefix' })[0]
+    Assert ($activePrefix.validation -ceq 'success' -and $activePrefix.timingEvaluation.health -ceq 'yellow' -and
+        !$activePrefix.timingEvaluation.blocking -and $activePrefix.originalPolicy -ceq 'ci-timing-v2' -and
+        $activePrefix.measurements.ceilingSeconds -eq 900 -and
+        $activePrefix.timingEvaluation.metrics.'note-durability-background-export'.hardLimit -eq 1500 -and
+        $activeObservation.summary.Contains('APPROVED AND ENFORCED')) `
+        'Source-bound current runner evidence failed activation or suppressed unbaselined1030ms yellow.'
+    $global:LaneHealthFixture.activePolicy = $false
     $run.path = '.github/workflows/installer-verification.yml'
     $run.event = 'workflow_dispatch'
     $installerName = 'isolated-installer-evidence-1'
