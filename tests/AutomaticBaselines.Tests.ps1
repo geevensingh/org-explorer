@@ -606,10 +606,55 @@ try {
         $null -eq $unavailable.revision -and $unavailable.jobs.Count -eq 12 -and
         $unavailable.collectionOutcome -ceq 'success') `
         'Unavailable plan lost original jobs/outcome, invented candidate identity or became a comparison input.'
+    foreach ($case in @(
+        @{ name = 'persistent-variance'; ci = 50; run = 107; image = '20261117'; durations = @(100, 150, 200); extra = 150; reference = $changedRevision },
+        @{ name = 'bootstrap-low-headroom'; ci = 51; run = 108; image = '20261118'; durations = @(600, 630, 640); extra = 635; reference = $null }
+    )) {
+        $inconclusiveRevision = Add-MainFixtureRevision $case.name
+        Select-BaselineFixture $inconclusiveRevision $case.ci $case.run
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $inconclusiveRevision -CiRunId $case.ci -CiRunAttempt 1 `
+            -CohortRunId $case.run -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture "$($case.name)-plan") -RichScale -PublishPlan `
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+        for ($number = 1; $number -le 3; $number++) {
+            New-CompleteBaselineSample $number $inconclusiveRevision $case.durations[$number - 1] @(495, 500, 505)[$number - 1] $case.image
+        }
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $inconclusiveRevision -CiRunId $case.ci -CiRunAttempt 1 `
+            -CohortRunId $case.run -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture "$($case.name)-decision") -RichScale -PublishDecision `
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+        foreach ($number in @(4, 5)) { New-CompleteBaselineSample $number $inconclusiveRevision $case.extra 500 $case.image }
+        $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+        $inconclusiveWork = Join-Path $fixture $case.name
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $inconclusiveRevision -CiRunId $case.ci -CiRunAttempt 1 `
+            -CohortRunId $case.run -CohortRunAttempt 1 -WorkingDirectory $inconclusiveWork -RichScale -Publish `
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+        $inconclusive = Get-Content (Join-Path $inconclusiveWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($inconclusive.validation -ceq 'success' -and $inconclusive.samples.Count -eq 5 -and
+            $inconclusive.eligibility -ceq 'inconclusive' -and $inconclusive.extraSamples.Count -eq 0 -and
+            $(if ($case.reference) { $inconclusive.reference.revision -ceq $case.reference } else { $null -eq $inconclusive.reference })) `
+            'Terminal five-execution uncertainty manufactured a reference or requested further repetitions.'
+    }
+    Select-BaselineFixture $first 52 109
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $first -CiRunId 52 -CiRunAttempt 1 `
+        -CohortRunId 109 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'legacy-source-plan') -RichScale -PublishPlan `
+        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    for ($number = 1; $number -le 3; $number++) { New-CompleteBaselineSample $number $first 150 500 }
+    $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+    $legacyWork = Join-Path $fixture 'legacy-source-active-artifacts'
+    Rejects {
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $first -CiRunId 52 -CiRunAttempt 1 `
+            -CohortRunId 109 -CohortRunAttempt 1 -WorkingDirectory $legacyWork -RichScale -Publish `
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    } 'Artifact-declared active policy rewrote an original unactivated source as canonical evidence.'
+    $legacySource = Get-Content (Join-Path $legacyWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($legacySource.sourcePolicyVersion -ceq 'rich-scale-original-v1' -and !$legacySource.sourcePolicyCompatible -and
+        $legacySource.eligibility -ceq 'rejected' -and $legacySource.samples.Count -eq 3 -and $legacySource.extraSamples.Count -eq 0) `
+        'Mixed-source qualification accepted artifact approval or lost original legacy source policy.'
     $badRemote = Join-Path $fixture 'malformed-history.git'
     Copy-Item -LiteralPath $remote -Destination $badRemote -Recurse
     $badWriter = Join-Path $fixture 'malformed-writer'
-    & git clone --quiet --branch ci-health-data $badRemote $badWriter
+    & git -c core.longpaths=true clone --quiet --branch ci-health-data $badRemote $badWriter
+    if ($LASTEXITCODE -ne 0) { throw 'Malformed-history fixture clone failed before the intended validation case.' }
+    $null = Invoke-FixtureGit $badWriter @('config', 'core.longpaths', 'true')
     $badPath = Join-Path $badWriter "rich-scale-cohorts\$changedRevision\105\1.json"
     $bad = Get-Content $badPath -Raw | ConvertFrom-Json -AsHashtable
     $bad.timingEvaluation.metrics.executionSeconds.median = 999
@@ -618,10 +663,13 @@ try {
     $null = Invoke-FixtureGit $badWriter @('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
         'commit', '--quiet', '-m', 'Malformed stored comparison fixture')
     $null = Invoke-FixtureGit $badWriter @('push', '--quiet', 'origin', 'ci-health-data')
-    Rejects {
+    $malformedReason = $null
+    try {
         $null = Open-HealthHistory (Join-Path $fixture 'bad-reader.git') $badRemote -AllowLocalFixture `
             -RecordTypes (Get-LaneHealthRecordTypes)
-    } 'Stored grade inputs that disagreed with immutable measurements were accepted as a canonical reference.'
+    } catch { $malformedReason = $_.Exception.Message }
+    Assert ($malformedReason -like 'Stored timing health/eligibility does not reproduce*') `
+        'Stored grade inputs were not rejected for the actual immutable-comparison mismatch.'
     Write-Host "PASS: $checks public automatic baseline checks."
     $global:LASTEXITCODE = 0
 } finally {
