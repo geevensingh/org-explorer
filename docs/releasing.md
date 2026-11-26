@@ -104,6 +104,17 @@ The release gate retains separate active timing records; no comparison or
 collection availability replaces fresh proof or introduces a wait. See
 [the exact result contract](testing.md#separate-scale-commands-and-results).
 
+For active sources, `timing-comparison.json` retains the single fresh execution,
+the already available compatible canonical reference (or explicit absence/read
+error), policy, history snapshot and metric-specific envelope/headroom. Its one
+execution cannot manufacture five-run serious-relative evidence. If a matching
+complete five-execution cohort has already established approved serious red
+against its pinned predecessor, the gate retains its evidence link and blocks
+before publication. A running collection is never awaited. Later findings do
+not rewrite earlier release artifacts or publication provenance. The ordinary
+lane observer uses the same execution builder/evaluator for complete scale
+unions; transfer/collection cost is not substituted for worker duration.
+
 All jobs must succeed now. Publication downloads only this run/attempt's named
 artifacts, verifies clean exact source and execution times, and revalidates the
 complete named TRX/scenario results. Missing, stale, partial, skipped, failed,
