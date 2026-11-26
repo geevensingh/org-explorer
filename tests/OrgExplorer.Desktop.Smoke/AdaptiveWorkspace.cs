@@ -593,6 +593,13 @@ internal static partial class Program
 
     private static void AssertReportingTreeMenu(AutomationElement window, string managerEmail, string reportEmail, string state)
     {
+        HarnessRuntime.Run("native-reporting-tree-menu-" + state,
+            () => AssertReportingTreeMenuCore(window, managerEmail, reportEmail, state));
+        HarnessRuntime.Checkpoint("reporting-tree-menu-complete-" + state);
+    }
+
+    private static void AssertReportingTreeMenuCore(AutomationElement window, string managerEmail, string reportEmail, string state)
+    {
         var panelWasOpen = IsVisible(window, "PeopleNavigation");
         var compact = IsVisible(window, "OpenPeople");
         var owner = CurrentPersonEmail(window);
@@ -699,6 +706,7 @@ internal static partial class Program
         {
             try
             {
+                using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
                 var cache = new CacheRequest { TreeScope = TreeScope.Element };
                 foreach (var property in new[] { AutomationElement.AutomationIdProperty, AutomationElement.NameProperty,
                     AutomationElement.IsOffscreenProperty, AutomationElement.BoundingRectangleProperty,
@@ -718,6 +726,7 @@ internal static partial class Program
                     runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
                     runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
                     monotonicTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+                    monotonicFrequency = System.Diagnostics.Stopwatch.Frequency,
                     retainedProviderState = branch.Current.ExpandCollapseState.ToString(),
                     focusedId = focus?.Current.ProcessId == window.Current.ProcessId ? focus.Current.AutomationId : null,
                     controls = controls.Cast<AutomationElement>().Select(control => new
@@ -742,17 +751,17 @@ internal static partial class Program
             ObserveExpansion(phase, "before-request");
             try
             {
-                var requested = false;
+                TreeItemRealization.MenuBranchInput? requestedInput = null;
                 TreeItemRealization.PrepareMenuBranch(
                     () => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded,
                     input =>
                     {
-                        requested = true;
+                        requestedInput = input;
                         if (input == TreeItemRealization.MenuBranchInput.ExpandCollapseProvider)
                         {
                             branch.Expand();
                         }
-                        else
+                        else if (input == TreeItemRealization.MenuBranchInput.DisclosureArrow)
                         {
                             var row = Row(managerEmail);
                             var bounds = row.Current.BoundingRectangle;
@@ -765,10 +774,22 @@ internal static partial class Program
                             mouse_event(2, 0, 0, 0, 0);
                             mouse_event(4, 0, 0, 0, 0);
                         }
+                        else
+                        {
+                            var arrow = Row(managerEmail).FindFirst(TreeScope.Children, new AndCondition(
+                                new PropertyCondition(AutomationElement.AutomationIdProperty, "Expander"),
+                                new PropertyCondition(AutomationElement.NameProperty, "Expand or collapse reporting subtree")));
+                            if (arrow is null || !arrow.Current.IsEnabled || arrow.Current.IsOffscreen ||
+                                !arrow.TryGetCurrentPattern(TogglePattern.Pattern, out var provider))
+                                throw new InvalidOperationException($"The reporting disclosure Toggle provider is unavailable at {state}: {managerEmail}.");
+                            var toggle = (TogglePattern)provider;
+                            if (toggle.Current.ToggleState == ToggleState.Off) toggle.Toggle();
+                            else if (toggle.Current.ToggleState != ToggleState.On)
+                                throw new InvalidOperationException($"The reporting disclosure Toggle state is unavailable at {state}: {managerEmail}.");
+                        }
                         ObserveExpansion(phase, "returned-request", input.ToString());
                     }, Await);
-                ObserveExpansion(phase, requested ? "prepared-state" : "already-expanded",
-                    requested ? TreeItemRealization.MenuBranchInput.DisclosureArrow.ToString() : null);
+                ObserveExpansion(phase, requestedInput.HasValue ? "prepared-state" : "already-expanded", requestedInput?.ToString());
                 AssertRetained(retentionBoundary);
             }
             catch (Exception error) when (error is TimeoutException or ElementNotAvailableException or InvalidOperationException or COMException)
