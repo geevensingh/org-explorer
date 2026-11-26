@@ -360,7 +360,7 @@ public sealed partial class SqliteWorkspaceTests
 
     private async Task AssertAbruptCommitRecovery(
         string boundary, string mutation, bool unresolvedEvidence, bool receiptHeld, bool retainShmMapping = false,
-        bool restoreStaleShmIndex = false, bool retainResources = false)
+        bool restoreStaleShmIndex = false, bool retainResources = false, string? retainedCommittedFile = null)
     {
         Guid? retainedTeamNote = null;
         string? retainedHistory = null;
@@ -399,6 +399,7 @@ public sealed partial class SqliteWorkspaceTests
         byte[]? staleShmIndex = null;
         var processStarted = false;
         FileStream? receiptHolder = null;
+        FileStream? committedFileHolder = null;
         OwnedShmMapping? shmMapping = null;
         try
         {
@@ -448,9 +449,18 @@ public sealed partial class SqliteWorkspaceTests
                 Assert.Null(oldReader.GetRelationships("manager@example.com")!.Person.TeamName);
                 oldReader.Dispose();
             }
+            if (retainedCommittedFile is not null)
+            {
+                // Retain write access without writing, while the actual SQLite writer is still paused.
+                committedFileHolder = new FileStream(Path.Combine(Workspace, retainedCommittedFile),
+                    FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+                Assert.False(process.HasExited);
+                Console.WriteLine($"SQLITE-CRASH-COMMITTED-FILE-HOLDER writerProcessId={process.Id}; holderProcessId={Environment.ProcessId}; file={retainedCommittedFile}; access=ReadWrite; share=ReadWrite,Delete; noBytesWritten=true");
+            }
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             shmMapping?.AssertHeld();
+            if (committedFileHolder is not null) Assert.False(committedFileHolder.SafeFileHandle.IsClosed);
             if (staleShmIndex is not null)
             {
                 var committedFiles = new[] { "workspace.sqlite", "workspace.sqlite-wal" }
@@ -584,6 +594,7 @@ public sealed partial class SqliteWorkspaceTests
             Assert.Equal(expectedRevision, reopened.LocalSave.CommittedRevision);
             AssertCommittedWriting();
             shmMapping?.AssertHeld();
+            if (committedFileHolder is not null) Assert.False(committedFileHolder.SafeFileHandle.IsClosed);
             if (receiptHeld)
             {
                 var receipt = Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json"));
@@ -650,6 +661,7 @@ public sealed partial class SqliteWorkspaceTests
             finally
             {
                 receiptHolder?.Dispose();
+                committedFileHolder?.Dispose();
                 shmMapping?.Dispose();
             }
             var receipts = Directory.GetFiles(Workspace, "local-write-*.json");
@@ -665,7 +677,8 @@ public sealed partial class SqliteWorkspaceTests
 
         static string HashCommittedFile(string path)
         {
-            using var file = File.OpenRead(path);
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
             return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file));
         }
     }

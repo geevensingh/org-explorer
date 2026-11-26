@@ -1211,7 +1211,7 @@ revision/error and read-only Windows Restart Manager owner snapshots for only th
 owned receipt paths. These non-atomic snapshots never shut down/restart an owner,
 force-delete evidence, inventory unrelated processes or log note contents. Missing
 owners at observation do not establish that no earlier holder existed.
-Five focused `SqliteShmRecoveryTests` cases retain the original owned child and
+Seven focused `SqliteShmRecoveryTests` cases retain the original owned child and
 public validating Open. The test host explicitly maps that child's existing
 physical SHM file at its current length, without taking a SQLite DMS lock or
 resizing it. After actual Commit Begin/End admission and death within the
@@ -1223,6 +1223,12 @@ bytes under an actual older public read snapshot, releases that reader, kills
 the writer, and only then restores those bytes into the original held section.
 Hashes require original database/WAL bytes to remain unchanged; no live
 database/WAL copy, deletion or backup protocol is introduced.
+Two controlled cases retain a nonwriting read/write database or WAL handle from
+the paused child through death, both raw hashes and public reopen. Hash streams
+keep read-only access and share read/write/delete, so observation does not exclude
+held write-capable resources. The stable Commit boundaries, original byte
+comparison, held SHM and complete resource assertions remain; this neither
+authorizes concurrent writing nor identifies the historical hosted holder.
 The original nine death cases and healthy public WAL-reader controls remain.
 The causal 3.53.4 RED is `SQLITE_IOERR_TRUNCATE` (10/1546) in the first public
 Open; supported native `SQLite` 3.54.1 must turn it GREEN without an Open retry
