@@ -21,6 +21,11 @@ on:
         required: false
         default: false
         type: boolean
+      cleanup_kernel_events:
+        description: Diagnostic-only kernel image lifecycle instead of module polling
+        required: false
+        default: false
+        type: boolean
       prefix_only_diagnostic:
         description: One prefix-only 900s observation, 30m watchdog; nonaccepting and baseline-ineligible
         required: false
@@ -102,7 +107,7 @@ jobs:
         run: .\eng\Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION
       - name: Trace owned process and native-image lifetime through original cleanup
         if: ${{ inputs.cleanup_lifetime_diagnostic }}
-        run: .\eng\Trace-PerformanceCleanup.ps1 -Repository $pwd.Path -ExpectedRevision $env:TESTED_REVISION
+        run: .\eng\Trace-PerformanceCleanup.ps1 -Repository $pwd.Path -ExpectedRevision $env:TESTED_REVISION -KernelEvents:([bool]::Parse('${{ inputs.cleanup_kernel_events || false }}'))
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -117,6 +122,7 @@ jobs:
             .ci-results/cleanup-observed/**/*.log
             .ci-results/cleanup-observed/**/*.trx
             .ci-results/cleanup-observed/**/*.tsv
+            .ci-results/cleanup-observed/kernel-owned-native-images.xml
 
   ui-scale-prefix:
     if: ${{ !inputs.cleanup_lifetime_diagnostic && (inputs.prefix_only_diagnostic || (!inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot)) }}

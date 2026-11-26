@@ -24,10 +24,12 @@ public sealed class OwnedCleanupTrace : IDisposable
     private readonly ManagementEventWatcher starts;
     private readonly ManagementEventWatcher stops;
     private readonly Timer timer;
+    private readonly bool observeModules;
     private bool disposed;
 
-    public OwnedCleanupTrace(int root, string scope, string output)
+    public OwnedCleanupTrace(int root, string scope, string output, bool observeModules)
     {
+        this.observeModules = observeModules;
         this.scope = Path.GetFullPath(scope).TrimEnd('\\') + "\\";
         this.output = output;
         using (var process = Process.GetProcessById(root))
@@ -39,7 +41,7 @@ public sealed class OwnedCleanupTrace : IDisposable
         stops.EventArrived += OnStop;
         starts.Start();
         stops.Start();
-        timer = new Timer(_ => Snapshot("sample"), null, 0, 250);
+        timer = new Timer(_ => Snapshot("sample"), null, observeModules ? 0 : Timeout.Infinite, 250);
     }
 
     private void Log(string kind, int pid, int parent, long start, string detail)
@@ -84,7 +86,7 @@ public sealed class OwnedCleanupTrace : IDisposable
         var pid = Convert.ToInt32(args.NewEvent["ProcessID"]);
         lock (gate)
         {
-            if (disposed || !owned.TryGetValue(pid, out var lifetime) || !lifetime.Active) return;
+            if (disposed || !owned.TryGetValue(pid, out var lifetime)) return;
             lifetime.Active = false;
             Log("process-stop-event", pid, lifetime.Parent, lifetime.Start,
                 "exit=" + Convert.ToString(args.NewEvent["ExitStatus"]) +
@@ -96,7 +98,7 @@ public sealed class OwnedCleanupTrace : IDisposable
     {
         lock (gate)
         {
-            if (disposed) return;
+            if (disposed || !observeModules) return;
             foreach (var lifetime in owned.Values.Where(p => p.Active).ToArray())
             {
                 try
