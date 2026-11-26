@@ -57,7 +57,12 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         Notify();
         WorkspaceChanged?.Invoke(this, e);
     }
-    public bool RefreshWorkspace() => Observe(workflow.RefreshWorkspace);
+    public bool RefreshWorkspace() => Observe(() =>
+    {
+        var refreshed = workflow.RefreshWorkspace();
+        if (refreshed) EnsurePeopleSelection();
+        return refreshed;
+    });
     public void Dispose()
     {
         var synchronizing = StopSynchronization();

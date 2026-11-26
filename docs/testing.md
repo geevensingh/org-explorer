@@ -267,12 +267,21 @@ independence, both fallback levels, current/Archived selection precedence and
 non-activating search with Import retained. Real-folder startup cases independently
 compare preference and Workspace bytes, exact secondary notes, unavailable-Person
 recovery and failed-reopen clearing. A valid remembered Person with an unavailable
-exact note is not redirected by this slice; its recovery and accepted-refresh
-integration remain separate work.
+exact note is not redirected by these slices; its startup recovery remains
+separate work.
+Accepted-refresh cases reuse this seam for local reload and synchronous/asynchronous
+snapshot adoption, cross-branch selection, current/Archived exact reading,
+non-activating search/Import, and unchanged saved destinations. Real folders
+retain failed Person/Team writing, profile and Preferred-name drafts and independent
+errors, and refuse invalid, incomplete, deferred, unavailable or stale data.
 Existing hosted profile/reopen, archival and search/responsive journeys observe
 the actual profile identity, selected row's rendered text and clickable point
 inside the tree viewport, expanded ancestors and deferred reveal after Import
-or search. The profile fixture places a qualifying Manager behind offscreen
+or search. The search/responsive journeys also deliver a cross-branch candidate
+while an archived match is highlighted and Import review remains open, then
+observe the matching profile and deferred selected row behind offscreen context.
+The original Import journey and full responsive matrices remain intact.
+The profile fixture places a qualifying Manager behind offscreen
 single-report ancestor context. These assertions do not realize, expand or scroll
 the expected row themselves. Existing scenario selections, full responsive
 matrices and budgets remain; compiled invisible checks are not hosted evidence.

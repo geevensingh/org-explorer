@@ -212,6 +212,7 @@ internal static partial class Program
                 source.EditPersonText("casey@example.com", PersonTextField.JobTitle, "Changed manager role"));
             PublishSmokeWorkspace(window, folder);
             Await(() => Find(window, "ProfileHeading").Current.Name == "External Avery");
+            AssertSelectedPeopleRow(window, "avery@example.com", "casey@example.com");
             AssertPersonCategory(window, "Employee");
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("External context"));
@@ -256,6 +257,7 @@ internal static partial class Program
                 !ReadingText(window).Contains("External context") || !Find(window, "EditPreferredName").Current.IsEnabled ||
                 ReadSmokePersonNote(folder, personId).Markdown != "# External context")
                 throw new InvalidOperationException("Rejected snapshot delivery changed validated local reading or paused local editing.");
+            AssertSelectedPeopleRow(window, "avery@example.com", "casey@example.com");
             File.Delete(invalid);
             SetSettingsVisible(window, true);
             Click(window, "SyncNow");
