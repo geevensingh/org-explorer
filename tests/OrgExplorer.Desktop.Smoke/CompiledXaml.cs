@@ -2182,13 +2182,43 @@ internal static partial class Program
                 var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
                 var import = Path.Combine(root, "automatic-import.json");
                 File.WriteAllText(import, SearchImport(records, 903));
+                var previewAttempt = 0;
                 void Preview()
                 {
+                    previewAttempt++;
                     Invoke("OpenSettingsButton");
                     Invoke("OpenImportButton");
                     Control<TextBox>("ImportPath").Text = import;
                     Invoke("PreviewButton");
-                    PumpUntil(() => Control<Button>("ApplyButton").IsEnabled);
+                    try
+                    {
+                        PumpUntil(() => Control<Button>("ApplyButton").IsEnabled);
+                    }
+                    catch (TimeoutException) when (previewAttempt == 2)
+                    {
+                        static string? Bounded(string? value) => value is { Length: > 512 } ? value[..512] : value;
+                        var save = model.LocalSave;
+                        HarnessRuntime.Checkpoint("DEBUG-136-PREVIEW " + JsonSerializer.Serialize(new
+                        {
+                            previewAttempt,
+                            model.IsImportOpen,
+                            model.CanEnterImport,
+                            model.HasFailedImport,
+                            importVisible = Control<FrameworkElement>("ImportPanel").Visibility.ToString(),
+                            activity = Bounded(Control<TextBlock>("WorkflowActivity").Text),
+                            openEnabled = Control<Button>("OpenWorkspaceButton").IsEnabled,
+                            previewEnabled = Control<Button>("PreviewButton").IsEnabled,
+                            applyEnabled = Control<Button>("ApplyButton").IsEnabled,
+                            previewItems = Control<ItemsControl>("PreviewText").Items.Count,
+                            savePhase = save.Phase.ToString(),
+                            saveOutcome = save.Outcome.ToString(),
+                            save.EditsPaused,
+                            operationError = Bounded(model.OperationError),
+                            localSaveError = Bounded(model.LocalSaveError),
+                            status = Bounded(model.Status)
+                        }));
+                        throw;
+                    }
                 }
                 void BackToPeople() => LogicalDescendants(Control<FrameworkElement>("ImportPanel")).OfType<Button>()
                     .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople")
