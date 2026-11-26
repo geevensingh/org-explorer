@@ -423,7 +423,8 @@ public sealed partial class SqliteWorkspaceTests
 
     private async Task AssertAbruptCommitRecovery(
         string boundary, string mutation, bool unresolvedEvidence, bool receiptHeld, bool retainShmMapping = false,
-        bool restoreStaleShmIndex = false, bool retainResources = false, string? retainedCommittedFile = null)
+        bool restoreStaleShmIndex = false, bool retainResources = false, string? retainedCommittedFile = null,
+        bool inspectCommittedWal = false, bool requireRawWalTruth = false)
     {
         Guid? retainedTeamNote = null;
         string? retainedHistory = null;
@@ -465,6 +466,10 @@ public sealed partial class SqliteWorkspaceTests
         FileStream? committedFileHolder = null;
         CrashFileIdentity? committedHolderIdentity = null;
         var committedFileObservations = new List<CrashCommittedFileObservation>(4);
+        var rawCommittedFiles = new Dictionary<string, byte[]>();
+        var rawCaptureFaults = new List<RawCaptureFault>(2);
+        RawWalEvidence? rawWalEvidence = null;
+        WalIndexObservation? walIndexBeforeOpen = null;
         var oldReaderDisposed = false;
         OwnedShmMapping? shmMapping = null;
         try
@@ -543,6 +548,11 @@ public sealed partial class SqliteWorkspaceTests
                 var before = committedFiles.Select(path => HashCommittedFile(path, "before-stale-index")).ToArray();
                 shmMapping!.RestoreIndex(staleShmIndex);
                 Assert.Equal(before, committedFiles.Select(path => HashCommittedFile(path, "after-stale-index")).ToArray());
+                if (inspectCommittedWal)
+                {
+                    rawWalEvidence = CaptureRawWalEvidence(rawCommittedFiles, rawCaptureFaults);
+                    walIndexBeforeOpen = CaptureWalIndex(shmMapping);
+                }
             }
             string? evidence = null;
             if (unresolvedEvidence)
@@ -631,7 +641,7 @@ public sealed partial class SqliteWorkspaceTests
             {
                 revisionEvidence = new
                 {
-                    schemaVersion = 1,
+                    schemaVersion = 2,
                     boundary, mutation, admittedWriterProcessId, admittedRequestId, admittedBaseRevision, admittedNextRevision,
                     admissionGuidMetadataComplete = admittedRequestId.HasValue && admittedBaseRevision.HasValue && admittedNextRevision.HasValue,
                     expectedRevision = expectedRevisionGuidValid ? expectedGuid : (Guid?)null,
@@ -651,6 +661,12 @@ public sealed partial class SqliteWorkspaceTests
                     committedHolderClosed = committedFileHolder?.SafeFileHandle.IsClosed, committedHolderIdentity,
                     shm = shmMapping?.CaptureHeldResources(),
                     staleIndexBytes = staleShmIndex?.Length, committedFiles = committedFileObservations.ToArray(),
+                    rawWalEvidence, walIndexBeforeOpen,
+                    walIndexAtEquality = inspectCommittedWal ? CaptureWalIndex(shmMapping) : null,
+                    nativeSqliteIdentity = inspectCommittedWal ? CaptureNativeSqliteIdentity() : null,
+                    nativeClientQuiescence = "Unknown", nativeDmsState = "Unknown",
+                    quiescenceObservation = "OwnedLifecycleOnly", observationsAreNonAtomic = true,
+                    nativeLockOwnershipObserved = false, nativeClientInventoryObserved = false,
                     retainResources, retainedTeamNoteId = retainedTeamNote,
                     retainedHistoryCaptured = retainedHistory is not null, retainedContextsCaptured = retainedContexts is not null
                 };
@@ -660,32 +676,24 @@ public sealed partial class SqliteWorkspaceTests
             {
                 revisionEvidence = new
                 {
-                    schemaVersion = 1, captureFault = fault.GetType().Name, captureHResult = fault.HResult,
+                    schemaVersion = 2, captureFault = fault.GetType().Name, captureHResult = fault.HResult,
                     admittedRequestId, admittedBaseRevision, admittedNextRevision,
                     expectedRevision = expectedRevisionGuidValid ? expectedGuid : (Guid?)null,
                     actualRevision = actualRevisionGuidValid ? actualGuid : (Guid?)null,
                     phase = firstRecoveredSave.Phase.ToString(), outcome = firstRecoveredSave.Outcome.ToString(),
+                    rawWalEvidence, walIndexBeforeOpen,
+                    nativeClientQuiescence = "Unknown", nativeDmsState = "Unknown",
                     committedHolderIdentity, committedFiles = committedFileObservations.ToArray()
                 };
             }
             try { Assert.Equal(expectedRevision, firstRecoveredSave.CommittedRevision); }
             catch (Xunit.Sdk.EqualException original)
             {
-                try
-                {
-                    output.WriteLine("SQLITE-WAL-REVISION-EVIDENCE " +
-                        System.Text.Json.JsonSerializer.Serialize(revisionEvidence));
-                }
-                catch (Exception fault) when (fault is IOException or UnauthorizedAccessException or
-                    InvalidOperationException or ArgumentException or NotSupportedException or
-                    System.Text.Json.JsonException or Xunit.Sdk.XunitException)
-                {
-                    // Reporting cannot replace the original equality failure.
-                    original.Data["SQLITE-WAL-REVISION-EVIDENCE-REPORTING-FAULT"] =
-                        $"{fault.GetType().Name}; hresult=0x{fault.HResult:X8}";
-                }
+                ReportWalRevisionEvidence(revisionEvidence, original);
                 throw;
             }
+            if (inspectCommittedWal && rawWalEvidence?.Status != "Complete")
+                ReportWalRevisionEvidence(revisionEvidence);
             if (!unresolvedEvidence && reopened.LocalSave.Phase != LocalSavePhase.Recovered)
                 Console.WriteLine("SQLITE-CRASH-UNRESOLVED " + System.Text.Json.JsonSerializer.Serialize(new
                 {
@@ -752,6 +760,15 @@ public sealed partial class SqliteWorkspaceTests
                 AssertCommittedWriting();
             }
             Console.WriteLine($"SQLITE-CRASH-RECOVERY boundary={boundary}; mutation={mutation}; pid={process.Id}; outcome={reopened.LocalSave.Phase}; validatedPeople={reopened.People.Count}; controlledReceiptHeld={receiptHeld}");
+            if (requireRawWalTruth)
+            {
+                Assert.NotNull(rawWalEvidence);
+                Assert.Equal("Complete", rawWalEvidence.Status);
+                Assert.NotNull(rawWalEvidence.Truth);
+                Assert.Equal(expectedRevision, rawWalEvidence.Truth.CommittedRevision?.ToString("D"));
+                output.WriteLine("SQLITE-WAL-COMMITTED-TRUTH " +
+                    System.Text.Json.JsonSerializer.Serialize(rawWalEvidence));
+            }
 
             void AssertCommittedWriting()
             {
@@ -818,7 +835,55 @@ public sealed partial class SqliteWorkspaceTests
                 FileShare.ReadWrite | FileShare.Delete);
             var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file));
             committedFileObservations.Add(new(stage, Path.GetFileName(path), hash, CaptureCrashFileIdentity(file)));
+            if (inspectCommittedWal && stage == "after-stale-index")
+            {
+                var name = Path.GetFileName(path);
+                try
+                {
+                    var length = file.Length;
+                    if (length > 16 * 1024 * 1024)
+                        rawCaptureFaults.Add(new(name, "Unsupported", "RawInputSize", null));
+                    else
+                    {
+                        file.Position = 0;
+                        var captured = new byte[checked((int)length)];
+                        file.ReadExactly(captured);
+                        if (hash != Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(captured)))
+                            rawCaptureFaults.Add(new(name, "SourceChanged", "HashBinding", null));
+                        else rawCommittedFiles.Add(name, captured);
+                    }
+                }
+                catch (Exception fault) when (fault is IOException or UnauthorizedAccessException or
+                    InvalidOperationException or ArgumentException or NotSupportedException)
+                {
+                    rawCaptureFaults.Add(new(name, "CaptureError", fault.GetType().Name, fault.HResult));
+                }
+            }
             return hash;
+        }
+
+        void ReportWalRevisionEvidence(object evidence, Exception? original = null)
+        {
+            try
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(evidence);
+                if (json.Length > 8192) throw new InvalidDataException("The bounded revision evidence record exceeded its limit.");
+                output.WriteLine("SQLITE-WAL-REVISION-EVIDENCE " + json);
+            }
+            catch (Exception fault) when (fault is IOException or UnauthorizedAccessException or
+                InvalidOperationException or ArgumentException or NotSupportedException or
+                System.Text.Json.JsonException or Xunit.Sdk.XunitException)
+            {
+                var metadata = $"{fault.GetType().Name}; hresult=0x{fault.HResult:X8}";
+                if (original is not null) original.Data["SQLITE-WAL-REVISION-EVIDENCE-REPORTING-FAULT"] = metadata;
+                try { Console.Error.WriteLine("SQLITE-WAL-REVISION-EVIDENCE-REPORTING-FAULT " + metadata); }
+                catch (Exception outputFault) when (outputFault is IOException or InvalidOperationException or NotSupportedException)
+                {
+                    if (original is not null)
+                        original.Data["SQLITE-WAL-REVISION-EVIDENCE-SECONDARY-REPORTING-FAULT"] =
+                            $"{outputFault.GetType().Name}; hresult=0x{outputFault.HResult:X8}";
+                }
+            }
         }
 
         static Guid? AdmissionGuid(System.Text.Json.JsonElement intent, string name) =>

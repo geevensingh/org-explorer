@@ -1288,6 +1288,22 @@ those already-open hash/holder handles. It reads no SQL, reopens no extra file,
 logs no note content and preserves the original equality exception if reporting
 fails. This diagnostic-only commit is not clean acceptance or a recovery fix;
 remove the capture after a proven fix or classification.
+The further capture in the original retained-WAL case adds SHA-bound raw bytes
+from those same hash handles before public Open. A bounded, temporary decoder
+checks WAL headers, salts, cumulative checksums and commit markers, then reads
+the committed page overlay's UTF-8, non-overflow schema/Workspace revision.
+Its coverage/status/faults are explicit: missing captures, changed source bytes,
+invalid headers and unsupported records are not reported as a committed next.
+Four real pre/post-Commit controls retain the original public recovery and
+resource assertions before checking that independent raw result.
+Native-client quiescence and DMS ownership remain `Unknown`. Non-atomic reads
+of the already-held SHM view report only header copies/frame counters/checksums,
+not lock ownership; loaded native version/source identity requires no reader.
+There is no new SQLite client, lock acquisition, process inventory or repair.
+Schema-2 `SQLITE-WAL-REVISION-EVIDENCE` records are bounded to 8,192 characters;
+capture faults are reported even if the original equality passes, without
+changing its outcome. The deliberately live-client negative control remains
+outside ordinary CI and is not attribution of the historical hosted actor.
 The original nine death cases and healthy public WAL-reader controls remain.
 The causal 3.53.4 RED is `SQLITE_IOERR_TRUNCATE` (10/1546) in the first public
 Open; supported native `SQLite` 3.54.1 must turn it GREEN without an Open retry
