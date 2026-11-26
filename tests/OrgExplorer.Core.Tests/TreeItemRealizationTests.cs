@@ -84,6 +84,32 @@ public sealed class TreeItemRealizationTests
 
     [Fact]
     [Trait("Category", "Runner")]
+    public void Scale_retention_targets_the_reporting_row_not_the_preceding_Favorite_with_the_same_email()
+    {
+        const string email = "person00000@example.com";
+        // Run45748466369's UI dump lists Favorites before People, with both owning this identity.
+        var favorite = new ObservedRow(email, false);
+        var reporting = new ObservedRow(email, true);
+        var selected = TreeItemRealization.ReportingTarget([favorite, reporting], email,
+            row => row.Email, row => row.IsReportingRow);
+
+        Assert.Same(reporting, selected);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Scale_retention_does_not_substitute_a_Favorite_when_the_reporting_target_is_missing()
+    {
+        var favorite = new ObservedRow("person00000@example.com", false);
+
+        Assert.Throws<InvalidOperationException>(() => TreeItemRealization.ReportingTarget([favorite],
+            favorite.Email, row => row.Email, row => row.IsReportingRow));
+    }
+
+    private sealed record ObservedRow(string Email, bool IsReportingRow);
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Menu_retention_captures_once_per_boundary_and_never_reuses_a_frame_after_input()
     {
         var captures = 0;

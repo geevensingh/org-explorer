@@ -164,6 +164,16 @@ later boundary; runner regressions reject repeated capture, stale writing,
 changed content and invisible command targets. UIA caches are not atomic native
 snapshots, and reduced discovery count is not proof of meeting the hosted budget.
 
+Run `45748466369` failed the rich `UI-tree` menu-open retention check before
+the first Collapse subtree input. Its UI dump contains the root Person twice:
+the Favorite ListItem precedes the reporting TreeItem. Scale retention now
+selects the requested email **and** TreeItem from the same fresh cached batch,
+never the first email match or a Favorite fallback. Runner replay and the real
+compiled Favorite/reporting controls reproduce that wrong-target geometry.
+The profile/target predicates, search/cancellation/full-population assertions,
+native inputs and deadlines are unchanged; native scale acceptance still
+requires a fresh complete exact-candidate hosted run.
+
 ## Placement
 
 | Category | Observes | Examples and limits |
