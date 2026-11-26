@@ -15,6 +15,9 @@ param(
     [switch]$ReadHistory,
     [switch]$TimingPolicyPreview,
     [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2')][string]$TimingPolicyVersion = 'ci-timing-preview-v2',
+    [ValidateSet('ci-timing-v2')][string]$ApprovedPolicyVersion,
+    [ValidatePattern('^[0-9a-f]{40}$')][string]$BootstrapRevision,
+    [switch]$PublishPlan,
     [switch]$Publish,
     [string]$HistoryRemote = 'https://github.com/geevensingh/org-explorer.git'
 )
@@ -30,12 +33,18 @@ if ($Publish -and ($Pilot -or $null -ne $TestPolicy)) { throw 'Manual pilot/TEST
 if ($TimingPolicyPreview -and ($Publish -or $Stage -cne 'Summarize')) {
     throw 'Unapproved policy previews are read-only summaries, never collection or canonical history writes.'
 }
+if ($ApprovedPolicyVersion -and (!$RichScale -or $Pilot -or $TimingPolicyPreview -or $null -ne $TestPolicy)) {
+    throw 'Automatic baselines require explicit approved complete-rich policy, never pilot, TEST or preview authority.'
+}
+if ($PublishPlan -and (!$ApprovedPolicyVersion -or $Stage -cne 'Plan')) {
+    throw 'Durable collection plans require explicit approved automatic planning.'
+}
 if ($null -ne $TestPolicy) {
     if (!$AllowLocalFixture -or $TestPolicy.version -cne $(if ($RichScale) { 'TEST-rich-range-v2' } else { 'TEST-non-ui-range-v1' })) {
         throw 'Explicit TEST policy is allowed only at the isolated fixture boundary, never live calibration.'
     }
     Assert-HealthNumber $TestPolicy.maximumRangeSeconds 'TEST maximumRangeSeconds'
-} elseif ($ExpectedSamples -eq 5 -and !$TimingPolicyPreview) { throw 'Live extension eligibility/noise policy is pending calibration; five samples cannot be invented.' }
+} elseif ($ExpectedSamples -eq 5 -and !$TimingPolicyPreview -and !$ApprovedPolicyVersion) { throw 'Live extension eligibility/noise policy is pending calibration; five samples cannot be invented.' }
 $run = Invoke-HealthApi "actions/runs/$CiRunId/attempts/$CiRunAttempt"
 if ($run.id -ne $CiRunId -or $run.run_attempt -ne $CiRunAttempt) {
     throw 'Required CI run/attempt identity differs from the collection request.'
@@ -44,13 +53,17 @@ Assert-TrustedCi -Candidate $run.head_sha -CiRunId $CiRunId -RunAttempt $CiRunAt
 if (!$Pilot -and $run.head_sha -cne $Revision) { throw 'Collection requires successful required CI at this exact candidate.' }
 $history = $null
 $historyError = $null
-if ($CheckHistory -or $ReadHistory -or $Publish) {
+if ($CheckHistory -or $ReadHistory -or $Publish -or $ApprovedPolicyVersion) {
     try {
         . "$PSScriptRoot\LaneHealth.ps1"
         $recordTypes = Get-LaneHealthRecordTypes
         foreach ($type in (Get-NonUiCohortRecordTypes).GetEnumerator()) { $recordTypes[$type.Key] = $type.Value }
         $history = Open-HealthHistory (Join-Path $WorkingDirectory 'history.git') $HistoryRemote `
             -RecordTypes $recordTypes -AllowLocalFixture:$AllowLocalFixture
+        if ($ApprovedPolicyVersion) {
+            Set-TimingMainContext $history
+            Assert-TimingMainRevision $history $Revision
+        }
     } catch { $historyError = $_ }
 }
 if ($Stage -ceq 'Plan') {
@@ -61,7 +74,9 @@ if ($Stage -ceq 'Plan') {
             $_.schemaVersion -eq $(if ($RichScale) { 2 } else { 1 }) })
     }
     $collect = !@($previous | Where-Object { $_.revision -ceq $Revision }).Count
-    if (!$Pilot) {
+    if ($ApprovedPolicyVersion) {
+        $BootstrapRevision = Get-TimingBootstrap $history $BootstrapRevision
+    } elseif (!$Pilot) {
         $main = Invoke-HealthApi 'git/ref/heads/main'
         if (!$previous.Count -and $main.object.sha -cne $Revision) { throw 'Initial collection must use the qualifying latest main revision.' }
         if ($previous.Count -and $main.object.sha -cne $Revision) {
@@ -74,10 +89,31 @@ if ($Stage -ceq 'Plan') {
         ciRevision = $run.head_sha; ciRunId = [string]$CiRunId; ciRunAttempt = [string]$CiRunAttempt
         cohortId = "$Revision-$CohortRunId-$CohortRunAttempt"
         cohortRunId = [string]$CohortRunId; cohortRunAttempt = [string]$CohortRunAttempt
-        samples = @(1, 2, 3); mode = 'observation'; promotion = 'disabled'
+        samples = @(1, 2, 3); mode = if ($ApprovedPolicyVersion) { 'automatic-baseline' } else { 'observation' }; promotion = 'disabled'
         authority = if ($Pilot) { 'pilot-observation' } else { 'trusted-main-push' }
-        policyVersion = if ($RichScale) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' }
+        policyVersion = if ($ApprovedPolicyVersion) { $ApprovedPolicyVersion } elseif ($RichScale) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' }
         collect = $collect; reason = if ($collect) { 'New qualifying observation' } else { 'Already durably observed; no retry-until-green.' }
+    }
+    if ($ApprovedPolicyVersion) {
+        $plan.bootstrapRevision = $BootstrapRevision
+        $plan.mainRevision = $history.mainRevision
+        $plan.historySnapshot = $history.tip
+        $plan.recordType = 'timing-plan'; $plan.repository = $FilesystemHealthRepository
+        $plan.observedAt = [DateTimeOffset]::UtcNow.ToString('O')
+    }
+    if ($PublishPlan) {
+        $collection = Invoke-HealthApi "actions/runs/$CohortRunId/attempts/$CohortRunAttempt"
+        Assert-TimingAutomation $collection $CohortRunId $CohortRunAttempt -AllowLocalFixture:$AllowLocalFixture
+        $pending = @()
+        if (!@($history.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-bootstrap' }).Count) {
+            $pending += @{
+                schemaVersion = 1; recordType = 'timing-bootstrap'; repository = $FilesystemHealthRepository
+                authority = 'trusted-main-push'; revision = $BootstrapRevision; policyVersion = $ApprovedPolicyVersion
+                mainRevision = $history.mainRevision; observedAt = $plan.observedAt
+            }
+        }
+        $pending += $plan
+        $null = Publish-HealthRecords $history $pending
     }
     $plan | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'plan.json')
     return

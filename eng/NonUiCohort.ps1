@@ -1,6 +1,7 @@
 . "$PSScriptRoot\PerformanceSuite.ps1"
 . "$PSScriptRoot\FilesystemHealth.ps1"
 . "$PSScriptRoot\RichScaleCohort.ps1"
+. "$PSScriptRoot\TimingReferences.ps1"
 
 $NonUiCohortPhases = @('fixture', 'fixture-export', 'load', 'navigation-100', 'profile-100', 'search-current',
     'search-history', 'favorite-save', 'note-save', 'profile-save', 'validated-preview', 'validated-apply',
@@ -289,7 +290,7 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
 }
 
 function Get-NonUiCohortRecordTypes {
-    return @{
+    $types = @{
         'performance-cohort' = @{
             PathPattern = '^(performance-cohorts|rich-scale-cohorts)/[0-9a-f]{40}/[1-9][0-9]*/[1-9][0-9]*\.json$'
             GetPath = { param($record) Get-NonUiCohortPath $record }
@@ -305,6 +306,8 @@ function Get-NonUiCohortRecordTypes {
             }
         }
     }
+    foreach ($entry in (Get-TimingReferenceRecordTypes).GetEnumerator()) { $types[$entry.Key] = $entry.Value }
+    return $types
 }
 
 function Get-NonUiCohortPath($Record) {
