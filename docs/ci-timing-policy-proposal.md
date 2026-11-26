@@ -232,10 +232,12 @@ at659 and661 seconds while its original acceptance remains success/failure.
 This is a duration observation, not authority to qualify a failed cohort.
 Diagnostic records remain nonaccepting regardless of duration.
 
-## Eligibility, comparison series and future automatic promotion
+## Eligibility, comparison series and automatic promotion
 
-The following is the approved policy for #132, **not activated behavior**.
-Current previews keep promotion disabled and eligibility pending/rejected.
+The following approved policy is implemented by the trusted automatic collector
+under explicit `ci-timing-v2`. Preview replay remains read-only, with promotion
+disabled. Production reference establishment and complete hosted evidence remain
+part of the joint delivery/#133 verification, not claims made by local fixtures.
 
 Start with exactly three independent fresh complete executions, each owning
 its required non-UI, actual prefix snapshot, fresh Join/tail and strict union.
@@ -266,6 +268,15 @@ main ancestry/order, not completion time, for promotion: an older cohort finishi
 late cannot replace a newer eligible one. Unknown ancestry or publication
 failure is explicit and retains the previous reference. The preview's eligible
 prior observation is expressly not a canonical active-reference pointer.
+
+Canonical bootstrap/plan/three-sample decision/reference events are immutable
+records on the existing data branch. Initial bootstrap selects verified latest
+main once under explicit trusted planning, then remains pinned as main advances.
+The shared publisher first appends the comparison, then eligible promotion;
+conflict reconciliation keeps that comparison and every attempt unchanged.
+The effective pointer is the newest eligible event in actual main first-parent
+order, not a mutable timestamp-based file. Missing source/configuration remains
+explicit and cannot authorize a promotion.
 
 Keys include workload/selector, ordered scenarios/phases/occurrences, full rich
 population/size/sample matrices, metric unit/boundary/percentile/effective policy,

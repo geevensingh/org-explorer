@@ -302,6 +302,10 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
         elseif ($evaluation.validationBlocking) { 'inconclusive' }
         elseif (!$evaluation.metrics.Count -or @($evaluation.metrics.Values | Where-Object { $_.health -cne 'green' }).Count) { 'unbaselined' } else { 'green' }
     $evaluation.blocking = $evaluation.validationBlocking -or $red
+    $configurationUncertain = $Record.recordType -ceq 'performance-cohort' -and !(Get-TimingCohortKey $Record)
+    if ($configurationUncertain -and $evaluation.health -cnotin @('red', 'yellow')) {
+        $evaluation.health = 'inconclusive'
+    }
     $relativeUncertain = @($evaluation.metrics.Values | Where-Object {
         $_.Contains('relativeRule') -and $_.relativeRule -cne 'informational' -and $_.relativeHealth -ceq 'inconclusive'
     }).Count -gt 0
@@ -310,7 +314,7 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
         $evaluation.additionalSamples = @(4, 5)
     }
     $evaluation.eligibility = if ($evaluation.blocking) { 'rejected' }
-        elseif ($relativeUncertain) { 'inconclusive' }
+        elseif ($relativeUncertain -or $configurationUncertain) { 'inconclusive' }
         elseif ($evaluation.additionalSamples.Count) { 'extend' }
         elseif ($evaluation.eligibility -ceq 'inconclusive') { 'inconclusive' } else { 'eligible' }
     foreach ($metric in $evaluation.metrics.Values) {
@@ -331,9 +335,13 @@ function Format-TimingPolicyEvaluation($Evaluation) {
 }
 
 function Get-TimingCohortKey($Record) {
-    $keys = @($Record.samples | ForEach-Object {
-        if ($Record.schemaVersion -eq 2) { $_.rich.seriesKey } else { $_.seriesKey }
-    } | Select-Object -Unique)
+    $keys = @()
+    foreach ($sample in $Record.samples) {
+        $key = if ($Record.schemaVersion -eq 2) { $sample.rich.seriesKey } else { $sample.seriesKey }
+        if (!$key) { return $null }
+        $keys += $key
+    }
+    $keys = @($keys | Select-Object -Unique)
     if ($keys.Count -eq 1 -and $null -ne $keys[0]) { return $keys[0] }
     return $null
 }

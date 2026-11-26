@@ -2,12 +2,14 @@ param(
     [Parameter(Mandatory)][ValidateRange(1, [long]::MaxValue)][long]$RunId,
     [Parameter(Mandatory)][ValidateRange(1, [int]::MaxValue)][int]$RunAttempt,
     [Parameter(Mandatory)][string]$WorkingDirectory,
+    [ValidateSet('ci-timing-v2')][string]$ApprovedPolicyVersion,
     [string]$HistoryRemote = 'https://github.com/geevensingh/org-explorer.git',
     [switch]$AllowLocalFixture
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . "$PSScriptRoot\FilesystemHealth.ps1"
+. "$PSScriptRoot\NonUiCohort.ps1"
 New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
 try {
     $run = Invoke-HealthApi "actions/runs/$RunId/attempts/$RunAttempt"
@@ -24,14 +26,23 @@ try {
     $directory = Join-Path $WorkingDirectory 'plan'
     & gh run download $RunId --repo $FilesystemHealthRepository --name $name --dir $directory
     if ($LASTEXITCODE -ne 0) { throw 'Exact-attempt collection plan download failed.' }
-    $plan = Get-Content -LiteralPath (Join-Path $directory 'plan.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 10
+    $plan = Get-Content -LiteralPath (Join-Path $directory 'plan.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String -Depth 10
+    $automatic = $plan.mode -ceq 'automatic-baseline'
     if ($plan.schemaVersion -notin @(1, 2) -or $plan.revision -cnotmatch '^[0-9a-f]{40}$' -or
         $plan.cohortRunId -cne [string]$RunId -or $plan.cohortRunAttempt -cne [string]$RunAttempt -or
         $plan.cohortId -cne "$($plan.revision)-$RunId-$RunAttempt" -or $plan.authority -cne 'trusted-main-push' -or
-        $plan.collect -isnot [bool] -or $plan.mode -cne 'observation' -or $plan.promotion -cne 'disabled' -or
+        $plan.collect -isnot [bool] -or $plan.mode -cnotin @('observation', 'automatic-baseline') -or $plan.promotion -cne 'disabled' -or
         ($plan.samples -join ',') -cne '1,2,3' -or
-        $plan.policyVersion -cne $(if ($plan.schemaVersion -eq 2) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' })) {
+        $plan.policyVersion -cne $(if ($automatic) { 'ci-timing-v2' } elseif ($plan.schemaVersion -eq 2) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' })) {
         throw 'Collection plan is malformed/substituted; it is data, never execution or write authority.'
+    }
+    $policy = @{}
+    if ($automatic) {
+        if ($ApprovedPolicyVersion -cne 'ci-timing-v2' -or $plan.schemaVersion -ne 2) {
+            throw 'A retrieved plan cannot approve or activate canonical policy; the trusted controller must select the approved version.'
+        }
+        Assert-TimingControl $plan (Get-TimingControlPath $plan)
+        $policy.ApprovedPolicyVersion = $ApprovedPolicyVersion
     }
     if (!$plan.collect) {
         'No new cohort was executed: candidate already durably observed. No prior verdict was rewritten.' |
@@ -41,9 +52,14 @@ try {
     & "$PSScriptRoot\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $plan.revision `
         -CiRunId ([long]$plan.ciRunId) -CiRunAttempt ([int]$plan.ciRunAttempt) `
         -CohortRunId $RunId -CohortRunAttempt $RunAttempt -WorkingDirectory (Join-Path $WorkingDirectory 'observation') `
-        -HistoryRemote $HistoryRemote -AllowLocalFixture:$AllowLocalFixture -Publish -RichScale:($plan.schemaVersion -eq 2)
+        -HistoryRemote $HistoryRemote -AllowLocalFixture:$AllowLocalFixture -Publish -RichScale:($plan.schemaVersion -eq 2) @policy
 } catch {
-    $summary = "### Non-UI cohort history unavailable`n`n$([Net.WebUtility]::HtmlEncode($_.Exception.Message))`n`nOriginal collection/release verdicts are unchanged; unavailable execution evidence is not successful verification."
+    $savedSummary = Join-Path $WorkingDirectory 'observation\summary.md'
+    $summary = if (Test-Path -LiteralPath $savedSummary -PathType Leaf) {
+        (Get-Content -LiteralPath $savedSummary -Raw) + "`n`nObserver error: $([Net.WebUtility]::HtmlEncode($_.Exception.Message)). Original collection/release verdicts remain unchanged."
+    } else {
+        "### Non-UI cohort history unavailable`n`n$([Net.WebUtility]::HtmlEncode($_.Exception.Message))`n`nOriginal collection/release verdicts are unchanged; unavailable execution evidence is not successful verification."
+    }
     $summary | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'summary.md')
     if ($env:GITHUB_STEP_SUMMARY) { $summary | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY }
     throw

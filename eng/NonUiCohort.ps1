@@ -9,7 +9,7 @@ $NonUiCohortPhases = @('fixture', 'fixture-export', 'load', 'navigation-100', 'p
     'unchanged-refresh', 'validated-delivery', 'reopen-after-delivery', 'resume-unpublished')
 
 function Read-NonUiCohortSample($Sample, [string]$Directory, [string]$Revision, [string]$CohortId,
-    [string]$RunId, [string]$RunAttempt) {
+    [string]$RunId, [string]$RunAttempt, [switch]$RequirePairedReport) {
     $report = Get-Content -LiteralPath (Join-Path $Directory 'result.json') -Raw |
         ConvertFrom-Json -AsHashtable -DateKind String -Depth 20
     foreach ($field in @('schemaVersion', 'sample', 'ceilingSeconds', 'observationSeconds')) {
@@ -27,6 +27,10 @@ function Read-NonUiCohortSample($Sample, [string]$Directory, [string]$Revision, 
         $report.trackedChanges -isnot [bool] -or $report.untrackedChanges -isnot [bool] -or
         $report.trackedChanges -or $report.untrackedChanges) {
         throw 'Performance result is unbound, substituted, dirty or uses a different selection/policy.'
+    }
+    if ($RequirePairedReport -and (Get-Content -LiteralPath (Join-Path $Directory "$($report.runDirectory)\result.json") -Raw) -cne
+        (Get-Content -LiteralPath (Join-Path $Directory 'result.json') -Raw)) {
+        throw 'Complete automatic non-UI acceptance requires byte-identical root and owned run reports.'
     }
     Assert-HealthNumber $report.executionSeconds 'executionSeconds'
     Assert-HealthDate $report.startedAt 'startedAt'

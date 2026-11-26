@@ -94,10 +94,17 @@ function Assert-TimingMainRevision($History, [string]$Revision) {
         if (!$AllowLocalFixture) {
             $source = Split-Path $PSScriptRoot -Parent
             $head = & git -C $source rev-parse HEAD
-            if ($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_WORKFLOW_SHA -or
-                $head -cne $Collection.head_sha -or $env:GITHUB_ACTIONS -cne 'true' -or
+            if ($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_WORKFLOW_SHA -or $env:GITHUB_ACTIONS -cne 'true' -or
                 $env:GITHUB_REPOSITORY -cne $FilesystemHealthRepository) {
                 throw 'Timing publication requires the committed authenticated hosted controller, not candidate artifact authority.'
+            }
+            $writer = Invoke-HealthApi "actions/runs/$($env:GITHUB_RUN_ID)/attempts/$($env:GITHUB_RUN_ATTEMPT)"
+            if ($writer.id -ne [long]$env:GITHUB_RUN_ID -or $writer.run_attempt -ne [int]$env:GITHUB_RUN_ATTEMPT -or
+                $writer.head_sha -cne $head -or $writer.event -cne 'workflow_run' -or
+                $writer.head_repository.full_name -cne $FilesystemHealthRepository -or
+                $writer.path -cnotin @('.github/workflows/non-ui-cohorts.yml', '.github/workflows/non-ui-cohort-history.yml') -or
+                (Get-SourceTimingPolicyVersion $head) -cne 'ci-timing-v2') {
+                throw 'Canonical history requires the current approved trusted controller, independently of the older collection source.'
             }
             $dirty = & git -C $source status --porcelain
             if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Timing controller source must be clean and committed.' }
@@ -147,7 +154,15 @@ function Get-TimingCanonicalReference($History, [string]$SeriesKey, [string]$Can
     $events = @($History.records | Where-Object {
         $_.Contains('recordType') -and $_.recordType -ceq 'timing-reference' -and $_.seriesKey -ceq $SeriesKey
     })
-    foreach ($event in $events) { Assert-TimingMainRevision $History $event.revision }
+    if (!$events.Count) { return $null }
+    if (!$History.Contains('mainOrder')) { Set-TimingMainContext $History }
+    if ($CandidateRevision) { Assert-TimingMainRevision $History $CandidateRevision }
+    foreach ($event in $events) {
+        Assert-TimingMainRevision $History $event.revision
+        if ((Get-SourceTimingPolicyVersion $event.revision -GitDirectory $History.directory) -cne 'ci-timing-v2') {
+            throw 'A canonical reference cannot rewrite an unactivated historical source as approved evidence.'
+        }
+    }
     $events = @($events | Sort-Object @{ Expression = { $History.mainOrder[$_.revision] }; Descending = $true })
     if (!$events.Count) { return $null }
     $selected = $events[0]
@@ -186,8 +201,13 @@ function Set-TimingCanonicalComparison($Record, $History) {
     if ($reference) {
         if ($reference.revision -ceq $Record.revision -or $reference.eligibility -cne 'eligible' -or
             $reference.policyVersion -cne 'ci-timing-v2' -or
-            (Get-TimingCohortKey $reference) -cne (Get-TimingCohortKey $Record)) {
+            ($Record.validation -ceq 'success' -and
+                (Get-TimingCohortKey $reference) -cne (Get-TimingCohortKey $Record))) {
             throw 'Pinned canonical comparison is self-referencing, ineligible or incompatible.'
+        }
+        if ($Record.validation -cne 'success' -and
+            (Get-TimingCohortKey $reference) -cne (Get-TimingCohortKey $Record)) {
+            $Record.historyDiagnostics += 'Pinned predecessor metadata is retained; missing/incompatible current keys cannot establish relative comparison.'
         }
         $Record.reference = @{
             kind = 'pinned-eligible-reference'; recordPath = Get-NonUiCohortPath $reference

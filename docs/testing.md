@@ -2810,7 +2810,7 @@ hosted WPF supplies the real selection/visibility evidence.
 
 ## Separate scale commands and results
 
-### Observation-only complete performance/scale cohorts
+### Automatic complete performance/scale cohorts
 
 The existing collector now selects complete cohorts (`rich_scale=true`) after
 successful authenticated main-push required CI. Its first three independent
@@ -2847,14 +2847,34 @@ individual measurement and descriptive median/range survives in compact history.
 Missing/failed/skipped/cancelled/diagnostic evidence rejects complete acceptance;
 no failure is voted away or replaced by a green retry.
 
-Observation collection retains `rich-cohort-observation-v2`, with source-bound
-`effectivePolicyVersion` distinguishing current `ci-timing-v2` raw acceptance
-from immutable legacy observations. Canonical promotion still belongs to #132.
-Isolated `TEST-rich-range-v2` exercises
-otherwise eligible inconsistency extending from three to at most five complete
-executions; the live workflow cannot invent that policy or publish TEST records.
-Collection has a distinct noncancelling queued concurrency group, not release
-concurrency. Neither release nor ordinary PR selection waits for this battery.
+Trusted automatic collection explicitly selects approved `ci-timing-v2`.
+`PublishPlan` pins the initial verified main bootstrap once, before measurement;
+`InitializeBootstrap` is an explicit trusted-controller operation, not a fallback
+for a failed fetch. Advancing main does not move that durable source. Every
+queued candidate must remain in freshly fetched complete main ancestry.
+Observation/pilot collection retains `rich-cohort-observation-v2`, with
+source-bound `effectivePolicyVersion`; old sources/verdicts remain unchanged.
+
+The first three complete samples produce an immutable comparison decision.
+Approved otherwise-eligible warnings can request exactly samples4 and5;
+continued variance/headroom uncertainty stops at five. Failures, missing,
+cancelled, skipped, diagnostic or substituted evidence never request replacement
+greens. The extension retains the original pinned reference/history snapshot.
+Complete eligible comparisons publish before an immutable reference event;
+the effective per-series pointer follows actual main order, never completion
+time. Older completion cannot overwrite newer eligibility. Candidate self-reference
+uses its recorded eligible predecessor. New compatible workload/environment
+series bootstrap unbaselined without routine approval; application SHA is
+provenance, not a cross-revision equality key.
+
+`timing-bootstrap`, `timing-plans`, `timing-decisions` and `timing-references`
+share the existing validated data branch with all original namespaces. Control/
+reference events are not attempts or ordinary metric samples. The existing
+bounded nonforce publisher preserves concurrent attempts and frozen comparison
+inputs; malformed history and publication failures are explicit.
+Collection keeps one noncancelling queued cohort, sequential samples and at most
+two measurement workers per sample, separate from production release concurrency.
+Neither release nor ordinary PR selection waits for this battery.
 
 The registered scale workflow's default-off `rich_cohort_pilot=true` bridge
 executes the selected pushed workflow SHA without history/publication authority:
@@ -2867,9 +2887,17 @@ The prior non-UI-only pilot option and normal reusable/nightly/release defaults
 remain unchanged. `NonUiCohort.Tests.ps1` crosses the same public collector,
 real strict validators and isolated Git publisher; only GitHub/hosted effects
 are synthetic. Fixture contracts are not actual hosted scale acceptance.
+Its default core companion includes `AutomaticBaselines.Tests.ps1 -SmokeOnly`,
+without adding a new historical companion matrix. The complete non-UI contract
+exercise is `.\tests\AutomaticBaselines.Tests.ps1`; its optional
+`-GateSnapshotDirectory <new isolated directory>` exports real publisher-produced
+prior-three/running-extension/serious-five fixtures for release-adapter tests.
+These local fixtures never write a production reference or certify hosted speed;
+#133 still owns complete hosted verification after activation.
 The audit estimates three full samples at 53.2 consumed worker-minutes (60 with
 per-job rounding), five at 88.67 (100 rounded), plus controller/reporting;
-156/260 worker-minute watchdog envelopes are not extra passing allowance.
+The approved prefix watchdog makes the four-job envelopes207/345 minutes for
+three/five samples; these are not extra passing allowance or measured billing.
 The historical native-DLL cleanup refusal is retained, not repaired or retried
 here, and still does not establish a healthy calibration population.
 

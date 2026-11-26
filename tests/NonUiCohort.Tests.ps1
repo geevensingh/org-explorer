@@ -1291,6 +1291,7 @@ try {
     } 'Malformed uncalibrated green history was accepted by the real registered validator.'
     Assert ((Get-Content -LiteralPath (Join-Path $badWork 'summary.md') -Raw).Contains('History read failed')) 'Malformed history failure was silently hidden.'
     Write-Host "PASS: $checks public non-UI cohort checks."
+    & "$PSScriptRoot\AutomaticBaselines.Tests.ps1" -SmokeOnly
 } finally {
     Remove-Variable -Name NonUiCohortFixture -Scope Global
     Remove-Item -LiteralPath $fixture -Recurse -Force

@@ -233,7 +233,7 @@ for ($number = 1; $number -le $ExpectedSamples; $number++) {
                 $sample.evidence.state = 'unavailable'; $sample.diagnostics += 'Artifact download failed.'
             } else {
                 $sample.evidence.state = 'available'
-                try { Read-NonUiCohortSample $sample $directory $Revision $cohortId ([string]$CohortRunId) ([string]$CohortRunAttempt) }
+                try { Read-NonUiCohortSample $sample $directory $Revision $cohortId ([string]$CohortRunId) ([string]$CohortRunAttempt) -RequirePairedReport:([bool]$ApprovedPolicyVersion) }
                 catch {
                     $sample.evidence.state = 'rejected'
                     if ($sample.validation -ceq 'success') { $sample.validation = 'incomplete' }

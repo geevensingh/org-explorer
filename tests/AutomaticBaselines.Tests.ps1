@@ -1,4 +1,4 @@
-param([switch]$PlanOnly, [switch]$SmokeOnly)
+param([switch]$PlanOnly, [switch]$SmokeOnly, [string]$GateSnapshotDirectory)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -93,6 +93,7 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
             setup = 'locked-restore;isolated-build;setup-and-cleanup-included' }
     }
     $report | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $nonUi 'result.json')
+    Copy-Item -LiteralPath (Join-Path $nonUi 'result.json') -Destination (Join-Path $nonUi "$runName\result.json")
     @"
 <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
 <Results><UnitTestResult testName="$($PerformanceTests[0])" outcome="Passed" /></Results>
@@ -244,6 +245,65 @@ try {
     Assert ((Get-Content (Join-Path $candidateWork 'summary.md') -Raw).Contains('eligible reference event published') -and
         !(Get-Content (Join-Path $candidateWork 'summary.md') -Raw).Contains('Active-reference promotion: **disabled**')) `
         'Successful automatic promotion still reported observation-only disabled policy.'
+    if ($GateSnapshotDirectory) {
+        if (Test-Path -LiteralPath $GateSnapshotDirectory) { throw 'Fixture export must not overwrite an existing directory.' }
+        $gateRevision = Add-MainFixtureRevision 'Serious relative fixture without an absolute violation'
+        Select-BaselineFixture $gateRevision 45 102
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $gateRevision -CiRunId 45 -CiRunAttempt 1 `
+            -CohortRunId 102 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'gate-plan') -RichScale -PublishPlan `
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+        for ($number = 1; $number -le 3; $number++) {
+            New-CompleteBaselineSample $number $gateRevision @(200, 202, 204)[$number - 1] @(600, 602, 604)[$number - 1]
+        }
+        $gateDecisionWork = Join-Path $fixture 'gate-decision'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $gateRevision -CiRunId 45 -CiRunAttempt 1 `
+            -CohortRunId 102 -CohortRunAttempt 1 -WorkingDirectory $gateDecisionWork -RichScale -PublishDecision `
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+        $gateDecision = Get-Content (Join-Path $gateDecisionWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($gateDecision.eligibility -ceq 'extend' -and $gateDecision.reference.revision -ceq $second -and
+            ($gateDecision.extraSamples -join ',') -ceq '4,5') 'Serious fixture did not preserve a nonblocking three-run decision before bounded extension.'
+        New-Item -ItemType Directory -Path $GateSnapshotDirectory -Force | Out-Null
+        $runningRemote = Join-Path $GateSnapshotDirectory 'collecting.git'
+        Copy-Item -LiteralPath $remote -Destination $runningRemote -Recurse
+        foreach ($number in @(4, 5)) { New-CompleteBaselineSample $number $gateRevision 202 602 }
+        $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+        $gateWork = Join-Path $fixture 'gate-rejected'
+        Rejects {
+            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $gateRevision -CiRunId 45 -CiRunAttempt 1 `
+                -CohortRunId 102 -CohortRunAttempt 1 -WorkingDirectory $gateWork -RichScale -Publish `
+                -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+        } 'Five stable practically significant separated values did not block.'
+        $gateRecord = Get-Content (Join-Path $gateWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($gateRecord.samples.Count -eq 5 -and $gateRecord.validation -ceq 'success' -and
+            $gateRecord.eligibility -ceq 'rejected' -and $gateRecord.timingHealth -ceq 'red' -and
+            $gateRecord.timingEvaluation.metrics.executionSeconds.seriousRegression -and
+            $gateRecord.timingEvaluation.metrics.'profile-p95-ms'.seriousRegression -and
+            $gateRecord.reference.revision -ceq $second -and $gateRecord.extraSamples.Count -eq 0) `
+            'Serious five-run fixture changed strict acceptance, lost practical evidence or promoted the rejected candidate.'
+        $after = @(& git --git-dir=$remote ls-tree -r --name-only refs/heads/ci-health-data |
+            Where-Object { $_.StartsWith('timing-references/') })
+        Assert ($after.Count -eq 1) 'Serious relative rejection replaced the prior eligible reference.'
+        $rejectedRemote = Join-Path $GateSnapshotDirectory 'rejected.git'
+        Copy-Item -LiteralPath $remote -Destination $rejectedRemote -Recurse
+        $samplePaths = @()
+        for ($number = 1; $number -le 5; $number++) {
+            $path = Join-Path $GateSnapshotDirectory "sample-$number"
+            Copy-Item -LiteralPath (Join-Path $fixture "evidence-$gateRevision-102-$number") -Destination $path -Recurse
+            $samplePaths += $path
+        }
+        @{
+            schemaVersion = 1; kind = 'isolated-non-production-public-contract-fixture'; hostedMeasurement = $false
+            sourceA = $second; sourceB = $gateRevision; policyVersion = 'ci-timing-v2'
+            priorCohortId = "$second-99-1"; currentCohortId = "$gateRevision-102-1"
+            seriesKey = $gateRecord.samples[0].rich.seriesKey
+            runningHistoryRemote = $runningRemote; rejectedHistoryRemote = $rejectedRemote; sampleDirectories = $samplePaths
+        } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $GateSnapshotDirectory 'metadata.json')
+        Copy-Item -LiteralPath (Join-Path $gateDecisionWork 'record.json') -Destination (Join-Path $GateSnapshotDirectory 'decision.json')
+        Copy-Item -LiteralPath (Join-Path $gateWork 'record.json') -Destination (Join-Path $GateSnapshotDirectory 'rejected.json')
+        Write-Host "PASS: public eligible-three/running-extension/serious-five snapshots: $GateSnapshotDirectory"
+        $global:LASTEXITCODE = 0
+        return
+    }
     if ($SmokeOnly) {
         Write-Host "PASS: $checks public automatic baseline smoke checks."
         $global:LASTEXITCODE = 0
@@ -292,6 +352,50 @@ try {
         $five.extraSamples.Count -eq 0 -and $five.historySnapshot -ceq $decision.historySnapshot -and
         $five.reference.revision -ceq $third -and $five.metrics.executionSeconds.median -eq 152) `
         'Stable five-run warning lost its pinned comparison, median, warning history or automatic eligible promotion.'
+    $availableArtifacts = $global:BaselineFixture.artifacts
+    $global:BaselineFixture.artifacts = @($availableArtifacts | Where-Object {
+        $_.name -cne "rich-cohort-$fourth-101-1-sample-5-tail"
+    })
+    $missingWork = Join-Path $fixture 'missing-extended-tail'
+    Rejects {
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $fourth -CiRunId 44 -CiRunAttempt 1 `
+            -CohortRunId 101 -CohortRunAttempt 1 -WorkingDirectory $missingWork -RichScale `
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    } 'Missing extended evidence became successful acceptance.'
+    Assert (Test-Path (Join-Path $missingWork 'record.json')) `
+        'Missing extended evidence aborted comparison instead of preserving all attempts and the pinned predecessor.'
+    $missing = Get-Content (Join-Path $missingWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($missing.samples.Count -eq 5 -and $missing.reliability.success -eq 4 -and
+        $missing.eligibility -ceq 'rejected' -and $missing.reference.revision -ceq $third -and
+        $missing.extraSamples.Count -eq 0 -and $missing.samples[4].rich.tail.evidence.state -ceq 'missing') `
+        'A missing fifth tail was removed, replaced, promoted or lost its initial pinned comparison.'
+    $global:BaselineFixture.artifacts = @()
+    $expiredWork = Join-Path $fixture 'unavailable-extended-evidence'
+    Rejects {
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $fourth -CiRunId 44 -CiRunAttempt 1 `
+            -CohortRunId 101 -CohortRunAttempt 1 -WorkingDirectory $expiredWork -RichScale `
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    } 'Unavailable raw evidence became fresh complete acceptance.'
+    Assert (Test-Path (Join-Path $expiredWork 'record.json')) `
+        'Unavailable comparison keys erased the observed cohort instead of retaining its pinned metadata and all five outcomes.'
+    $global:BaselineFixture.artifacts = $availableArtifacts
+    $configurationPath = Join-Path $global:BaselineFixture.evidence["non-ui-cohort-$fourth-101-1-sample-1"] 'result.json'
+    $completeConfiguration = Get-Content $configurationPath -Raw
+    $unresolvedConfiguration = $completeConfiguration | ConvertFrom-Json -AsHashtable
+    $unresolvedConfiguration.configuration.Remove('sdk')
+    $unresolvedConfiguration | ConvertTo-Json -Depth 15 | Set-Content $configurationPath
+    $configurationRun = $unresolvedConfiguration.runDirectory
+    Copy-Item -LiteralPath $configurationPath -Destination (Join-Path (Split-Path $configurationPath -Parent) "$configurationRun\result.json")
+    $unknownConfigurationWork = Join-Path $fixture 'unknown-runtime-configuration'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $fourth -CiRunId 44 -CiRunAttempt 1 `
+        -CohortRunId 101 -CohortRunAttempt 1 -WorkingDirectory $unknownConfigurationWork -RichScale `
+        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    $unknownConfiguration = Get-Content (Join-Path $unknownConfigurationWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($unknownConfiguration.validation -ceq 'success' -and $unknownConfiguration.eligibility -ceq 'inconclusive' -and
+        !$unknownConfiguration.timingEvaluation.blocking -and $unknownConfiguration.extraSamples.Count -eq 0) `
+        'Unknown runtime configuration either fabricated eligible comparison/promotion or blocked complete strict product validation.'
+    $completeConfiguration | Set-Content $configurationPath
+    Copy-Item -LiteralPath $configurationPath -Destination (Join-Path (Split-Path $configurationPath -Parent) "$configurationRun\result.json")
     Write-Host "PASS: $checks public automatic baseline checks."
     $global:LASTEXITCODE = 0
 } finally {
