@@ -17,7 +17,8 @@ prove rendered controls, navigation, dialog discovery or any smoke/scale result.
 
 For non-UI build/load commands, read [local contract checks](ci-and-artifacts.md#local-contract-checks). For compiled domain assertions, read [Person profiles](person-profiles.md#compiled-profile-and-copy-assertions), [Person-text controls](person-text.md#compiled-controls-and-native-popup-evidence), [note reading](note-reading-context.md) and [reading layout](person-reading-layout.md#compiled-layout-and-divider-assertions).
 
-The #100 hosted-failure regressions also run in that full selection. Focused
+The #100 hosted-failure regressions also run in the full `--verify-profile-refresh`
+selection; see [execution guidance](person-profiles.md#compiled-profile-and-copy-assertions). Focused
 `--verify-cutover-publication`, `--verify-cutover-note-modes`,
 `--verify-cutover-acknowledgment`, `--verify-cutover-failure-feedback`,
 `--verify-cutover-incoming` and `--verify-cutover-close-publication` selectors
