@@ -17,6 +17,98 @@ public class PersonAttributeTests
         """;
 
     [Theory]
+    [InlineData("Avery Example", null, "Avery Example", null)]
+    [InlineData("Avery Example", "Ave", "Avery Example", null)]
+    [InlineData("Avery Example", "Avery Example", "AVERY EXAMPLE", null)]
+    [InlineData("Avery Example", "Ave", "  aVeRy ExAmPlE\t", null)]
+    [InlineData(" \tAvery Example  ", "Ave", "AVERY EXAMPLE", null)]
+    [InlineData("Avery Example", "Ave", "Avery  Example", "Avery  Example")]
+    [InlineData("Avery Example", "Ave", "Averie Example", "Averie Example")]
+    [InlineData("Avery Example", "Ave", "  My AVERY  ", "  My AVERY  ")]
+    [InlineData("Andre Example", "Ave", "André Example", "André Example")]
+    [InlineData("Avery Example", "Ave", null, null)]
+    [InlineData(null, "Ave", "  My AVERY  ", "  My AVERY  ")]
+    [InlineData(null, null, "Avery", "Avery")]
+    [InlineData(null, "Ave", null, null)]
+    public void Explicit_Preferred_name_submission_clears_only_Directory_equivalent_or_empty_text(
+        string? directoryName, string? preferredName, string? submitted, string? expected)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        var batch = CompleteBatch.Replace("\"preferredName\":\"Ave\"", "\"preferredName\":" + JsonSerializer.Serialize(preferredName));
+        Assert.True(app.ApplyImport(app.PreviewImport(batch).Id), app.Status);
+        Assert.True(app.EditPersonText("avery@example.com", PersonTextField.DirectoryName, directoryName), app.Status);
+        var basis = Assert.Single(app.People);
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, submitted);
+        Assert.Equal(basis, Assert.Single(app.People));
+
+        var accepted = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, submitted));
+
+        Assert.Equal(basis with { PreferredName = expected }, accepted);
+        Assert.Equal(accepted, Assert.Single(app.People));
+        Assert.Null(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.True(app.CanSafelyClose, app.Status);
+    }
+
+    [Theory]
+    [InlineData("Alex Smith", "Alex Smith")]
+    [InlineData("  aLeXaNdEr SmItH  ", null)]
+    public void Retained_Preferred_name_submission_compares_the_current_Directory_name_without_resetting_its_base(
+        string submitted, string? expected)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(CompleteBatch).Id));
+        Assert.True(app.EditPersonText("avery@example.com", PersonTextField.DirectoryName, "Alex Smith"));
+        Assert.True(app.NavigatePerson("avery@example.com"));
+        var basis = Assert.Single(app.People);
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, submitted);
+        var draft = Assert.IsType<RetainedPersonTextDraft>(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        var note = app.CreatePersonNote(basis.Email, "Private context", "Saved writing")!;
+        Assert.False(app.EditPersonNote(note.Id, "", "Independent failed writing"));
+        Assert.True(app.BeginProfileEdit(basis.Email));
+        Assert.True(app.StageProfileText(PersonTextField.Department, "Independent profile draft"));
+
+        Assert.True(app.EditPersonText(basis.Email, PersonTextField.DirectoryName, "Alexander Smith"), app.Status);
+        Assert.Equal(draft, app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        var accepted = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, submitted));
+
+        Assert.Equal(basis with { DirectoryName = "Alexander Smith", PreferredName = expected }, accepted);
+        Assert.Null(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.Equal("Independent profile draft", app.ProfileEdit!.Draft.Department);
+        Assert.True(app.HasUnsavedNoteDraft(NoteScope.Person, note.Id));
+        Assert.Contains("Person note", app.LocalSaveError!);
+        Assert.False(app.CanSafelyClose);
+        Assert.False(app.RestartWhenSafe(_ => Assert.Fail("Independent writing must still prevent restart.")));
+    }
+
+    [Fact]
+    public void Explicit_original_Preferred_name_submission_retains_rejection_without_prior_typing()
+    {
+        var inner = ApplicationWorkflow.CreateInMemory();
+        using var app = new WorkspaceViewModel(inner);
+        Assert.True(app.OpenWorkspace("fictitious"));
+        var batch = CompleteBatch.Replace("\"Avery Example\"", "\"Avery\"").Replace("\"Ave\"", "\"Avery\"");
+        Assert.True(app.ApplyImport(app.PreviewImport(batch).Id));
+        var basis = Assert.Single(app.People);
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName);
+        Assert.Null(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.True(inner.EditPreferredName(basis.Email, "Delivered Preferred name"));
+
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName));
+
+        var retained = Assert.IsType<RetainedPersonTextDraft>(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.Equal(basis, retained.Basis);
+        Assert.Equal("Avery", retained.Value);
+        Assert.Contains("changed externally", retained.Error!);
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal("Delivered Preferred name", Assert.Single(app.People).PreferredName);
+        app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
+        Assert.Null(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.True(app.CanSafelyClose, app.Status);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Restoring_the_original_Preferred_name_retires_only_clean_retained_writing(bool useViewModel)
