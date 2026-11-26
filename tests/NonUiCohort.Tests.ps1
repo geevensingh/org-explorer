@@ -223,6 +223,25 @@ try {
         Assert (!$active.timingEvaluation.blocking -and $active.timingEvaluation.health -ceq 'yellow' -and
             $active.timingEvaluation.version -ceq 'ci-timing-v2' -and
             $active.timingEvaluation.additionalSamples.Count -eq 2) 'Current cohort hid its accepted boundary/headroom warning or blocked without a reference.'
+        $path = Join-Path $rich.prefix 'result.json'
+        $original = Get-Content $path -Raw
+        try {
+            $partial = $original | ConvertFrom-Json -AsHashtable
+            $partial.configuration = $null
+            $partial | ConvertTo-Json -Depth 15 | Set-Content $path
+            $partial | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $rich.prefix "$($partial.runDirectory)\result.json")
+            $unknownWork = Join-Path $fixture 'unknown-comparison-configuration'
+            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $sourceRevision -CiRunId 42 -CiRunAttempt 1 `
+                -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $unknownWork -RichScale -AllowLocalFixture -SourceGitDirectory $sourceGit
+            $unknown = Get-Content (Join-Path $unknownWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+            Assert ($unknown.validation -ceq 'success' -and !$unknown.timingEvaluation.blocking -and
+                $unknown.timingEvaluation.eligibility -ceq 'inconclusive' -and
+                $unknown.timingEvaluation.additionalSamples.Count -eq 0 -and $null -eq $unknown.samples[2].rich.seriesKey) `
+                'A null sample comparison key became a compatible reference or promoted incomplete configuration.'
+        } finally {
+            $original | Set-Content $path
+            $original | Set-Content (Join-Path $rich.prefix "$($partial.runDirectory)\result.json")
+        }
     } finally { $global:NonUiCohortFixture = $originalState }
     if ($ActivePolicyOnly) { Write-Host 'PASS: real-Git spaced-path source policy consumes three complete v2 raw samples.'; return }
     $summaryWork = Join-Path $fixture 'summary'

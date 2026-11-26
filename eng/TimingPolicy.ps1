@@ -46,13 +46,91 @@ function Get-SourceTimingPolicyVersion([string]$Revision, [switch]$Hosted, [stri
     return $policy.version
 }
 
+function New-TimingExecutionRecord([string]$PerformanceDirectory, [string]$PrefixDirectory, [string]$TailDirectory,
+    [string]$Revision, [string]$RunId, [string]$RunAttempt) {
+    $record = @{
+        schemaVersion = 2; recordType = 'verification-execution'; revision = $Revision; validation = 'success'
+        runId = $RunId; runAttempt = $RunAttempt; policyVersion = 'ci-timing-v2'
+        observedAt = [DateTimeOffset]::UtcNow.ToString('O'); unexpectedExecutions = $false; measurements = $null
+        samples = @(); metrics = @{}; comparisonDiagnostics = @()
+        verificationScope = 'one complete exact-candidate execution; never a three-to-five collection cohort'
+    }
+    function Add-Metric([string]$Name, $Value) {
+        Assert-HealthNumber $Value $Name
+        $record.metrics[$Name] = @{ count = 1; minimum = $Value; maximum = $Value; median = $Value; range = 0 }
+    }
+    $sample = @{ configuration = $null; rich = @{ seriesKey = $null } }
+    foreach ($worker in @('prefix', 'tail')) {
+        $directory = if ($worker -ceq 'prefix') { $PrefixDirectory } else { $TailDirectory }
+        $validated = Get-UiScaleWorkerResult $directory $worker $Revision $RunId $RunAttempt -ExpectedPolicyVersion ci-timing-v2
+        $sample.rich[$worker] = @{ run = $validated.run
+            report = $validated.report | ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable -Depth 30 -DateKind String }
+        Add-Metric "$worker-executionSeconds" $validated.report.executionSeconds
+        $phase = if ($worker -ceq 'prefix') { 'background-export' } else { 'normal-executable' }
+        $scenario = if ($worker -ceq 'prefix') { 'scale-mutation-save-prefix' } else { 'scale-mutation-delivery-tail' }
+        $profile = Get-Content (Join-Path $validated.run "$scenario-ui-sqlite-rich-profile-latency-$phase.json") -Raw | ConvertFrom-Json
+        Add-Metric "$worker-profile-p95-ms" $profile.p95Ms
+    }
+    $report = Get-Content (Join-Path $PerformanceDirectory 'result.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+    if ($report.revision -cne $Revision -or $report.expectedRevision -cne $Revision -or
+        $report.runId -cne $RunId -or $report.runAttempt -cne $RunAttempt -or $report.outcome -cne 'success') {
+        throw 'Timing comparison requires the same complete non-UI candidate/run/attempt.'
+    }
+    if ($report.Contains('configuration')) { $sample.configuration = $report.configuration }
+    Add-Metric executionSeconds $report.executionSeconds
+    $sample.rich.handoff = Get-Content (Join-Path $sample.rich.prefix.run 'handoff\handoff.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+    foreach ($phase in @('normal-executable', 'background-export')) {
+        $note = Get-Content (Join-Path $sample.rich.prefix.run "scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json") -Raw | ConvertFrom-Json
+        Add-Metric "prefix-$phase-localDurability-p95-ms" $note.localDurability.p95Ms
+    }
+    $log = Join-Path $PerformanceDirectory "$($report.runDirectory)\scale-measurements.log"
+    $lines = @()
+    if (Test-Path -LiteralPath $log) { $lines = @(Get-Content $log | Where-Object { $_.StartsWith('SCALE ORDINARY-PROFILE ') }) }
+    if ($lines.Count -eq 1) {
+        $profile = $lines[0].Substring('SCALE ORDINARY-PROFILE '.Length) | ConvertFrom-Json -AsHashtable
+        $metric = Read-HealthLatency $profile 'profile-save' 21
+        Add-Metric profile-p95-ms $metric.value
+    } else { $record.comparisonDiagnostics += 'Non-UI profile timing unavailable; no substitute or zero was supplied.' }
+    $record.samples = @($sample)
+    return $record
+}
+
+function Set-TimingExecutionComparison($Record, $History) {
+    $sample = $Record.samples[0]
+    if ($null -eq $sample.configuration) { throw 'Resolved non-UI comparison configuration is unavailable.' }
+    $sample.rich.seriesKey = Get-RichCohortSeriesKey $sample ci-timing-v2
+    $reference = $null
+    $Record.knownSeriousCohorts = @()
+    if ($History -and @($History.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-reference' }).Count) {
+        if (!$History.Contains('mainOrder')) { Set-TimingMainContext $History }
+        $candidate = if ($History.mainOrder.ContainsKey($Record.revision)) { $Record.revision } else { $null }
+        $reference = Get-TimingCanonicalReference $History $sample.rich.seriesKey $candidate
+        foreach ($cohort in @($History.records | Where-Object {
+            $_.Contains('recordType') -and $_.recordType -ceq 'performance-cohort' -and
+            $_.policyVersion -ceq 'ci-timing-v2' -and $_.revision -ceq $Record.revision -and
+            $_.samples.Count -eq 5 -and $_.validation -ceq 'success' -and
+            (Get-TimingCohortKey $_) -ceq $sample.rich.seriesKey
+        })) {
+            $copy = $cohort | ConvertTo-Json -Depth 40 | ConvertFrom-Json -AsHashtable -Depth 40 -DateKind String
+            $pinned = Get-TimingPinnedReference $copy $History
+            Set-TimingPolicyEvaluation $copy $pinned $History.tip
+            if (@($copy.timingEvaluation.metrics.Values | Where-Object { $_.Contains('seriousRegression') -and $_.seriousRegression }).Count) {
+                $Record.knownSeriousCohorts += @{ cohortId = $copy.cohortId; evidenceUrl = $copy.samples[0].evidence.url
+                    referenceRevision = $pinned.revision }
+            }
+        }
+    }
+    Set-TimingPolicyEvaluation $Record $reference $(if ($History) { $History.tip } else { $null })
+    if ($Record.knownSeriousCohorts.Count) { $Record.timingEvaluation.blocking = $true; $Record.timingEvaluation.health = 'red' }
+}
+
 function Set-TimingPolicyPreview($Record, $History,
     [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2')][string]$PolicyVersion = 'ci-timing-preview-v2',
     $PinnedReference = $null, [switch]$Active) {
     $richNoteCeiling = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 1050 } else { 1500 }
     $prefixWatchdog = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 17 } else { 30 }
     $approval = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 'pending' } else { 'approved' }
-    if ($Record.recordType -cne 'performance-cohort') {
+    if ($Record.recordType -cne 'performance-cohort' -and !($Active -and $Record.recordType -ceq 'verification-execution')) {
         $metrics = @{}
         if ($Record.measurements) {
             $metrics.executionSeconds = @{
@@ -264,7 +342,7 @@ function Set-TimingPolicyPreview($Record, $History,
 }
 
 function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$HistoryTip = $null) {
-    if ($Record.recordType -ceq 'performance-cohort') {
+    if ($Record.recordType -cin @('performance-cohort', 'verification-execution')) {
         foreach ($entry in @($Record.metrics.GetEnumerator())) {
             $metric = $entry.Value
             foreach ($field in @('median', 'minimum', 'maximum', 'range', 'count')) {
@@ -326,6 +404,9 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
         elseif ($relativeUncertain -or $configurationUncertain) { 'inconclusive' }
         elseif ($evaluation.additionalSamples.Count) { 'extend' }
         elseif ($evaluation.eligibility -ceq 'inconclusive') { 'inconclusive' } else { 'eligible' }
+    if (!$evaluation.blocking -and $Record.Contains('sourcePolicyCompatible') -and !$Record.sourcePolicyCompatible) {
+        $evaluation.eligibility = 'inconclusive'; $evaluation.additionalSamples = @()
+    }
     foreach ($metric in $evaluation.metrics.Values) {
         if ($metric.Contains('relativeRule') -and $metric.relativeRule -cne 'informational') { $metric.relativeRule = 'approved-gate' }
         if ($metric.reference) { $metric.reference.kind = 'pinned-eligible-reference' }
@@ -344,15 +425,14 @@ function Format-TimingPolicyEvaluation($Evaluation) {
 }
 
 function Get-TimingCohortKey($Record) {
-    $keys = @()
+    $key = $null
     foreach ($sample in $Record.samples) {
-        $key = if ($Record.schemaVersion -eq 2) { $sample.rich.seriesKey } else { $sample.seriesKey }
-        if (!$key) { return $null }
-        $keys += $key
+        $value = if ($Record.schemaVersion -eq 2) { $sample.rich.seriesKey } else { $sample.seriesKey }
+        if ($value -isnot [string] -or $value -cnotmatch '^[0-9a-f]{64}$') { return $null }
+        if ($null -ne $key -and $key -cne $value) { return $null }
+        $key = $value
     }
-    $keys = @($keys | Select-Object -Unique)
-    if ($keys.Count -eq 1 -and $null -ne $keys[0]) { return $keys[0] }
-    return $null
+    return $key
 }
 
 function Format-TimingPolicyPreview($Preview) {

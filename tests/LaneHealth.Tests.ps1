@@ -1,4 +1,4 @@
-param([switch]$ScopedPolicyOnly)
+param([switch]$ScopedPolicyOnly, [string]$TimingFixtureMetadata)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -58,11 +58,11 @@ function gh {
             @{ encoding = 'base64'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"version":"ci-timing-v2"}')) } |
                 ConvertTo-Json; return
         }
-        '/actions/runs/51/attempts/[1-9][0-9]*$' { $global:LaneHealthFixture.run | ConvertTo-Json -Depth 10 -Compress; return }
-        '/actions/runs/51/attempts/[1-9][0-9]*/jobs\?per_page=100$' {
+        '/actions/runs/(51|102)/attempts/[1-9][0-9]*$' { $global:LaneHealthFixture.run | ConvertTo-Json -Depth 10 -Compress; return }
+        '/actions/runs/(51|102)/attempts/[1-9][0-9]*/jobs\?per_page=100$' {
             ConvertTo-Json -InputObject @(@{ jobs = $global:LaneHealthFixture.jobs }) -Depth 10 -Compress; return
         }
-        '/actions/runs/51/artifacts\?per_page=100$' {
+        '/actions/runs/(51|102)/artifacts\?per_page=100$' {
             ConvertTo-Json -InputObject @(@{ artifacts = $global:LaneHealthFixture.artifacts }) -Depth 10 -Compress; return
         }
         '/actions/runs/999$' { $global:LaneHealthFixture.controller | ConvertTo-Json -Depth 10 -Compress; return }
@@ -70,17 +70,78 @@ function gh {
     }
 }
 function Observe([switch]$Publish, [switch]$PublishObservations, [switch]$TimingPolicyPreview,
-    [string]$TimingPolicyVersion = 'ci-timing-preview-v1') {
+    [string]$TimingPolicyVersion = 'ci-timing-preview-v1', [switch]$AllowGateFailure) {
     $work = Join-Path $fixture ('o-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-    & "$root\eng\Invoke-LaneHealth.ps1" -RunId 51 -RunAttempt $run.run_attempt -HistoryRemote $remote `
-        -AllowLocalFixture -WorkingDirectory $work -Publish:$Publish -PublishObservations:$PublishObservations `
-        -TimingPolicyPreview:$TimingPolicyPreview -TimingPolicyVersion $TimingPolicyVersion
+    $failure = $null
+    try {
+        & "$root\eng\Invoke-LaneHealth.ps1" -RunId $run.id -RunAttempt $run.run_attempt -HistoryRemote $remote `
+            -AllowLocalFixture -WorkingDirectory $work -Publish:$Publish -PublishObservations:$PublishObservations `
+            -TimingPolicyPreview:$TimingPolicyPreview -TimingPolicyVersion $TimingPolicyVersion
+    } catch { if (!$AllowGateFailure) { throw }; $failure = $_ }
     return @{
         records = @(Get-Content (Join-Path $work 'records.json') -Raw | ConvertFrom-Json -AsHashtable)
         summary = Get-Content (Join-Path $work 'summary.md') -Raw
+        gateFailure = $failure
     }
 }
 try {
+    if ($TimingFixtureMetadata) {
+        $metadata = Get-Content $TimingFixtureMetadata -Raw | ConvertFrom-Json
+        if ($metadata.hostedMeasurement -or $metadata.kind -cne 'isolated-non-production-public-contract-fixture') {
+            throw 'Canonical lane tests require isolated public publisher fixtures.'
+        }
+        $run.id = 102; $run.head_sha = $metadata.sourceB; $run.path = '.github/workflows/scale-verification.yml'
+        $run.event = 'workflow_dispatch'; $global:LaneHealthFixture.activePolicy = $true
+        $sample = $metadata.sampleDirectories[0]
+        $global:LaneHealthFixture.jobs = @(); $global:LaneHealthFixture.artifacts = @()
+        foreach ($item in @(
+            @('non-ui-performance', 'Thorough non-UI performance', (Join-Path $sample 'non-ui')),
+            @('ui-scale-prefix', 'Rich combined normal and held-export saves', (Join-Path $sample 'rich\prefix')),
+            @('ui-scale-tail', 'Rich logical Join, delivery, reopen and navigation', (Join-Path $sample 'rich\tail')),
+            @('ui-scale', 'Complete scale acceptance union', (Join-Path $sample 'active-union'))
+        )) {
+            $name = "$($item[0])-$($run.head_sha)-102-1"
+            $destination = Join-Path $evidence $name
+            Copy-Item $item[2] $destination -Recurse
+            if ($item[0] -ceq 'non-ui-performance') {
+                $raw = Get-Content (Join-Path $destination 'result.json') -Raw | ConvertFrom-Json
+                Copy-Item (Join-Path $destination 'result.json') (Join-Path $destination "$($raw.runDirectory)\result.json")
+                $log = Join-Path $destination "$($raw.runDirectory)\scale-measurements.log"
+                $lines = @(Get-Content $log)
+                if (!@($lines | Where-Object { $_.StartsWith('SCALE BEGIN ') }).Count) {
+                    @($lines | ForEach-Object {
+                        if ($_ -cmatch '^SCALE END (?<name>[^;]+);') { "SCALE BEGIN $($Matches.name);" }
+                        $_
+                    }) | Set-Content $log
+                }
+            }
+            $global:LaneHealthFixture.jobs += @{ id = 110 + $global:LaneHealthFixture.jobs.Count; name = $item[1]
+                status = 'completed'; conclusion = 'success'; steps = @()
+                started_at = '2026-11-25T10:00:00Z'; completed_at = '2026-11-25T10:04:00Z' }
+            $global:LaneHealthFixture.artifacts += @{ id = 210 + $global:LaneHealthFixture.artifacts.Count
+                name = $name; expired = $false; digest = 'sha256:' + ('b' * 64); expires_at = '2099-01-01T00:00:00Z'
+                workflow_run = @{ id = 102; head_sha = $run.head_sha } }
+        }
+        foreach ($case in @(
+            @{ remote = $metadata.runningHistoryRemote; blocked = $false },
+            @{ remote = $metadata.rejectedHistoryRemote; blocked = $true }
+        )) {
+            $remote = $case.remote
+            $observed = Observe -AllowGateFailure
+            $union = @($observed.records | Where-Object { $_.lane -ceq 'ui-scale' })[0]
+            if (!$union.Contains('executionTimingKey')) {
+                $nonUi = @($observed.records | Where-Object { $_.lane -ceq 'non-ui-performance' })[0]
+                throw "Canonical lane comparison was not produced: $($union.validation); $($union.diagnostics -join '; '); non-UI $($nonUi.validation): $($nonUi.diagnostics -join '; '); $($observed.gateFailure)"
+            }
+            Assert ($union.validation -ceq 'success' -and $union.executionTimingKey -ceq $metadata.seriesKey -and
+                $union.timingEvaluation.blocking -eq $case.blocked -and
+                ($null -ne $observed.gateFailure) -eq $case.blocked -and
+                $union.timingEvaluation.metrics.'prefix-executionSeconds'.reference.revision -ceq $metadata.sourceA) `
+                'Public lane gate lost its canonical source reference or waited for collection instead of using available evidence.'
+        }
+        Write-Host 'PASS: public lane reporting uses pinned canonical references and enforces already available serious five-run evidence.'
+        return
+    }
     if ($ScopedPolicyOnly) {
         . "$PSScriptRoot\UiScaleUnionFixture.ps1"
         $global:LaneHealthFixture.activePolicy = $true

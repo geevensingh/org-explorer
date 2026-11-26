@@ -40,6 +40,17 @@ The prefix now uses900s safety and30m watchdog; the tail/non-UI remain660s/13m.
 Both rich note phases enforce1500ms inclusively with a1000ms goal. This activates
 contracts, not proof of three complete hosted executions or canonical rollout.
 
+`New-TimingExecutionRecord` and `Set-TimingExecutionComparison` are the shared
+public consumption interface for one complete verification execution. Both
+release gates and complete-union observations use the same source-bound raw
+validation and approved evaluator. They read an existing history snapshot and
+the canonical selector's validated predecessor, without collecting or waiting.
+Already available complete five-run serious evidence remains blocking before a
+new publication; individual fresh metrics do not become five independent runs.
+Scoped names such as `scale-ui-scale-prefix` and
+`renewal-scale-ui-scale-prefix` retain the same900s/1500ms policy. Unavailable
+source identity cannot let artifact declarations select a higher ceiling.
+
 ## Verified baseline and diagnostic
 
 The isolated worktree passed the shared fetched-base gate against pushed

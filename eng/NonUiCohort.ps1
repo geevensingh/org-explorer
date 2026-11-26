@@ -181,7 +181,8 @@ function Get-NonUiCohortMetrics($Samples) {
 function Assert-NonUiCohortRecord($Record, [string]$Path) {
     $rich = $Record.schemaVersion -eq 2
     $automatic = $Record.mode -ceq 'automatic-baseline'
-    $effectivePolicy = if ($Record.Contains('effectivePolicyVersion')) { $Record.effectivePolicyVersion } else { 'rich-scale-original-v1' }
+    $effectivePolicy = if ($Record.Contains('effectivePolicyVersion')) { $Record.effectivePolicyVersion }
+        elseif ($automatic) { $Record.sourcePolicyVersion } else { 'rich-scale-original-v1' }
     $null = Get-ApprovedTimingPolicy $effectivePolicy
     if ($Record.Contains('sourcePolicyRevision') -and $Record.sourcePolicyRevision -cne $Record.revision) {
         throw 'Cohort effective policy is not bound to its source candidate.'
@@ -371,7 +372,8 @@ function Set-NonUiCohortComparison($Record, $History) {
 function Format-NonUiCohort($Record, [string]$Publication) {
     $rich = $Record.schemaVersion -eq 2
     $automatic = $Record.mode -ceq 'automatic-baseline'
-    $active = $Record.Contains('effectivePolicyVersion') -and $Record.effectivePolicyVersion -ceq 'ci-timing-v2'
+    $active = ($Record.Contains('effectivePolicyVersion') -and $Record.effectivePolicyVersion -ceq 'ci-timing-v2') -or
+        ($automatic -and $Record.sourcePolicyVersion -ceq 'ci-timing-v2')
     $lines = @(
         if ($rich) { '### Complete performance/scale cohort' } else { '### Independent non-UI performance cohort' }
         ''

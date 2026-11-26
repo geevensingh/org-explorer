@@ -1,6 +1,8 @@
 function Assert-ReleaseVerification(
     [string]$PerformanceDirectory, [string]$UiScaleDirectory, [string]$Candidate, [DateTimeOffset]$StartedAt,
-    [string]$ExpectedPolicyVersion
+    [string]$ExpectedPolicyVersion,
+    [string]$TimingHistoryRemote = 'https://github.com/geevensingh/org-explorer.git',
+    [switch]$AllowLocalFixture
 ) {
     . "$PSScriptRoot\PerformanceSuite.ps1"
     . "$PSScriptRoot\DesktopResults.ps1"
@@ -78,5 +80,34 @@ function Assert-ReleaseVerification(
             if ($env:GITHUB_STEP_SUMMARY) { Format-TimingPolicyEvaluation $record.timingEvaluation | Add-Content $env:GITHUB_STEP_SUMMARY }
         }
         ConvertTo-Json -InputObject @($evaluations) -Depth 30 | Set-Content (Join-Path $UiScaleDirectory 'timing-evaluation.json')
+        . "$PSScriptRoot\LaneHealth.ps1"
+        $comparison = New-TimingExecutionRecord $PerformanceDirectory (Join-Path $owned 'prefix') (Join-Path $owned 'tail') $Candidate $union.runId $union.runAttempt
+        $history = $null
+        try {
+            $historyDirectory = Join-Path (Split-Path $UiScaleDirectory -Parent) ('th-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '.git')
+            $history = Open-HealthHistory $historyDirectory `
+                $TimingHistoryRemote -AllowLocalFixture:$AllowLocalFixture -RecordTypes (Get-LaneHealthRecordTypes)
+            Set-TimingExecutionComparison $comparison $history
+        } catch {
+            $comparison.comparisonDiagnostics += "Available-reference comparison is unavailable: $($_.Exception.Message)"
+            Write-Warning $comparison.comparisonDiagnostics[-1]
+            Set-TimingPolicyEvaluation $comparison $null $(if ($history) { $history.tip } else { $null })
+        }
+        $comparison.verificationScope = 'one fresh exact-candidate execution; never a three-to-five collection cohort'
+        if ($comparison.comparisonDiagnostics.Count -and $comparison.timingEvaluation.health -ceq 'green') {
+            $comparison.timingEvaluation.health = 'inconclusive'
+        }
+        if ($comparison.Contains('knownSeriousCohorts') -and $comparison.knownSeriousCohorts.Count) {
+            $comparison.timingEvaluation.blocking = $true; $comparison.timingEvaluation.health = 'red'
+        }
+        $comparison | ConvertTo-Json -Depth 40 | Set-Content (Join-Path $UiScaleDirectory 'timing-comparison.json')
+        if ($env:GITHUB_STEP_SUMMARY) { Format-TimingPolicyEvaluation $comparison.timingEvaluation | Add-Content $env:GITHUB_STEP_SUMMARY }
+        if ($comparison.Contains('knownSeriousCohorts')) {
+            foreach ($cohort in $comparison.knownSeriousCohorts) {
+                $message = "Already available approved serious-relative evidence: [$($cohort.cohortId)]($($cohort.evidenceUrl)); pinned reference ``$($cohort.referenceRevision)``."
+                if ($env:GITHUB_STEP_SUMMARY) { $message | Add-Content $env:GITHUB_STEP_SUMMARY }
+            }
+        }
+        if ($comparison.timingEvaluation.blocking) { throw 'Fresh release validation passed, but already available approved serious-relative evidence blocks this candidate.' }
     }
 }

@@ -69,6 +69,18 @@ their original validation. Public checks include inclusive
 1500ms and practical boundaries, missing/zero-median uncertainty and the
 nonblocking1000→1050 example. They do not establish hosted speed or rollout.
 
+Active public contracts additionally cover scoped release/renewal collection,
+real-Git source selection through spaced bare-repository paths, malformed policy
+metadata, source-read refusal and canonical reference consumption. The
+`AutomaticBaselines.Tests.ps1 -GateSnapshotDirectory <isolated-output>` fixture
+builder exports real publisher-produced snapshots and synthetic raw bundles.
+Pass its `metadata.json` to `Release.Gates.Tests.ps1 -TimingFixtureMetadata`
+or `LaneHealth.Tests.ps1 -TimingFixtureMetadata` for the focused shared gate
+checks. Release succeeds before/while collection is incomplete, uses an already
+available reference, and rejects only established complete five-run serious
+evidence after collection; the earlier saved result is unchanged. These are
+non-UI contract fixtures, not actual hosted measurements or production history.
+
 | Category | Observes | Examples and limits |
 |---|---|---|
 | Workflow / view model | The real shared `IApplicationWorkflow` and observable `WorkspaceViewModel`, primarily in memory | Identity, every textual field, import omission/null/false, whole graphs, inheritance, frozen context, dates, query permutations, favorite state and safe-close errors. In-memory success is not durability or WPF evidence. |

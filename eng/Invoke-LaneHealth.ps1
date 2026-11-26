@@ -151,6 +151,27 @@ foreach ($descriptor in $descriptors) {
     if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history $TimingPolicyVersion }
     if (!$TimingPolicyPreview -and $effectivePolicy -ceq 'ci-timing-v2') {
         Set-TimingPolicyEvaluation $record
+        if ($descriptor.kind -ceq 'ui-scale' -and $record.validation -ceq 'success') {
+            $scope = $record.lane.Substring(0, $record.lane.Length - 'ui-scale'.Length)
+            $nonUiLane = "${scope}non-ui-performance"
+            $nonUiRecords = @($records | Where-Object { $_.lane -ceq $nonUiLane -and $_.validation -ceq 'success' })
+            if ($nonUiRecords.Count -eq 1 -and $downloads.ContainsKey($nonUiLane)) {
+                try {
+                    $unionReport = Get-Content (Join-Path $download.directory 'result.json') -Raw | ConvertFrom-Json
+                    $owned = Join-Path $download.directory $unionReport.runDirectory
+                    $execution = New-TimingExecutionRecord $downloads[$nonUiLane].directory (Join-Path $owned 'prefix') `
+                        (Join-Path $owned 'tail') $record.revision $record.runId $record.runAttempt
+                    Set-TimingExecutionComparison $execution $history
+                    $record.timingEvaluation = $execution.timingEvaluation
+                    $record.executionTimingKey = Get-TimingCohortKey $execution
+                    $record.knownSeriousCohorts = $execution.knownSeriousCohorts
+                    $record.diagnostics += @($execution.comparisonDiagnostics)
+                } catch {
+                    $record.diagnostics += "Canonical execution comparison unavailable: $($_.Exception.Message)"
+                    Write-Warning $record.diagnostics[-1]
+                }
+            } else { $record.diagnostics += 'Complete non-UI comparison inputs unavailable; union transfer cost is not a product-duration comparator.' }
+        }
     }
     $records += $record
 }
@@ -173,3 +194,6 @@ foreach ($record in $records) {
 $summary | Set-Content (Join-Path $WorkingDirectory 'summary.md')
 if ($env:GITHUB_STEP_SUMMARY) { $summary | Add-Content $env:GITHUB_STEP_SUMMARY }
 if ($errorRecord) { throw $errorRecord }
+if (@($records | Where-Object { $_.Contains('knownSeriousCohorts') -and $_.knownSeriousCohorts.Count }).Count) {
+    throw 'Already available approved serious-relative evidence rejects the affected verification; original source outcomes remain recorded.'
+}
