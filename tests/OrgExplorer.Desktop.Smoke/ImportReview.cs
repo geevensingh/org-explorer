@@ -196,10 +196,11 @@ internal static partial class Program
             throw new InvalidOperationException("Import reading has no native TextPattern: " + expected);
         var document = ((TextPattern)pattern).DocumentRange;
         var actual = document.GetText(-1);
+        var fontName = document.GetAttributeValue(TextPattern.FontNameAttribute);
+        var fontSize = document.GetAttributeValue(TextPattern.FontSizeAttribute);
         if (actual.Replace("\r\n", "\n") != expected.Replace("\r\n", "\n") ||
-            !Equals(document.GetAttributeValue(TextPattern.FontNameAttribute), "Segoe UI") ||
-            !Equals(document.GetAttributeValue(TextPattern.FontSizeAttribute), 10.5d))
-            throw new InvalidOperationException("Import reading lost complete values or changed typography: " + actual);
+            !Equals(fontName, "Segoe UI") || !Equals(fontSize, 10.5d))
+            throw new InvalidOperationException($"Import reading lost complete values or changed typography: expected={expected}; actual={actual}; fontName={fontName}; fontSize={fontSize}.");
         var cursor = visibleText is null ? document.Clone() :
             document.FindText(visibleText, false, false)
                 ?? throw new InvalidOperationException("Import text lost its requested visible range: " + visibleText);
@@ -268,6 +269,8 @@ internal static partial class Program
          "observedAt":"2026-11-03T17:00:00Z","people":[
          {"email":"avery@example.com","officeBuilding":{{JsonSerializer.Serialize(multiline)}},"officeNumber":"FINAL-0099","officeState":"WA"}]}
         """;
+
+    private const string ManyImportDiagnosticsRenderedSummary = "Office number: 007B → FINAL-0099";
 
     private const string ManyImportDiagnosticsFixture = """
         {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000092",
@@ -464,7 +467,7 @@ internal static partial class Program
             AssertImportDiagnosticsEndpoint(window, diagnostics, expected, first, atStart: true);
             AssertImportDiagnosticsEndpoint(window, diagnostics, expected, last, atStart: false);
             CaptureVisualEvidence(window, "import-many-diagnostics-end-" + height);
-            AssertGroupedImportDisclosure(window, "avery@example.com", "1 change",
+            AssertGroupedImportDisclosure(window, "avery@example.com", "1 change", ManyImportDiagnosticsRenderedSummary,
                 ["Office number: 007B → FINAL-0099"], capture: "many-diagnostics-person-" + height);
             AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 4");
             AssertImportDiagnostic(window, expected);

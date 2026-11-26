@@ -1877,6 +1877,46 @@ internal static partial class Program
             {
                 var disclosure = VisualDescendants(review).OfType<Expander>().Single(entry =>
                     System.Windows.Automation.AutomationProperties.GetAutomationId(entry) == "ImportPerson:avery@example.com");
+                var semantic = UIElementAutomationPeer.CreatePeerForElement(disclosure).GetName();
+                if (disclosure.IsExpanded || semantic != "avery@example.com — 1 change")
+                    throw new InvalidOperationException("Many-warning Person review lost its collapsed semantic identity/count.");
+                var headerLines = new List<Rect>();
+                foreach (var (id, expectedText) in new[]
+                {
+                    ("ImportIdentity", "avery@example.com"),
+                    ("ImportSummary", ManyImportDiagnosticsRenderedSummary)
+                })
+                {
+                    var text = VisualDescendants(disclosure).OfType<TextBox>().Single(value =>
+                        System.Windows.Automation.AutomationProperties.GetAutomationId(value) == id);
+                    var provider = (ITextProvider)UIElementAutomationPeer.CreatePeerForElement(text).GetPattern(PatternInterface.Text);
+                    var actualText = provider.DocumentRange.GetText(-1);
+                    var fontName = provider.DocumentRange.GetAttributeValue(System.Windows.Automation.TextPattern.FontNameAttribute.Id);
+                    var fontSize = provider.DocumentRange.GetAttributeValue(System.Windows.Automation.TextPattern.FontSizeAttribute.Id);
+                    Console.WriteLine($"IMPORT-MANY-HEADER height={height}; semantic={semantic}; id={id}; expected={expectedText}; actual={actualText}; fontName={fontName}; fontSize={fontSize}.");
+                    if (actualText != expectedText || text.TextWrapping != TextWrapping.NoWrap ||
+                        !Equals(fontName, "Segoe UI") || !Equals(fontSize, 10.5d))
+                        throw new InvalidOperationException($"Many-warning collapsed header lost its complete rendered text or typography: expected={expectedText}; actual={actualText}; fontName={fontName}; fontSize={fontSize}.");
+                    var line = Rect.Empty;
+                    for (var index = 0; index < expectedText.Length; index++)
+                    {
+                        var character = text.GetRectFromCharacterIndex(index);
+                        character.Union(text.GetRectFromCharacterIndex(index, trailingEdge: true));
+                        var rendered = text.TransformToAncestor(root).TransformBounds(character);
+                        if (character.IsEmpty || character.Width <= 0 || character.Height <= 0 ||
+                            !list.Contains(rendered) || !line.IsEmpty &&
+                            (Math.Abs(line.Top - rendered.Top) > 1 || Math.Abs(line.Height - rendered.Height) > 1))
+                            throw new InvalidOperationException("Many-warning collapsed header lost a complete one-line character: " + expectedText[index]);
+                        line.Union(rendered);
+                    }
+                    headerLines.Add(line);
+                }
+                var entryBounds = disclosure.TransformToAncestor(root).TransformBounds(new Rect(disclosure.RenderSize));
+                if (Math.Abs(headerLines[0].Top - headerLines[1].Top) > 1 ||
+                    Math.Abs(headerLines[0].Height - headerLines[1].Height) > 1 ||
+                    headerLines[0].Right > headerLines[1].Left ||
+                    entryBounds.Height > Math.Max(headerLines[0].Height, headerLines[1].Height) + 12)
+                    throw new InvalidOperationException("Many-warning identity and complete inline summary must occupy one collapsed line.");
                 var header = VisualDescendants(disclosure).OfType<ToggleButton>().First();
                 var toggle = (IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(header).GetPattern(PatternInterface.Toggle);
                 FocusManager.SetFocusedElement(window, header);

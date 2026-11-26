@@ -171,6 +171,14 @@ The tall disclosure's closing focus and the intervening Person disclosure are
 retained across both compact heights, with usable counts/list and saved bytes.
 Neither input nor scroll actions are retried; native glyph tolerances are unchanged.
 
+At that final many-warning disclosure, the shared rendered expectation is the
+complete `Office number: 007B → FINAL-0099` difference, distinct from the semantic
+`1 change` count. The full-history compiled loop checks the actual text-provider
+document and Segoe UI/10.5-point attributes, every identity/summary character and
+one-line geometry at both compact heights before expanding the Person. Hosted
+checks retain the same exact text, typography and complete glyph requirements;
+text/typography failures report expected and actual text and both font attributes.
+
 The collector workflow cases cross the same public helper/compiled-CLI seam:
 atomic standing-policy startup, serial/two-worker leasing, exact prepared
 requests, original lookup timestamps, stopped-worker handoff, compact sampled
