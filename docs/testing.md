@@ -174,6 +174,18 @@ The profile/target predicates, search/cancellation/full-population assertions,
 native inputs and deadlines are unchanged; native scale acceptance still
 requires a fresh complete exact-candidate hosted run.
 
+Run `45752557219` reached the final manager-row observation after the native
+cancellation/search/partial-retention and resumed 9,900-Person/150-manager
+completion checks, then exhausted the unchanged 180-second wait. The same
+150-manager loop now retains only its last 12 before/after/final observations:
+requested/returned identity and type, expected parent, optional Realize input,
+expansion state, row/viewport bounds and current completion text. Direct
+element caches never scan the whole window. Unsupported values remain null,
+and diagnostic refusals/output failures are separate from the original error.
+A failure emits `TREE-SCALE-REALIZATION` and attempts one existing window
+screenshot/JSON pair; input count, predicates and 180/660-second budgets remain
+unchanged, including diagnostic overhead. This is not a repair or native proof.
+
 ## Placement
 
 | Category | Observes | Examples and limits |

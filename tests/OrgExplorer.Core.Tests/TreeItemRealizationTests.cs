@@ -5,6 +5,53 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class TreeItemRealizationTests
 {
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Reporting_row_diagnostics_retain_only_the_latest_boundaries_including_the_failed_row()
+    {
+        var trace = new TreeItemRealization.ReportingRowTrace<string>();
+        foreach (var row in Enumerable.Range(0, 6))
+            foreach (var phase in new[] { "before", "after", "final" }) trace.Retain($"{row}:{phase}");
+
+        Assert.Equal(Enumerable.Range(2, 4).SelectMany(row =>
+            new[] { $"{row}:before", $"{row}:after", $"{row}:final" }), trace.Recent);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Reporting_row_diagnostic_output_failures_do_not_replace_the_original_timeout_or_skip_the_failure_frame()
+    {
+        var trace = new TreeItemRealization.ReportingRowTrace<string>();
+        var original = new TimeoutException("Original 180-second row observation failed.");
+        var outputs = new List<string>();
+        trace.AttemptOutput(original, () =>
+        {
+            outputs.Add("trace");
+            throw new IOException("Trace output refused.");
+        });
+        trace.AttemptOutput(original, () => outputs.Add("failure-frame"));
+
+        Assert.Equal(["trace", "failure-frame"], outputs);
+        Assert.Equal(1, trace.Failures.Count);
+        Assert.Equal("System.IO.IOException", trace.Failures.LastFailure!.ExceptionType);
+        Assert.Equal(trace.Failures, original.Data["ReportingRowDiagnosticFailures"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Reporting_row_diagnostics_retain_observation_refusal_even_if_error_reporting_also_fails()
+    {
+        var trace = new TreeItemRealization.ReportingRowTrace<string>();
+        var original = new TimeoutException("Original row state did not arrive.");
+        trace.RecordFailure(new InvalidOperationException("Row cache unavailable."));
+        trace.AttemptOutput(original, () => throw new IOException("Metadata output unavailable."));
+        trace.AttemptOutput(original, () => throw new UnauthorizedAccessException("Failure frame unavailable."));
+
+        Assert.Equal(3, trace.Failures.Count);
+        Assert.Equal(trace.Failures, original.Data["ReportingRowDiagnosticFailures"]);
+        Assert.Equal("System.UnauthorizedAccessException", trace.Failures.LastFailure!.ExceptionType);
+    }
+
     [Theory]
     [Trait("Category", "Runner")]
     [InlineData(92, 2)]
