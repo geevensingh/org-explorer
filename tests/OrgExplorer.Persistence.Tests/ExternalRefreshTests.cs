@@ -310,6 +310,69 @@ public sealed class ExternalRefreshTests : IDisposable
         Assert.Null(reopened.GetRelationships("higher@example.com"));
     }
 
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public void Accepted_same_Person_refresh_retains_missing_exact_note_recovery_without_substitute_writing(NoteScope scope)
+    {
+        var workspace = Path.Combine(root, "receiver");
+        var preferencesPath = Path.Combine(root, "settings.json");
+        using var source = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(source.OpenWorkspace(Path.Combine(root, "source")), source.Status);
+        Assert.True(source.ApplyImport(source.PreviewImport(Batch("""
+            {"email":"reader@example.com","displayName":"Reader","managerEmail":null}
+            """)).Id), source.Status);
+        var person = source.CreatePersonNote("reader@example.com", "Person ongoing", "Exact Person writing")!;
+        var team = source.CreateTeamNote("reader@example.com", "Team ongoing", "Exact Team writing")!;
+        using (var receiver = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(receiver.OpenWorkspace(workspace), receiver.Status);
+            WorkspaceFixtures.JoinSnapshot(source, receiver, Path.Combine(root, "transport"));
+        }
+        var settings = new WorkspaceSettings(preferencesPath);
+        var remembered = new RememberedView("reader@example.com",
+            scope == NoteScope.Person ? SearchSource.PersonNote : SearchSource.OwnedTeamNote,
+            Guid.NewGuid(), "reader@example.com");
+        Assert.True(settings.SetLastView(workspace, remembered));
+        Assert.True(settings.SetPaneProportions(workspace, new(28, 38)));
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(app.OpenWorkspace(workspace), app.Status);
+        Assert.Equal("reader@example.com", app.PeopleNavigation.SelectedEmail);
+        var recovery = app.ViewRecoveryFeedback;
+        Assert.Contains("exact note is unavailable", recovery);
+        var preferences = File.ReadAllBytes(preferencesPath);
+        Assert.True(source.EditPersonText("reader@example.com", PersonTextField.JobTitle, "Accepted refreshed role"));
+        Assert.True(source.ApplyImport(source.PreviewImport(Batch("""
+            {"email":"higher@example.com","displayName":"A higher Manager","managerEmail":null},
+            {"email":"first@example.com","displayName":"First","managerEmail":"higher@example.com"},
+            {"email":"second@example.com","displayName":"Second","managerEmail":"higher@example.com"}
+            """)).Id), source.Status);
+
+        WorkspaceFixtures.DeliverSnapshot(source, app);
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.True(app.RefreshPersonNotes(), app.Status);
+
+        Assert.Equal("Accepted refreshed role", app.GetRelationships("reader@example.com")!.Person.JobTitle);
+        Assert.Equal("reader@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(recovery, app.ViewRecoveryFeedback);
+        foreach (var noteScope in Enum.GetValues<NoteScope>())
+        {
+            var view = app.GetOwnedNotesView(noteScope);
+            Assert.Equal("reader@example.com", view.OwnerEmail);
+            Assert.Null(view.SelectedNote);
+            Assert.False(view.IsEditing);
+            Assert.False(view.IsEmpty);
+            Assert.Equal(recovery, view.Feedback);
+        }
+        Assert.Null(app.PeopleNavigation.LastValidView);
+        Assert.Equal(preferences, File.ReadAllBytes(preferencesPath));
+        Assert.Equal(remembered, new WorkspaceSettings(preferencesPath).GetLastView(workspace));
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(person, Assert.Single(reopened.GetPersonNotes("reader@example.com")));
+        Assert.Equal(team with { NeedsReview = true }, Assert.Single(reopened.GetTeamNotes("reader@example.com")));
+    }
+
     [Fact]
     public void Complete_snapshot_refreshes_open_profile_photo_history_and_private_writing_without_replaying_imports()
     {
