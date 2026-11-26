@@ -58,8 +58,15 @@ not dispatches. Public contracts use real validators and isolated Git with only
 external GitHub/hosted effects faked, including complete659/661s observations,
 noise, low headroom, serious five-execution separation, hard failures and
 incomplete/no-reference states. See the
-[versioned proposal](ci-timing-policy-proposal.md), whose numerical approval is
-still pending. These fixture checks do not establish hosted speed or rollout.
+[versioned policy](ci-timing-policy-proposal.md). Owner-approved
+`ci-timing-preview-v2` uses a30-minute prefix watchdog with unchanged900s safety,
+rich-note1000ms goal/1500ms ceiling in both phases, and BOTH20%/100ms latency or
+20%/30s duration practical floors on top of the full five-run relative rule.
+`TimingPolicyVersion ci-timing-preview-v1` retains read-only old17-minute/1050ms
+preview behavior. These are previews, not #131 activation: original1050ms/660s
+results remain under their original validation. Public checks include inclusive
+1500ms and practical boundaries, missing/zero-median uncertainty and the
+nonblocking1000→1050 example. They do not establish hosted speed or rollout.
 
 | Category | Observes | Examples and limits |
 |---|---|---|
@@ -2837,8 +2844,9 @@ individual measurement and descriptive median/range survives in compact history.
 Missing/failed/skipped/cancelled/diagnostic evidence rejects complete acceptance;
 no failure is voted away or replaced by a green retry.
 
-Live policy is `rich-cohort-observation-v2`: eligibility remains pending #130
-calibration and promotion disabled. Isolated `TEST-rich-range-v2` exercises
+Live collection policy remains `rich-cohort-observation-v2`: approved timing
+preview `ci-timing-preview-v2` awaits #131/#132 activation and promotion stays
+disabled. Isolated `TEST-rich-range-v2` exercises
 otherwise eligible inconsistency extending from three to at most five complete
 executions; the live workflow cannot invent that policy or publish TEST records.
 Collection has a distinct noncancelling queued concurrency group, not release
@@ -2899,7 +2907,8 @@ history failure. Compact records live at
 expiry is explicit. Prior complete compatible non-self cohorts can provide
 observation comparisons, never fresh release proof or active canonical references.
 
-Live eligibility/noise policy remains pending #130. The public collector's
+Approved timing preview `ci-timing-preview-v2` remains observation-only until
+#131/#132 activation. The public collector's
 isolated `TEST-non-ui-range-v1` policy exercises otherwise eligible inconsistency
 extending from three to at most five executions. Failure never requests another
 execution; continued inconsistency stops at five. TEST policy cannot publish

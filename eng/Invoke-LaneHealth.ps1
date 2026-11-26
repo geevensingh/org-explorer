@@ -6,7 +6,8 @@ param(
     [switch]$AllowLocalFixture,
     [switch]$Publish,
     [switch]$PublishObservations,
-    [switch]$TimingPolicyPreview
+    [switch]$TimingPolicyPreview,
+    [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2')][string]$TimingPolicyVersion = 'ci-timing-preview-v2'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -135,7 +136,7 @@ foreach ($descriptor in $descriptors) {
         historySnapshot = if ($history) { $history.tip } else { $null }; evidence = $evidence
     }
     if ($history) { Set-LaneHealthComparison $record $history }
-    if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history }
+    if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history $TimingPolicyVersion }
     $records += $record
 }
 ConvertTo-Json -InputObject @($records) -Depth 30 | Set-Content (Join-Path $WorkingDirectory 'records.json')

@@ -1,11 +1,29 @@
-# Timing policy proposal: ci-timing-preview-v1
+# Timing policy: ci-timing-preview-v2
 
-**Status: one-time maintainer approval pending; observation only.** This is
-#130's proposal, not #131 gate activation, #132 canonical promotion, or #133
-final verification. Existing acceptance and historical verdicts remain enforced.
-Approval of the original design or the staged diagnostic is not approval of
-this numerical proposal. No additional measurement executions are requested
-by the preview code.
+**Status: amended numerical policy approved; observation only, not activated.**
+The owner approved the [watchdog/rich-note amendment](https://github.com/geevensingh/org-explorer/issues/130#issuecomment-7179249205)
+and [practical-significance floors](https://github.com/geevensingh/org-explorer/issues/130#issuecomment-7179368429).
+#130 remains open until independent verification. #131 owns gate/runner/validator
+activation; #132 owns canonical promotion; #133 owns final complete verification.
+Existing acceptance and historical verdicts remain enforced. No additional
+measurement executions are requested by this policy or the preview code.
+
+Version2 replaces the proposed prefix17-minute watchdog with **30 minutes**,
+leaves prefix execution safety at **900 seconds**, and replaces rich-note1050ms
+with **1500ms**, retaining the1000ms goal in both normal-executable and
+background-export phases. It adds inclusive practical floors to the unchanged
+five-run/stable/beyond-envelope test: **both20% and100ms** for selected product
+latency, or **both20% and30s** for whole-lane duration. These are owner-selected
+practical policy decisions, not estimates of runner noise or calibrated
+probabilities. Other limits and approved rules are unchanged.
+
+Historical `ci-timing-preview-v1`, its17-minute/1050ms values and its unapproved
+preview grades remain available at
+[the preserved source](https://github.com/geevensingh/org-explorer/blob/2f9050f020df974da1ba7a4e33a13e32cbe3fa3f/docs/ci-timing-policy-proposal.md).
+The public observers also accept `TimingPolicyVersion ci-timing-preview-v1` for
+read-only replay. Version selection cannot authorize dispatch, gates or history
+writes. New previews default to approved v2; original raw policy/validation is
+kept separate from the approved absolute-requirement preview.
 
 ## Verified baseline and diagnostic
 
@@ -119,39 +137,43 @@ core/filesystem lack newly attempt-bound artifacts; native whole timings
 configuration. Those missing measurements are not zero or retroactive failure
 of the originally successful CI. Optional scale/rehearsal stays skipped.
 
-## Versioned per-metric rules proposed for approval
+## Approved versioned per-metric rules
 
-No defensible fixed healthy-duration, percentage-regression or universal noise
-band can be estimated from this evidence. Their absence is explicit, not filled
-with padded limits. Version1 instead proposes an **empirical-envelope rule**
+No defensible fixed healthy-duration or universal noise band can be estimated
+from this evidence. Their absence is explicit, not filled with padded limits.
+Version2 retains the **empirical-envelope rule**
 whose numerical bands are derived from a pinned eligible comparable cohort.
-There is no claim of calibrated statistical confidence.
+The new practical-significance floors supplement that evidence rule; they do
+not claim calibrated statistical confidence.
 
 For each selected metric retain the independent per-execution values, count,
 minimum L, maximum U, median M and full observed range R=U-L. A user's21 raw
 latency samples still produce that execution's original nearest-rank p95;
 three p95 values from three workers are not63 independent executions.
 
-| Metric/workload | Healthy / warning proposal | Blocking requirement / proposed safety |
+| Metric/workload | Healthy / warning policy | Approved blocking requirement / safety, pending activation |
 |---|---|---|
 | Core whole duration | Empirical envelope; existing300s target remains descriptive | Preserve300s policy/safety; no evidence justifies padding this lane |
 | Filesystem whole duration | Empirical envelope; existing300s target descriptive | Preserve660s safety and full real-storage selection |
 | Each desktop/high-resolution partition | Empirical envelope, per actual partition/companions | Preserve900s safety, full UI/state/size matrices |
 | Non-UI whole duration | Empirical envelope, no healthy band inferred from mixed pilots | Preserve660s safety; observed complete workers are far below it |
-| Rich prefix whole duration | Empirical envelope; unavailable reference means unbaselined | **Propose900s safety instead of660s whole-suite acceptance**, with17m watchdog, only after approval/consistent activation |
+| Rich prefix whole duration | Empirical envelope; unavailable reference means unbaselined | **900s safety instead of660s whole-suite acceptance**, with**30m watchdog**, after consistent activation |
 | Rich tail whole duration | Separate empirical envelope; never summed with prefix/non-UI | Preserve660s safety; only two complete pilot tails, so healthy band pending |
-| Rich normal/held note p95 | Goal<=1000ms; goal miss within enforcement is yellow; otherwise envelope | Each original p95<=1050ms, all21 during-typing/final-writing checks; no product-limit change |
+| Rich normal/held note p95 | Goal<=1000ms; goal miss within1500ms is yellow unless supported serious-relative red; otherwise envelope | Each p95<=**1500ms**, inclusive, all21 during-typing/final-writing checks; owner-approved change from1050ms, activated only by #131 |
 | Non-UI/rich/ordinary profile p95; ordinary note durability | Empirical comparison plus existing one-second requirement | Preserve original1000ms limits and all raw/per-run assertions; no rich exception for ordinary notes |
 | Editor/navigation timings, named phases/commands/scenarios | Envelope observations for diagnosis; no invented latency SLA | Remain informational; future relative gates must select whole duration/product-latency metrics explicitly |
 | Nested locks/readers/process-death/admission/storage behavior | Attribute named test/phase results, not inferred host noise | Preserve original5s/temporary6s admissions,3s stall,1s busy,20s/180s state observations and actual causal assertions |
 | Installer/release/renewal/rehearsal/controllers | Timing comparison pending compatible complete evidence; no healthy absolute band | Preserve20m installer,480s Sandbox scope,2m CI collector,5m plans/15m publication watchdogs and all platform/trust/fresh-candidate requirements |
 
-900 seconds is a **bounded safety proposal**, not a predicted healthy p95:
+900 seconds is a **bounded safety limit**, not a predicted healthy p95:
 it reuses the already authorized observation horizon, which captured683.0593558s
 with216.9406442s remaining. The diagnostic alone cannot establish its future
 success rate. No other workload receives a blanket extension. Watchdog reserve
 is reporting/termination/upload allowance, never additional accepting time.
-Activation must preserve measurement/setup/cleanup cost rather than subtract it.
+The approved30-minute watchdog is1800s of job allowance, not1800s of accepting
+execution:900s safety stays separate. Activation must preserve measurement/setup/
+cleanup cost rather than subtract it. The historical diagnostic still used17
+minutes and1050ms; it is not relabelled as a v2 execution.
 
 For a positive observed reference range:
 
@@ -160,18 +182,35 @@ For a positive observed reference range:
 - Yellow: maximum>U, range>R, missed existing goal, or headroom<=R. One observed
   range of headroom means an already observed fluctuation could exhaust it.
   Yellow alone never blocks merge/release.
-- Serious-relative red proposal: **five** complete eligible comparable candidate
+- Serious-relative red: **five** complete eligible comparable candidate
   executions, every value>U+R, candidate range<=R, and median increase>R.
-  This requires separation beyond the full observed noise envelope, not an
-  arbitrary percentage or one slow worker. It is a conservative deterministic
-  evidence rule proposed for approval, not an experimentally calibrated
-  probability. Phase/informational grades do not authorize product gates.
+  Also require **both** median increase>=20% and absolute increase>=100ms for
+  selected product latency, or **both**>=20% and>=30s for whole duration.
+  All practical boundaries are inclusive; the existing beyond-envelope `>`
+  conditions remain strict. One slow worker or only one practical floor cannot
+  establish serious red. This is an approved deterministic evidence/practical
+  rule, not an experimentally calibrated probability. Phase/editor/navigation
+  observations remain nonblocking.
 - A zero reference range cannot establish a calibrated noise floor: comparative
   health is inconclusive, not a threshold where any epsilon is a serious
   regression. Hard requirements and absolute goals still apply.
+- Missing/zero reference median cannot establish percentage significance.
+  Keep the percentage unavailable and relative comparison inconclusive while
+  evaluating known absolute requirements. A1500ms rich-note p95 satisfies v2's
+  ceiling; any value>1500ms violates it immediately, without a reference or five
+  runs. A1000ms goal miss within1500ms remains yellow unless the separate
+  evidence **and both practical floors** establish serious-relative red.
 - Any individual hard violation remains red/actionable under **current** policy,
   even if the cohort median is below its limit. Missing/censored metrics and
   interrupted required work cannot supply green comparison or acceptance.
+
+A compatible note reference990/1000/1010ms has median1000,U1010,R20. Five
+complete1050ms candidate p95 values meet the old beyond-envelope/stability
+criteria, but their5%/50ms change fails both v2 practical floors. Version2
+therefore reports yellow/nonblocking rather than serious-relative red.
+Version1's former red preview remains historical, not rewritten. Raising the
+absolute ceiling alone would not have solved this mismatch; the owner explicitly
+approved the practical floors after that counterexample was reported.
 
 A completed prefix's measured duration can receive the same comparison grade
 at659 and661 seconds while its original acceptance remains success/failure.
@@ -180,7 +219,7 @@ Diagnostic records remain nonaccepting regardless of duration.
 
 ## Eligibility, comparison series and future automatic promotion
 
-The following is the approval proposal for #132, **not activated behavior**.
+The following is the approved policy for #132, **not activated behavior**.
 Current previews keep promotion disabled and eligibility pending/rejected.
 
 Start with exactly three independent fresh complete executions, each owning
@@ -242,8 +281,8 @@ The original full pilot consumed approximately775/786 worker-seconds in its two
 complete samples and at least846s in its failed third (runner sums, not billing).
 The audit's fuller job-wall estimate remains17.733 worker-minutes per complete
 execution:53.2 for three,88.67 for five, or60/100 minutes under per-job rounding.
-With only the prefix watchdog proposed from13 to17 minutes, a conservative
-four-job watchdog envelope is56 minutes/sample,168/280 for3/5 samples.
+With only the prefix watchdog approved from13 to30 minutes, a conservative
+four-job watchdog envelope is69 minutes/sample,207/345 for3/5 samples.
 These are consumed-worker envelopes, not Windows billing multipliers or healthy
 duration predictions. Failed executions consume budget and remain recorded.
 The one diagnostic used693 job-wall seconds, at most12 rounded worker-minutes,
@@ -266,7 +305,8 @@ and explicit unavailable states.
 Public contracts cover no reference, pinned non-self/incompatible comparison,
 normal variation, one slight slowdown, low headroom, old659/661 boundary,
 five separated slow values, continued five-sample variation, zero-range
-uncertainty, hard individual violations and cancelled/skipped/incomplete work.
+uncertainty, zero-median percentage unavailability, both independent practical
+floors, hard individual violations and cancelled/skipped/incomplete work.
 Existing raw percentile/matrix/union rejection and immutable mixed-Git history
 checks remain. Only external GitHub/hosted responses are faked. Controlled
 fixture previews are not measured hosted speed or fresh release acceptance.
@@ -282,6 +322,13 @@ not timing evidence):
 | 639/640/641 s; same reference,660s safety | Yellow,19s headroom versus20s observed range | Success |
 | Complete659s and661s prefixes; reference620/630/640 | **Both yellow**,900s proposed safety, no gate activation | Success / rejected respectively under original660 |
 | Five200/201/202/203/204 s; reference110/120/130 | Serious-relative red, observation only | Success |
+| Five180s; duration reference148/150/152 | Exact20%/30s floors met: serious-relative red | Success |
+| Five179.999s; same reference | Below the inclusive floors: yellow | Success |
+| Five600ms profile p95; reference495/500/505 | Exact20%/100ms floors met: serious-relative red | Success |
+| Five599.999ms; same reference | Below the inclusive floors: yellow | Success |
+| Product250→300ms or800→900ms; duration100→120s or200→230s | Only one floor met: yellow, not serious | Success |
+| Both rich phases1000→1050ms with five complete values | Version2 yellow, no relative blocker; v1 red replay retained | Success under original1050 ceiling |
+| Rich p95=1500ms /1500.1ms, no reference | Approved v2 absolute ceiling satisfied/yellow /violated/red | Historical/current1050 validation is retained separately |
 | Five111/120/129/160/100 s; same reference | Yellow/inconclusive, stop at five | Success |
 | Individual profile p95=1000.1 ms while cohort median=800 | Hard red; no replacement samples | Rejected |
 | Zero-range reference | Inconclusive, no noise-floor fiction | Unchanged |
@@ -291,7 +338,7 @@ Read-only real-evidence reproduction after repository/account verification:
 
 ```powershell
 .\eng\Invoke-NonUiCohort.ps1 -Stage Summarize -Pilot -RichScale `
-  -TimingPolicyPreview -ReadHistory `
+  -TimingPolicyPreview -TimingPolicyVersion ci-timing-preview-v2 -ReadHistory `
   -Revision 5078960e12bef092a8a5fccc181943dabc0ac668 `
   -CiRunId 45528329616 -CiRunAttempt 1 `
   -CohortRunId 45704991010 -CohortRunAttempt 1 `
@@ -302,12 +349,14 @@ This downloads retained evidence and emits record.json/summary.md. It runs
 **no** workload, dispatch, release, history write or promotion. Real pilot
 authority remains baseline-ineligible; absent data-branch history is visible.
 
-**Maintainer decision required:** approve or revise ci-timing-preview-v1's
-empirical envelope, five-execution separation/eligibility/bootstrap rules,
-selected future gates, prefix900s/17m safety, unchanged remaining limits and
-bounded concurrency/cost. Unsupported fixed bands remain pending. Record exact
-approval/version on #130 before closing it or permitting #131/#132 activation.
-#131 must update runners, deadline propagation, result validators, collectors,
-gates and documentation consistently; #132 must implement trusted promotion/
-series/ancestry semantics. #133 must demonstrate three eligible complete full
-samples under the approved policy, with the unresolved #154 limitation intact.
+**Approved handoff version: ci-timing-preview-v2**, including both linked owner
+amendments. Unsupported fixed healthy/noise bands remain pending, not invented.
+Independent verification must confirm proposal/public examples/code agreement
+before #130 closes. #131 must update runners, watchdogs, deadline propagation,
+raw rich-note policy metadata, result/union validators, collectors, gates and
+documentation consistently to this same version. #132 must implement trusted
+promotion/series/ancestry and must never let artifact-declared limits confer
+authority. #133 must demonstrate three eligible complete full samples after
+activation, with every original failed/incomplete/cancelled attempt and the
+unresolved #154 limitation intact. No further measurement, main merge, promotion
+or activation is performed in this calibration amendment.

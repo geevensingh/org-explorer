@@ -14,6 +14,7 @@ param(
     [switch]$CheckHistory,
     [switch]$ReadHistory,
     [switch]$TimingPolicyPreview,
+    [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2')][string]$TimingPolicyVersion = 'ci-timing-preview-v2',
     [switch]$Publish,
     [string]$HistoryRemote = 'https://github.com/geevensingh/org-explorer.git'
 )
@@ -232,7 +233,7 @@ $record = [ordered]@{
 }
 if ($null -ne $history) { Set-NonUiCohortComparison $record $history }
 Assert-NonUiCohortRecord $record (Get-NonUiCohortPath $record)
-if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history }
+if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history $TimingPolicyVersion }
 $record | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'record.json')
 $publication = 'read-only observation'
 $publicationError = $null

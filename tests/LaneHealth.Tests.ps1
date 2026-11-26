@@ -54,11 +54,12 @@ function gh {
         default { throw "Unexpected endpoint: $($arguments[1])" }
     }
 }
-function Observe([switch]$Publish, [switch]$PublishObservations, [switch]$TimingPolicyPreview) {
+function Observe([switch]$Publish, [switch]$PublishObservations, [switch]$TimingPolicyPreview,
+    [string]$TimingPolicyVersion = 'ci-timing-preview-v1') {
     $work = Join-Path $fixture ('o-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     & "$root\eng\Invoke-LaneHealth.ps1" -RunId 51 -RunAttempt $run.run_attempt -HistoryRemote $remote `
         -AllowLocalFixture -WorkingDirectory $work -Publish:$Publish -PublishObservations:$PublishObservations `
-        -TimingPolicyPreview:$TimingPolicyPreview
+        -TimingPolicyPreview:$TimingPolicyPreview -TimingPolicyVersion $TimingPolicyVersion
     return @{
         records = @(Get-Content (Join-Path $work 'records.json') -Raw | ConvertFrom-Json -AsHashtable)
         summary = Get-Content (Join-Path $work 'summary.md') -Raw
@@ -241,6 +242,45 @@ try {
                 'An absolute1050ms violation was hidden by goal yellow or missing comparison evidence.'
         } finally { $hardJob.conclusion = 'success' }
     } finally { $goalNoteOriginal | Set-Content $downloadedNote }
+    $amendedJob = @($global:LaneHealthFixture.jobs | Where-Object { $_.name -ceq 'Rich combined normal and held-export saves' })[0]
+    foreach ($phase in @('normal-executable', 'background-export')) {
+        $amendedPath = Join-Path $evidence "ui-scale-prefix-$($run.head_sha)-51-1\$($rich.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
+        $amendedOriginal = Get-Content $amendedPath -Raw
+        try {
+            foreach ($case in @(
+                @{ value = 1000; health = 'unbaselined'; absolute = 'satisfied'; originalValidation = 'success' },
+                @{ value = 1030.138; health = 'yellow'; absolute = 'satisfied'; originalValidation = 'success' },
+                @{ value = 1051; health = 'yellow'; absolute = 'satisfied'; originalValidation = 'failure' },
+                @{ value = 1500; health = 'yellow'; absolute = 'satisfied'; originalValidation = 'failure' },
+                @{ value = 1500.1; health = 'red'; absolute = 'violated'; originalValidation = 'failure' }
+            )) {
+                $amended = $amendedOriginal | ConvertFrom-Json -AsHashtable
+                $amended.localDurability.samplesMs = @(400) * 19 + @($case.value, 1600)
+                $amended.localDurability.p95Ms = $case.value
+                $amended.localDurability.goalMet = $case.value -le 1000
+                $amended | ConvertTo-Json -Depth 12 | Set-Content $amendedPath
+                $amendedJob.conclusion = $case.originalValidation
+                $amendedObservation = Observe -TimingPolicyPreview -TimingPolicyVersion ci-timing-preview-v2
+                $amendedPrefix = @($amendedObservation.records | Where-Object { $_.lane -ceq 'ui-scale-prefix' })[0]
+                $amendedPreview = $amendedPrefix.policyPreview.metrics["note-durability-$phase"]
+                Assert ($amendedPreview.health -ceq $case.health -and
+                    $amendedPreview.absoluteRequirement -ceq $case.absolute -and
+                    $amendedPreview.goal -eq 1000 -and $amendedPreview.hardLimit -eq 1500 -and
+                    $amendedPreview.originalLimit -eq 1050 -and
+                    $amendedPreview.relativeHealth -ceq 'unbaselined' -and $null -eq $amendedPreview.reference -and
+                    $amendedPrefix.validation -ceq $case.originalValidation -and
+                    $amendedPrefix.policyPreview.version -ceq 'ci-timing-preview-v2' -and
+                    $amendedPrefix.policyPreview.approval -ceq 'approved' -and
+                    $amendedPrefix.policyPreview.prefixWatchdogMinutes -eq 30 -and
+                    $amendedPrefix.policyPreview.prefixSafetySeconds -eq 900 -and
+                    !$amendedPrefix.policyPreview.blocking -and $amendedPrefix.policyPreview.promotion -ceq 'disabled') `
+                    "Amended $phase policy disagrees at$($case.value)ms or rewrites original1050ms validation."
+            }
+        } finally {
+            $amendedOriginal | Set-Content $amendedPath
+            $amendedJob.conclusion = 'success'
+        }
+    }
     $wrongAttemptNote = Get-Content $downloadedNote -Raw | ConvertFrom-Json -AsHashtable
     $wrongAttemptNote.runAttempt = '2'
     $wrongAttemptNote | ConvertTo-Json -Depth 12 | Set-Content $downloadedNote
