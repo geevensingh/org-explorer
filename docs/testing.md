@@ -1279,6 +1279,15 @@ keep read-only access and share read/write/delete, so observation does not exclu
 held write-capable resources. The stable Commit boundaries, original byte
 comparison, held SHM and complete resource assertions remain; this neither
 authorizes concurrent writing nor identifies the historical hosted holder.
+Temporary `SQLITE-WAL-REVISION-EVIDENCE` capture reports only a failure of the
+first recovered-revision equality, using the same captured public `LocalSave`
+snapshot as that assertion. The failed test's TRX output retains admitted
+base/next/request GUIDs, revision/phase/outcome, existing receipt/resource/child
+lifetime flags and the original cached DB/WAL hashes with file identities from
+those already-open hash/holder handles. It reads no SQL, reopens no extra file,
+logs no note content and preserves the original equality exception if reporting
+fails. This diagnostic-only commit is not clean acceptance or a recovery fix;
+remove the capture after a proven fix or classification.
 The original nine death cases and healthy public WAL-reader controls remain.
 The causal 3.53.4 RED is `SQLITE_IOERR_TRUNCATE` (10/1546) in the first public
 Open; supported native `SQLite` 3.54.1 must turn it GREEN without an Open retry

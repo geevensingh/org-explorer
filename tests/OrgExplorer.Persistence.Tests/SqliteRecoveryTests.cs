@@ -5,11 +5,16 @@ using Microsoft.Data.Sqlite;
 using OrgExplorer.TestFixtures;
 using OrgExplorer.Workflow;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace OrgExplorer.Persistence.Tests;
 
 public sealed partial class SqliteWorkspaceTests
 {
+    private readonly ITestOutputHelper output;
+
+    public SqliteWorkspaceTests(ITestOutputHelper output) => this.output = output;
+
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
@@ -458,6 +463,9 @@ public sealed partial class SqliteWorkspaceTests
         var processStarted = false;
         FileStream? receiptHolder = null;
         FileStream? committedFileHolder = null;
+        CrashFileIdentity? committedHolderIdentity = null;
+        var committedFileObservations = new List<CrashCommittedFileObservation>(4);
+        var oldReaderDisposed = false;
         OwnedShmMapping? shmMapping = null;
         try
         {
@@ -480,14 +488,21 @@ public sealed partial class SqliteWorkspaceTests
             var admission = await process.StandardOutput.ReadLineAsync();
             Console.WriteLine($"SQLITE-CRASH-ADMISSION launcherProcessId={process.Id}; observed={admission}");
             string expectedRevision;
+            Guid? admittedBaseRevision, admittedNextRevision, admittedRequestId;
+            int admittedWriterProcessId;
             using (var observed = System.Text.Json.JsonDocument.Parse(admission
                 ?? throw new IOException("The admitted writer did not identify its actual process.")))
             {
-                Assert.Equal(process.Id, observed.RootElement.GetProperty("writerProcessId").GetInt32());
+                admittedWriterProcessId = observed.RootElement.GetProperty("writerProcessId").GetInt32();
+                Assert.Equal(process.Id, admittedWriterProcessId);
                 Assert.Equal(boundary == "before" ? "Begin" : "End", observed.RootElement.GetProperty("phase").GetString());
-                expectedRevision = Assert.Single(observed.RootElement.GetProperty("evidence").EnumerateArray())
+                var admittedIntent = Assert.Single(observed.RootElement.GetProperty("evidence").EnumerateArray());
+                expectedRevision = admittedIntent
                     .GetProperty(boundary == "after" ? "nextRevision" : "baseRevision").GetString()
                     ?? throw new IOException("The admitted writer did not identify its expected committed revision.");
+                admittedBaseRevision = AdmissionGuid(admittedIntent, "baseRevision");
+                admittedNextRevision = AdmissionGuid(admittedIntent, "nextRevision");
+                admittedRequestId = AdmissionGuid(admittedIntent, "requestId");
             }
             if (receiptHeld)
             {
@@ -506,6 +521,7 @@ public sealed partial class SqliteWorkspaceTests
                 Assert.True(await oldOpening.WaitAsync(TimeSpan.FromSeconds(5)), oldReader!.Status);
                 Assert.Null(oldReader.GetRelationships("manager@example.com")!.Person.TeamName);
                 oldReader.Dispose();
+                oldReaderDisposed = true;
             }
             if (retainedCommittedFile is not null)
             {
@@ -514,6 +530,7 @@ public sealed partial class SqliteWorkspaceTests
                     FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
                 Assert.False(process.HasExited);
                 Console.WriteLine($"SQLITE-CRASH-COMMITTED-FILE-HOLDER writerProcessId={process.Id}; holderProcessId={Environment.ProcessId}; file={retainedCommittedFile}; access=ReadWrite; share=ReadWrite,Delete; noBytesWritten=true");
+                committedHolderIdentity = CaptureCrashFileIdentity(committedFileHolder);
             }
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
@@ -523,9 +540,9 @@ public sealed partial class SqliteWorkspaceTests
             {
                 var committedFiles = new[] { "workspace.sqlite", "workspace.sqlite-wal" }
                     .Select(name => Path.Combine(Workspace, name)).ToArray();
-                var before = committedFiles.Select(HashCommittedFile).ToArray();
+                var before = committedFiles.Select(path => HashCommittedFile(path, "before-stale-index")).ToArray();
                 shmMapping!.RestoreIndex(staleShmIndex);
-                Assert.Equal(before, committedFiles.Select(HashCommittedFile).ToArray());
+                Assert.Equal(before, committedFiles.Select(path => HashCommittedFile(path, "after-stale-index")).ToArray());
             }
             string? evidence = null;
             if (unresolvedEvidence)
@@ -606,7 +623,69 @@ public sealed partial class SqliteWorkspaceTests
                     emissionFault = $"\nSQLITE-CRASH-REOPEN-DIAGNOSTIC-FAULT {fault.GetType().Name}; hresult=0x{fault.HResult:X8}.";
                 }
             Assert.True(opened, reopenStatus + emissionFault);
-            Assert.Equal(expectedRevision, reopened.LocalSave.CommittedRevision);
+            var firstRecoveredSave = reopened.LocalSave;
+            var expectedRevisionGuidValid = Guid.TryParseExact(expectedRevision, "D", out var expectedGuid);
+            var actualRevisionGuidValid = Guid.TryParseExact(firstRecoveredSave.CommittedRevision, "D", out var actualGuid);
+            object revisionEvidence;
+            try
+            {
+                revisionEvidence = new
+                {
+                    schemaVersion = 1,
+                    boundary, mutation, admittedWriterProcessId, admittedRequestId, admittedBaseRevision, admittedNextRevision,
+                    admissionGuidMetadataComplete = admittedRequestId.HasValue && admittedBaseRevision.HasValue && admittedNextRevision.HasValue,
+                    expectedRevision = expectedRevisionGuidValid ? expectedGuid : (Guid?)null,
+                    actualRevision = actualRevisionGuidValid ? actualGuid : (Guid?)null,
+                    expectedRevisionGuidValid, actualRevisionGuidValid,
+                    phase = firstRecoveredSave.Phase.ToString(), outcome = firstRecoveredSave.Outcome.ToString(),
+                    firstRecoveredSave.OutstandingRequests,
+                    testProcessId = Environment.ProcessId, writerProcessId = process.Id,
+                    writerExited = process.HasExited, writerExitCode = process.ExitCode,
+                    oldReaderPresent = oldReader is not null, oldReaderDisposed,
+                    oldReadCompleted = oldOpening?.IsCompletedSuccessfully, oldReadReleased = oldReadBoundary?.Release.IsSet,
+                    receiptHeld, receiptHolderPresent = receiptHolder is not null,
+                    receiptHandleClosed = receiptHolder?.SafeFileHandle.IsClosed,
+                    unresolvedEvidence, independentEvidenceCreated = evidence is not null,
+                    retainedCommittedFile = retainedCommittedFile is null ? null : Path.GetFileName(retainedCommittedFile),
+                    committedHolderPresent = committedFileHolder is not null,
+                    committedHolderClosed = committedFileHolder?.SafeFileHandle.IsClosed, committedHolderIdentity,
+                    shm = shmMapping?.CaptureHeldResources(),
+                    staleIndexBytes = staleShmIndex?.Length, committedFiles = committedFileObservations.ToArray(),
+                    retainResources, retainedTeamNoteId = retainedTeamNote,
+                    retainedHistoryCaptured = retainedHistory is not null, retainedContextsCaptured = retainedContexts is not null
+                };
+            }
+            catch (Exception fault) when (fault is IOException or UnauthorizedAccessException or
+                InvalidOperationException or ArgumentException or NotSupportedException or System.ComponentModel.Win32Exception)
+            {
+                revisionEvidence = new
+                {
+                    schemaVersion = 1, captureFault = fault.GetType().Name, captureHResult = fault.HResult,
+                    admittedRequestId, admittedBaseRevision, admittedNextRevision,
+                    expectedRevision = expectedRevisionGuidValid ? expectedGuid : (Guid?)null,
+                    actualRevision = actualRevisionGuidValid ? actualGuid : (Guid?)null,
+                    phase = firstRecoveredSave.Phase.ToString(), outcome = firstRecoveredSave.Outcome.ToString(),
+                    committedHolderIdentity, committedFiles = committedFileObservations.ToArray()
+                };
+            }
+            try { Assert.Equal(expectedRevision, firstRecoveredSave.CommittedRevision); }
+            catch (Xunit.Sdk.EqualException original)
+            {
+                try
+                {
+                    output.WriteLine("SQLITE-WAL-REVISION-EVIDENCE " +
+                        System.Text.Json.JsonSerializer.Serialize(revisionEvidence));
+                }
+                catch (Exception fault) when (fault is IOException or UnauthorizedAccessException or
+                    InvalidOperationException or ArgumentException or NotSupportedException or
+                    System.Text.Json.JsonException or Xunit.Sdk.XunitException)
+                {
+                    // Reporting cannot replace the original equality failure.
+                    original.Data["SQLITE-WAL-REVISION-EVIDENCE-REPORTING-FAULT"] =
+                        $"{fault.GetType().Name}; hresult=0x{fault.HResult:X8}";
+                }
+                throw;
+            }
             if (!unresolvedEvidence && reopened.LocalSave.Phase != LocalSavePhase.Recovered)
                 Console.WriteLine("SQLITE-CRASH-UNRESOLVED " + System.Text.Json.JsonSerializer.Serialize(new
                 {
@@ -733,12 +812,18 @@ public sealed partial class SqliteWorkspaceTests
                 }));
         }
 
-        static string HashCommittedFile(string path)
+        string HashCommittedFile(string path, string stage)
         {
             using var file = new FileStream(path, FileMode.Open, FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete);
-            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file));
+            var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file));
+            committedFileObservations.Add(new(stage, Path.GetFileName(path), hash, CaptureCrashFileIdentity(file)));
+            return hash;
         }
+
+        static Guid? AdmissionGuid(System.Text.Json.JsonElement intent, string name) =>
+            intent.TryGetProperty(name, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String &&
+            value.TryGetGuid(out var id) ? id : null;
     }
 
     [Fact]

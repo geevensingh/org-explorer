@@ -1,4 +1,6 @@
 using System.IO.MemoryMappedFiles;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using OrgExplorer.Workflow;
 using Xunit;
 
@@ -34,6 +36,40 @@ public sealed partial class SqliteWorkspaceTests
         => await AssertAbruptCommitRecovery("after", "profile", false, false,
             retainShmMapping: true, restoreStaleShmIndex: true, retainResources: true,
             retainedCommittedFile: file);
+
+    private sealed record CrashFileIdentity(string? VolumeSerial, string? FileId, int? NativeError, string? CaptureFault);
+    private sealed record CrashCommittedFileObservation(string Stage, string File, string Sha256, CrashFileIdentity Identity);
+    private sealed record ShmHeldResources(Guid Identity, long Capacity, bool FileOpen, bool MappingOpen, bool ViewOpen);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CrashNativeFileId
+    {
+        internal ulong VolumeSerial;
+        internal ulong Low;
+        internal ulong High;
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFileInformationByHandleEx", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ReadCrashFileIdentity(SafeFileHandle file, int informationClass,
+        out CrashNativeFileId information, uint size);
+
+    private static CrashFileIdentity CaptureCrashFileIdentity(FileStream file)
+    {
+        const int fileIdInfo = 18;
+        try
+        {
+            // Query only the already-open observation/holder handle; never reopen the path.
+            return ReadCrashFileIdentity(file.SafeFileHandle, fileIdInfo, out var id, (uint)Marshal.SizeOf<CrashNativeFileId>())
+                ? new(id.VolumeSerial.ToString("X16"), $"{id.High:X16}{id.Low:X16}", null, null)
+                : new(null, null, Marshal.GetLastWin32Error(), null);
+        }
+        catch (Exception fault) when (fault is IOException or UnauthorizedAccessException or InvalidOperationException or
+            ArgumentException or NotSupportedException or DllNotFoundException or EntryPointNotFoundException)
+        {
+            return new(null, null, null, $"{fault.GetType().Name}; hresult=0x{fault.HResult:X8}");
+        }
+    }
 
     private sealed class ShmReadBoundary : IWorkspaceFileObserver, IDisposable
     {
@@ -85,6 +121,10 @@ public sealed partial class SqliteWorkspaceTests
             _ = view.ReadByte(0);
             GC.KeepAlive(mapping);
         }
+
+        internal ShmHeldResources CaptureHeldResources() => new(identity, capacity,
+            !file.SafeFileHandle.IsClosed, !mapping.SafeMemoryMappedFileHandle.IsClosed,
+            !view.SafeMemoryMappedViewHandle.IsClosed);
 
         internal byte[] ReadIndex()
         {
