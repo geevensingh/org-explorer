@@ -9,6 +9,8 @@
         Icon="/OrgExplorer.Desktop;component/Assets/OrgExplorer.ico"
         FontFamily="Segoe UI" FontSize="14" Background="#FAFBFC" Foreground="#24292F">
   <Window.CommandBindings>
+    <CommandBinding Command="{x:Static local:MainWindow.ExpandSubtreeCommand}"
+                    CanExecute="CanExpandSubtree" Executed="ExpandSubtree"/>
     <CommandBinding Command="{x:Static local:MainWindow.CollapseSubtreeCommand}"
                     CanExecute="CanCollapseSubtree" Executed="CollapseSubtree"/>
   </Window.CommandBindings>
@@ -256,6 +258,13 @@
     <Style x:Key="ProfileField" TargetType="StackPanel">
       <Setter Property="Margin" Value="0,0,16,12"/>
     </Style>
+    <Style x:Key="ReportingAction" TargetType="MenuItem">
+      <Style.Triggers>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Visibility" Value="Collapsed"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
     <Style x:Key="ReportingItem" TargetType="TreeViewItem">
       <Setter Property="AutomationProperties.AutomationId" Value="{Binding Person.Email}"/>
       <Setter Property="AutomationProperties.Name">
@@ -280,7 +289,13 @@
                 <EventSetter Event="Closed" Handler="CloseReportingMenu"/>
               </Style>
             </ContextMenu.Style>
+            <MenuItem Header="Expand subtree" AutomationProperties.AutomationId="ExpandSubtree"
+                      Style="{StaticResource ReportingAction}"
+                      Command="{x:Static local:MainWindow.ExpandSubtreeCommand}"
+                      CommandParameter="{Binding PlacementTarget.DataContext.Person.Email, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
             <MenuItem Header="Collapse subtree" AutomationProperties.AutomationId="CollapseSubtree"
+                      Style="{StaticResource ReportingAction}"
                       Command="{x:Static local:MainWindow.CollapseSubtreeCommand}"
                       CommandParameter="{Binding PlacementTarget.DataContext.Person.Email, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
@@ -617,6 +632,13 @@
           </ListBox>
         </DockPanel>
         <DockPanel x:Name="BrowsingPanel" Grid.Row="1">
+        <DockPanel x:Name="TreeExpansionPanel" DockPanel.Dock="Bottom" Visibility="Collapsed" Margin="0,8,0,0">
+          <Button x:Name="CancelTreeExpansionButton" DockPanel.Dock="Right" Content="Cancel expansion"
+                  AutomationProperties.AutomationId="CancelTreeExpansion" Click="CancelTreeExpansion"
+                  Style="{StaticResource QuietButton}" Margin="8,0,0,0"/>
+          <TextBlock x:Name="TreeExpansionStatus" AutomationProperties.AutomationId="TreeExpansionStatus"
+                     AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        </DockPanel>
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
           <TextBlock x:Name="FavoriteCount" AutomationProperties.AutomationId="FavoriteCount" Text="Favorites: 0" FontWeight="SemiBold" Margin="0,8,0,4"/>
           <ListBox x:Name="FavoritesList" AutomationProperties.AutomationId="Favorites" AutomationProperties.Name="Favorites" MaxHeight="90"

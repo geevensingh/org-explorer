@@ -2790,9 +2790,12 @@ internal static partial class Program
         if (!rightClick.Handled || model.PeopleNavigation.SelectedEmail != beforeAction)
             throw new InvalidOperationException("Reporting-row right-click must bypass ordinary focus/selection navigation.");
         var menu = container.ContextMenu;
-        if (menu is null || menu.Items.OfType<MenuItem>().SingleOrDefault() is not { Header: "Collapse subtree" } collapse ||
+        if (menu is null || menu.Items.OfType<MenuItem>().SingleOrDefault(item => Equals(item.Header, "Collapse subtree")) is not { } collapse ||
             collapse.Command is not RoutedCommand command)
-            throw new InvalidOperationException("The compiled reporting-row menu must contain only the routed Collapse subtree action.");
+            throw new InvalidOperationException("The compiled reporting-row menu must retain its routed Collapse subtree action.");
+        if (menu.Items.OfType<MenuItem>().SingleOrDefault(item => Equals(item.Header, "Expand subtree")) is not { } expand ||
+            expand.Command is not RoutedCommand expandCommand)
+            throw new InvalidOperationException("The compiled reporting-row menu must expose the routed Expand subtree action.");
         menu.PlacementTarget = container;
         System.Windows.Data.BindingOperations.GetBindingExpression(collapse, MenuItem.CommandParameterProperty)?.UpdateTarget();
         System.Windows.Data.BindingOperations.GetBindingExpression(collapse, MenuItem.CommandTargetProperty)?.UpdateTarget();
@@ -2837,6 +2840,63 @@ internal static partial class Program
             throw new InvalidOperationException("A recycled row resurrected the recursively reset Person's expansion.");
         if (command.CanExecute("alex@example.com", child))
             throw new InvalidOperationException("A leaf must not expose a no-op Collapse subtree command.");
+        System.Windows.Data.BindingOperations.GetBindingExpression(expand, MenuItem.CommandParameterProperty)?.UpdateTarget();
+        System.Windows.Data.BindingOperations.GetBindingExpression(expand, MenuItem.CommandTargetProperty)?.UpdateTarget();
+        if (!Equals(expand.CommandParameter, "morgan@example.com") || expand.CommandTarget != container ||
+            !expandCommand.CanExecute(expand.CommandParameter, container))
+            throw new InvalidOperationException("The compiled Expand subtree binding must target its placement row, not the open profile.");
+        expandCommand.Execute(expand.CommandParameter, container);
+        if (model.PeopleTreeExpansion is not { IsRunning: true } ||
+            Control<Button>("CancelTreeExpansionButton").Visibility != Visibility.Visible)
+            throw new InvalidOperationException("The actual expansion command must expose an actionable cancellation control before unfinished work.");
+        var currentDisclosure = (ToggleButton)siblingContainer.Template.FindName("Expander", siblingContainer);
+        var currentDisclosurePeer = UIElementAutomationPeer.CreatePeerForElement(tree).GetChildren()
+            .Single(peer => peer.GetAutomationId() == "casey@example.com").GetChildren()
+            .Single(peer => peer.GetAutomationId() == "Expander" && peer.GetName() == "Expand or collapse reporting subtree");
+        ((IToggleProvider)currentDisclosurePeer
+            .GetPattern(PatternInterface.Toggle)).Toggle();
+        if (siblingContainer.IsExpanded || model.PeopleTreeExpansion.Status != PeopleTreeExpansionStatus.Cancelled ||
+            !container.IsExpanded || model.ProfileEdit != profileDraft)
+            throw new InvalidOperationException($"Ordinary disclosure must still apply its own state and cancel unfinished recursive expansion without navigating: " +
+                $"expanded={container.IsExpanded}; disclosure={currentDisclosure.IsChecked}; operation={model.PeopleTreeExpansion.Status}; " +
+                $"outside={siblingContainer.IsExpanded}; profileRetained={model.ProfileEdit == profileDraft}.");
+        ((IToggleProvider)currentDisclosurePeer.GetPattern(PatternInterface.Toggle)).Toggle();
+        expandCommand.Execute("morgan@example.com", container);
+        Control<Button>("CancelTreeExpansionButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (model.PeopleTreeExpansion.Status != PeopleTreeExpansionStatus.Cancelled ||
+            !expandCommand.CanExecute("morgan@example.com", container))
+            throw new InvalidOperationException("Actual expansion cancellation must retain partial state and allow another expansion.");
+        expandCommand.Execute("morgan@example.com", container);
+        PumpUntil(() => model.PeopleTreeExpansion is { Status: PeopleTreeExpansionStatus.Completed });
+        Layout();
+        child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
+        if (!container.IsExpanded || !child.IsExpanded || !siblingContainer.IsExpanded ||
+            child.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single().Reports.Single()) is not TreeViewItem ||
+            expandCommand.CanExecute("morgan@example.com", container) ||
+            expandCommand.CanExecute("alex@example.com", child) ||
+            model.PeopleNavigation.SelectedEmail != beforeAction || Control<TextBlock>("Email").Text != beforeAction ||
+            model.ProfileEdit != profileDraft ||
+            model.GetRetainedNoteDraft(NoteScope.Person, model.PersonNotesView.SelectedNote!.Id) != noteDraft ||
+            model.OperationError != beforeError || Control<TextBox>("OfficeNumber").Text != "  Compiled independent profile writing\r\n")
+            throw new InvalidOperationException("Compiled full expansion lost nested/current rows, action availability or independent owner writing.");
+        child.DataContext = sibling;
+        child.DataContext = manager.Reports.Single();
+        if (!child.IsExpanded)
+            throw new InvalidOperationException("A recycled row did not retain completed subtree expansion.");
+        Layout(700, 500);
+        Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout(700, 500);
+        Control<TextBox>("SearchQuery").Text = "casey";
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout(700, 500);
+        if (!model.PeopleNavigation.OverlayOpen || !container.IsExpanded || !child.IsExpanded ||
+            model.ProfileEdit != profileDraft || Control<TextBlock>("Email").Text != beforeAction)
+            throw new InvalidOperationException("Compact search-clear restoration lost completed subtree expansion or owner writing.");
+        Layout();
+        command.Execute("morgan@example.com", container);
+        Layout();
+        container.IsExpanded = true;
+        Layout();
         ((Button)notes.FindName("DiscardButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => model.CanSafelyClose);
@@ -2948,7 +3008,7 @@ internal static partial class Program
             throw new InvalidOperationException("The real archived-list restoration changed its captured mode, profile/draft or open People panel.");
         Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => model.CanSafelyClose);
-        Console.WriteLine("PASS: real tree selection/disclosure, non-navigating routed Collapse subtree, hidden/recycled expansion reset, search restoration and exact independent profile/note writing.");
+        Console.WriteLine("PASS: real tree selection/disclosure, non-navigating routed Collapse/Expand subtree, actual cancellation, hidden/recycled expansion, search restoration and exact independent profile/note writing.");
     }
 
     private static void VerifyReportsVisibility(Window window, string settings)

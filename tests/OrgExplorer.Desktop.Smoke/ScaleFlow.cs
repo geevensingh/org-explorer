@@ -102,6 +102,7 @@ internal static partial class Program
                 expand.Collapse();
                 AwaitScale(() => expand.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
                 expand.Expand();
+                AssertScaleSubtreeExpansion(window, fixture);
             });
             ScaleFixture.Measure("UI-current-search", () =>
             {
@@ -163,6 +164,115 @@ internal static partial class Program
         {
             if (process is not null) StopApplication(process);
         }
+    }
+
+    private static void AssertScaleSubtreeExpansion(AutomationElement window, ScaleFixture fixture)
+    {
+        using var expected = ApplicationWorkflow.CreateFileBacked();
+        if (!expected.OpenWorkspace(fixture.Workspace, WorkspaceOpenMode.ExistingOnly))
+            throw new InvalidOperationException(expected.Status);
+        ScaleFixture.RequireRichPopulation(expected);
+        var managerEmails = Enumerable.Range(0, 150).Select(ScaleFixture.Email).ToArray();
+        if (managerEmails.Any(email => expected.GetRelationships(email) is not { ImportedReports.Count: > 0 }))
+            throw new InvalidOperationException("The independent complete rich tree fixture lost one of its 150 current reporting managers.");
+        var tree = Find(window, "People");
+        var root = Find(tree, ScaleFixture.Email(0));
+        var rootExpansion = (ExpandCollapsePattern)root.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        var profile = Find(window, "Email");
+        var owner = profile.Current.Name;
+        var query = Find(window, "SearchQuery");
+        void AssertRetained()
+        {
+            var bounds = root.Current.BoundingRectangle;
+            var viewport = tree.Current.BoundingRectangle;
+            if (profile.Current.Name != owner || root.Current.IsOffscreen ||
+                bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
+                throw new InvalidOperationException("Scale subtree expansion changed the open profile or lost its command target.");
+        }
+        (int People, int Branches) Progress()
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(tree.Current.ItemStatus,
+                @"(\d+) imported People checked; (\d+) branches expanded\.");
+            if (!match.Success) throw new InvalidOperationException("The actual scale tree has no useful expansion progress: " + tree.Current.ItemStatus);
+            return (int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value));
+        }
+        void Action(string label)
+        {
+            RightClickReportingRow(window, root, "full-population-" + label);
+            AutomationElement? menu = null;
+            AwaitScale(() => (menu = ReportingMenu(window)) is not null);
+            var actions = menu!.FindAll(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem))
+                .Cast<AutomationElement>().Where(item => !item.Current.IsOffscreen).ToArray();
+            var action = actions.SingleOrDefault(item => item.Current.Name == label && item.Current.IsEnabled) ??
+                throw new InvalidOperationException("The actual rich tree omitted " + label);
+            AssertRetained();
+            PrimaryClick(() => action);
+            AwaitScale(() => ReportingMenu(window) is null);
+        }
+
+        // Reset via the real recursive action, not ordinary disclosure or repaired fixture state.
+        Action("Collapse subtree");
+        AwaitScale(() => rootExpansion.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
+        AssertRetained();
+        Action("Expand subtree");
+        AwaitScale(() => tree.Current.ItemStatus.StartsWith("Expanding subtree:", StringComparison.Ordinal) &&
+            Progress() is { People: > 0, Branches: > 0 });
+        var cancel = Find(window, "CancelTreeExpansion");
+        if (!cancel.Current.IsEnabled || cancel.Current.IsOffscreen)
+            throw new InvalidOperationException("Full-population expansion has no actionable native cancellation control.");
+        query.SetFocus();
+        AwaitScale(() => query.Current.HasKeyboardFocus);
+        if (!tree.Current.ItemStatus.StartsWith("Expanding subtree:", StringComparison.Ordinal))
+            throw new InvalidOperationException("Interaction was observed only after scale expansion finished, not while work was unfinished.");
+        AssertRetained();
+        ((InvokePattern)cancel.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+        AwaitScale(() => tree.Current.ItemStatus.StartsWith("Expand subtree cancelled;", StringComparison.Ordinal));
+        var partial = Progress();
+        if (partial.People is <= 0 or >= 9900 || partial.Branches <= 0 ||
+            rootExpansion.Current.ExpandCollapseState != ExpandCollapseState.Expanded)
+            throw new InvalidOperationException("Native scale cancellation did not preserve genuine unfinished expansion.");
+        var stable = Stopwatch.StartNew();
+        AwaitScale(() => stable.ElapsedMilliseconds >= 200);
+        if (Progress() != partial) throw new InvalidOperationException("Expansion continued after native cancellation.");
+        AssertRetained();
+        Action("Expand subtree");
+        AwaitScale(() => tree.Current.ItemStatus.StartsWith("Expanded all available reporting levels:", StringComparison.Ordinal));
+        var completed = Progress();
+        if (completed.People != 9900 || completed.Branches + partial.Branches != 150)
+            throw new InvalidOperationException("The actual WPF expansion truncated the 9,900 current People or 150 reporting managers.");
+        AssertRetained();
+        RightClickReportingRow(window, root, "full-population-completed");
+        AutomationElement? completedMenu = null;
+        AwaitScale(() => (completedMenu = ReportingMenu(window)) is not null);
+        if (completedMenu!.FindAll(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem))
+            .Cast<AutomationElement>().Any(item => !item.Current.IsOffscreen && item.Current.Name == "Expand subtree"))
+            throw new InvalidOperationException("The completed rich subtree still offers a no-op expansion.");
+        PressCopyKey(0x1B);
+        AwaitScale(() => ReportingMenu(window) is null);
+        AssertRetained();
+
+        // Deliberate observation of distant rows follows the action/target-retention boundary.
+        var rows = new Dictionary<string, AutomationElement>(StringComparer.OrdinalIgnoreCase) { [ScaleFixture.Email(0)] = root };
+        foreach (var email in managerEmails)
+        {
+            AutomationElement row;
+            if (email == ScaleFixture.Email(0)) row = root;
+            else
+            {
+                var manager = expected.GetRelationships(email)!.Manager!.Email;
+                var items = (ItemContainerPattern)rows[manager].GetCurrentPattern(ItemContainerPattern.Pattern);
+                row = items.FindItemByProperty(null, AutomationElement.AutomationIdProperty, email) ??
+                    throw new InvalidOperationException("Full expansion omitted a rich reporting row: " + email);
+                if (row.TryGetCurrentPattern(VirtualizedItemPattern.Pattern, out var virtualized))
+                    ((VirtualizedItemPattern)virtualized).Realize();
+                rows[email] = row;
+            }
+            AwaitScale(() => ((ExpandCollapsePattern)row.GetCurrentPattern(ExpandCollapsePattern.Pattern))
+                .Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+        }
+        Console.WriteLine("PASS: native full-rich expansion visited all 9,900 current People, restored all 150 manager rows, yielded to interaction and retained partial cancellation before resuming.");
     }
 
     private static void RunScaleMutationPrefix(string executable, string root)
