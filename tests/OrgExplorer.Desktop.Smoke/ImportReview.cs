@@ -10,6 +10,19 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private static double ImportDetailScrollPercent(Rect viewport, Rect detail, double percent, double viewSize)
+    {
+        if (viewport.IsEmpty || detail.IsEmpty || viewport.Height <= 0 || detail.Height <= 0 ||
+            detail.Height > viewport.Height || !double.IsFinite(viewport.Top) || !double.IsFinite(viewport.Height) ||
+            !double.IsFinite(detail.Top) || !double.IsFinite(detail.Height) ||
+            !double.IsFinite(percent) || percent is < 0 or > 100 || !double.IsFinite(viewSize) ||
+            viewSize is <= 0 or >= 100)
+            throw new InvalidOperationException($"Import detail reveal requires a real fitting range and scrollable viewport: detail={detail}; viewport={viewport}; percent={percent}; viewSize={viewSize}.");
+        var extent = viewport.Height * (100 / viewSize - 1);
+        var delta = detail.Top + detail.Height / 2 - viewport.Top - viewport.Height / 2;
+        return Math.Clamp(percent + delta * 100 / extent, 0, 100);
+    }
+
     private static void SetImportDisclosure(AutomationElement header, ExpandCollapsePattern disclosure,
         ExpandCollapseState expected)
     {
@@ -112,8 +125,22 @@ internal static partial class Program
                     new PropertyCondition(AutomationElement.AutomationIdProperty, "ImportDetail"),
                     new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
                     new PropertyCondition(AutomationElement.NameProperty, detail)));
-            if (value is null || value.Current.IsOffscreen || value.Current.BoundingRectangle.IsEmpty)
-                throw new InvalidOperationException("Expanded import detail is missing or not rendered: " + detail);
+            if (value is null)
+                throw new InvalidOperationException("Expanded import detail is missing: " + detail);
+            Await(() => value.Current.BoundingRectangle is { IsEmpty: false, Width: > 0, Height: > 0 });
+            value.SetFocus();
+            Await(() => value.Current.HasKeyboardFocus);
+            var viewport = review.Current.BoundingRectangle;
+            var bounds = value.Current.BoundingRectangle;
+            if (value.Current.IsOffscreen || !viewport.Contains(bounds))
+            {
+                var scrolling = (ScrollPattern)review.GetCurrentPattern(ScrollPattern.Pattern);
+                var current = scrolling.Current;
+                if (!current.VerticallyScrollable)
+                    throw new InvalidOperationException($"Expanded Import detail is outside a non-scrollable viewport: detail={bounds}; viewport={viewport}.");
+                scrolling.SetScrollPercent(ScrollPattern.NoScroll, ImportDetailScrollPercent(viewport, bounds,
+                    current.VerticalScrollPercent, current.VerticalViewSize));
+            }
             AssertImportCharacters(window, value, detail, review.Current.BoundingRectangle, singleLine: false);
         }
         if (review.FindAll(TreeScope.Descendants,
@@ -143,6 +170,28 @@ internal static partial class Program
     private static Rect AssertImportCharacters(AutomationElement window, AutomationElement value, string expected,
         Rect viewport, bool singleLine, string? visibleText = null)
     {
+        var line = Rect.Empty;
+        var failure = "";
+        bool Observe() => ObserveImportCharacters(window, value, expected, viewport, singleLine, visibleText,
+            out line, out failure);
+        try { Await(Observe); }
+        catch (TimeoutException error)
+        {
+            var current = value.Current;
+            var scroll = ((ScrollPattern)Find(window, "Preview").GetCurrentPattern(ScrollPattern.Pattern)).Current;
+            throw new TimeoutException($"Import characters were not visibly reached within the existing observation budget: " +
+                $"id={current.AutomationId}; type={current.ControlType.ProgrammaticName}; name={current.Name}; offscreen={current.IsOffscreen}; " +
+                $"value={current.BoundingRectangle}; viewport={viewport}; scrollPercent={scroll.VerticalScrollPercent}; viewSize={scroll.VerticalViewSize}; " +
+                $"textLength={expected.Length}; lastObservation={failure}", error);
+        }
+        return line;
+    }
+
+    private static bool ObserveImportCharacters(AutomationElement window, AutomationElement value, string expected,
+        Rect viewport, bool singleLine, string? visibleText, out Rect line, out string failure)
+    {
+        line = Rect.Empty;
+        failure = "";
         if (!value.TryGetCurrentPattern(TextPattern.Pattern, out var pattern))
             throw new InvalidOperationException("Import reading has no native TextPattern: " + expected);
         var document = ((TextPattern)pattern).DocumentRange;
@@ -156,7 +205,11 @@ internal static partial class Program
                 ?? throw new InvalidOperationException("Import text lost its requested visible range: " + visibleText);
         if (visibleText is not null) actual = visibleText;
         cursor.MoveEndpointByRange(TextPatternRangeEndpoint.End, cursor, TextPatternRangeEndpoint.Start);
-        var line = Rect.Empty;
+        if (value.Current.IsOffscreen)
+        {
+            failure = "Import text control is offscreen.";
+            return false;
+        }
         var scale = DpiScale(window);
         for (var offset = 0; offset < actual.Length;)
         {
@@ -171,7 +224,10 @@ internal static partial class Program
             {
                 var rectangles = character.GetBoundingRectangles();
                 if (rectangles.Length == 0)
-                    throw new InvalidOperationException("Import character has no rendered rectangle: " + offset);
+                {
+                    failure = "Import character has no rendered rectangle: " + offset;
+                    return false;
+                }
                 foreach (var glyph in rectangles)
                 {
                     var bounds = value.Current.BoundingRectangle;
@@ -182,13 +238,16 @@ internal static partial class Program
                         glyph.Top < viewport.Top - scale || glyph.Bottom > viewport.Bottom + scale ||
                         singleLine && !line.IsEmpty &&
                         (Math.Abs(glyph.Top - line.Top) > scale || Math.Abs(glyph.Height - line.Height) > scale))
-                        throw new InvalidOperationException($"Import character is clipped or collapsed text wrapped: index={offset}; glyph={glyph}; value={bounds}; viewport={viewport}.");
+                    {
+                        failure = $"Import character is clipped or collapsed text wrapped: index={offset}; glyph={glyph}; value={bounds}; viewport={viewport}.";
+                        return false;
+                    }
                     line.Union(glyph);
                 }
             }
             cursor.MoveEndpointByRange(TextPatternRangeEndpoint.Start, character, TextPatternRangeEndpoint.End);
         }
-        return line;
+        return true;
     }
 
     private static void ExerciseAdaptiveImportReview(AutomationElement window, string workspace, string import)
@@ -317,8 +376,7 @@ internal static partial class Program
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
                 new PropertyCondition(AutomationElement.NameProperty, buildingText)))
             ?? throw new InvalidOperationException("Tall Import lost the complete multiline value.");
-        if (building.Current.BoundingRectangle.Height <= review.Current.BoundingRectangle.Height)
-            throw new InvalidOperationException("Native regression must lay out a multiline value taller than the actual review viewport.");
+        Await(() => building.Current.BoundingRectangle.Height > review.Current.BoundingRectangle.Height);
         AssertImportCharacters(window, building, buildingText, review.Current.BoundingRectangle,
             singleLine: false, visibleText: "Floor 01 complete value");
         var scroll = (ScrollPattern)review.GetCurrentPattern(ScrollPattern.Pattern);

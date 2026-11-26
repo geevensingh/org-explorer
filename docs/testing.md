@@ -121,6 +121,24 @@ absent building; exact full before/after, wrapping and final-character assertion
 remain. The diagnostics cap leaves room for nonzero action counts at 700x500 as
 well as the existing 72-DIP minimum review-space check.
 
+Adaptive disclosure acceptance intentionally reveals a requested detail in the
+outer Person review list before checking its glyphs. One focus request first
+establishes the actual read-only detail as the keyboard reading destination.
+A partially visible control
+or completed ExpandCollapse state does not prove its text is reached. When the
+detail is outside the current viewport, one scroll-percent request centers its
+actual bounds using the observed viewport and vertical view size; no action is
+retried. Fresh complete document/typography and every character rectangle must
+then pass within the existing 20-second observation budget. Collapsed one-line
+checks also observe actual settled glyphs, without relaxing their geometry.
+Timeout diagnostics retain the selected ID/type/name, offscreen state, control
+and viewport bounds, scroll percent/view size and last missing/clipped character.
+The tight Import selectors and full profile-refresh contract include a real
+six-entry compact fixture, sequential long/multiline/Archive disclosures and
+actual complete glyph geometry after outer scrolling. The text provider's
+own ScrollIntoView did not move this enclosing list in the observed regression;
+compiled success is still not a hosted physical-input or screen-rectangle pass.
+
 The collector workflow cases cross the same public helper/compiled-CLI seam:
 atomic standing-policy startup, serial/two-worker leasing, exact prepared
 requests, original lookup timestamps, stopped-worker handoff, compact sampled

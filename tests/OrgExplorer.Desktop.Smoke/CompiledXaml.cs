@@ -276,6 +276,7 @@ internal static partial class Program
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyOwnedTeamNameProfile(teamNameWindow, Path.Combine(settings, "team-name-workspace")); }
                 finally { ClosePublishedCompiledWindow(teamNameWindow); }
+                VerifyCompiledAdaptiveImportDisclosure(type, Path.Combine(settings, "adaptive-import"));
                 VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
                 VerifyCompactSearchActivation(type, Path.Combine(settings, "compact-activation"));
@@ -1315,6 +1316,102 @@ internal static partial class Program
                 throw new InvalidOperationException("Import review verification must not show a window or create a native handle.");
         }
         finally { ClosePublishedCompiledWindow(window); }
+        VerifyCompiledAdaptiveImportDisclosure(windowType, Path.Combine(root, "adaptive"));
+    }
+
+    private static void VerifyCompiledAdaptiveImportDisclosure(Type windowType, string root)
+    {
+        var folder = Path.Combine(root, "workspace");
+        Directory.CreateDirectory(folder);
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(folder)) throw new InvalidOperationException(seed.Status);
+            var initial = seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000077",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                 {"email":"V-reference@example.com","displayName":"Vendor","managerEmail":"morgan@example.com"},
+                 {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+                 {"email":"archived.reference@example.com","displayName":"Archived","managerEmail":null,"archived":true}]}
+                """);
+            if (!initial.CanApply || !seed.ApplyImport(initial.Id))
+                throw new InvalidOperationException("Adaptive disclosure fixture failed: " + seed.Status);
+        }
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic,
+            null, [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => folder)], null)!;
+        try
+        {
+            ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => ((TextBlock)window.FindName("StatusText")).Text == "Local SQLite Workspace opened.");
+            ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((Button)window.FindName("OpenImportButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var import = Path.Combine(root, "adaptive.json");
+            var longValue = new string('W', 160) + " complete end";
+            File.WriteAllText(import, $$"""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000078",
+                 "observedAt":"2026-11-03T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Updated Avery","alias":"updated","jobTitle":"Engineer",
+                  "department":"Research","officeNumber":"0099","officeState":"WA","officeCountry":"USA","isFavorite":true},
+                 {"email":"morgan@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}}},
+                 {"email":"V-reference@example.com","officeBuilding":"North floor\nSouth floor"},
+                 {"email":"v-child@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"managerEmail":null,"archived":true,"isFavorite":true},
+                 {"email":"archived.reference@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"archived":false},
+                 {"email":"new.reference@example.com","displayName":"New reference","managerEmail":null}]}
+                """);
+            ((TextBox)window.FindName("ImportPath")).Text = import;
+            ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+            var rootVisual = (FrameworkElement)window.Content;
+            rootVisual.Measure(new Size(700, 500));
+            rootVisual.Arrange(new Rect(0, 0, 700, 500));
+            rootVisual.UpdateLayout();
+            var review = (ListBox)window.FindName("PreviewText");
+            var scrolling = VisualDescendants(review).OfType<ScrollViewer>().First();
+            var viewport = (ScrollContentPresenter)scrolling.Template.FindName("PART_ScrollContentPresenter", scrolling);
+            foreach (var (email, expected) in new[]
+            {
+                ("morgan@example.com", "Office building: (none) → " + longValue),
+                ("V-reference@example.com", "Office building: (none) → North floor\nSouth floor"),
+                ("v-child@example.com", "Archive: Current → Archived; retain profile and local context")
+            })
+            {
+                var disclosure = VisualDescendants(review).OfType<Expander>().Single(entry =>
+                    System.Windows.Automation.AutomationProperties.GetAutomationId(entry) == "ImportPerson:" + email);
+                var toggle = VisualDescendants(disclosure).OfType<ToggleButton>().First();
+                ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
+                rootVisual.UpdateLayout();
+                var detail = VisualDescendants(disclosure).OfType<TextBox>().Single(text => text.Text == expected);
+                var provider = (ITextProvider)UIElementAutomationPeer.CreatePeerForElement(detail).GetPattern(PatternInterface.Text);
+                if (provider.DocumentRange.GetText(-1).Replace("\r\n", "\n") != expected ||
+                    !Equals(provider.DocumentRange.GetAttributeValue(System.Windows.Automation.TextPattern.FontNameAttribute.Id), "Segoe UI") ||
+                    !Equals(provider.DocumentRange.GetAttributeValue(System.Windows.Automation.TextPattern.FontSizeAttribute.Id), 10.5d))
+                    throw new InvalidOperationException("Adaptive detail lost its complete native document or typography.");
+                var reading = detail.TransformToAncestor(rootVisual).TransformBounds(new Rect(detail.RenderSize));
+                var currentViewport = viewport.TransformToAncestor(rootVisual).TransformBounds(new Rect(viewport.RenderSize));
+                var scrollProvider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(scrolling).GetPattern(PatternInterface.Scroll);
+                scrollProvider.SetScrollPercent(-1, ImportDetailScrollPercent(currentViewport, reading,
+                    scrollProvider.VerticalScrollPercent, scrollProvider.VerticalViewSize));
+                window.Dispatcher.Invoke(rootVisual.UpdateLayout, DispatcherPriority.ContextIdle);
+                var visible = viewport.TransformToAncestor(rootVisual).TransformBounds(new Rect(viewport.RenderSize));
+                for (var index = 0; index < expected.Length; index++)
+                {
+                    if (expected[index] is '\r' or '\n') continue;
+                    var character = detail.GetRectFromCharacterIndex(index);
+                    character.Union(detail.GetRectFromCharacterIndex(index, trailingEdge: true));
+                    var glyph = detail.TransformToAncestor(rootVisual).TransformBounds(character);
+                    if (glyph.IsEmpty || glyph.Width <= 0 || glyph.Height <= 0 || !visible.Contains(glyph))
+                        throw new InvalidOperationException($"Adaptive Import character is not physically reached after expansion: email={email}; index={index}; glyph={glyph}; viewport={visible}; offset={scrolling.VerticalOffset}; expanded={disclosure.IsExpanded}.");
+                }
+                ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
+                rootVisual.UpdateLayout();
+            }
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Adaptive disclosure verification must remain invisible without a native handle.");
+            Console.WriteLine("PASS: real compact multi-entry Import disclosures reveal complete long/multiline/later Archive glyphs through one outer scroll per detail.");
+        }
+        finally { ClosePublishedCompiledWindow(window); }
     }
 
     private static void VerifyCompiledReusedImportReview(Type windowType, string root)
@@ -1325,6 +1422,7 @@ internal static partial class Program
                 (Func<Window, string?>)(_ => CompiledWorkspaceChoices.Dequeue())], null)!;
         try
         {
+            VerifyCompiledAdaptiveImportDisclosure(windowType, Path.Combine(root, "adaptive"));
             VerifySettingsFocus(window);
             VerifyProfileSaveRefresh(window, root, publisher, importReviewOnly: true);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
