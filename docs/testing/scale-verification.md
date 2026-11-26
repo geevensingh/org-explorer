@@ -2,7 +2,7 @@
 
 [Return to Testing](../testing.md).
 
-For full-rich non-UI performance or isolated rich WPF workers, logical handoff, latency policy, deadlines and union results, use this reference. These suites are distinct from [required PR/main smoke](ci-and-artifacts.md#required-prmain-execution). Read [release and manual execution](release-and-manual.md) for hosted dispatch and exact-candidate publication. Standalone note-acknowledgment and cancellation regressions remain at the [Testing scale compatibility section](../testing.md#separate-scale-commands-and-results).
+For full-rich non-UI performance or isolated rich WPF workers, logical handoff, latency policy, deadlines and union results, use this reference. These suites are distinct from [required PR/main smoke](ci-and-artifacts.md#required-prmain-execution). Read [release and manual execution](release-and-manual.md) for hosted dispatch and exact-candidate publication. For standalone causal and cancellation regressions, read [note acknowledgment](note-writing.md#commit-acknowledgment-and-cancellation).
 
 ## Separate scale commands and results
 

@@ -4,7 +4,7 @@
 
 Read this for Preferred-name defaults, explicit Save/Enter, original bases, stale retries, owner browsing and field-scoped cancellation.
 
-Related guidance: [Whole-profile editing](person-profiles.md#profile-editing-and-cancellation), [independent note writing](note-writing.md), and [required popup/keyboard selections](../testing.md#real-desktop-execution).
+Related guidance: [Whole-profile editing](person-profiles.md#profile-editing-and-cancellation), [independent note writing](note-writing.md), and [required popup/keyboard selections](required-desktop-scenarios.md).
 
 ## Submission and immutable bases
 

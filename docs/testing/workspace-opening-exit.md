@@ -4,7 +4,7 @@
 
 Open this reference when changing Create/Open, compatibility, startup preferences, Settings feedback, normal close or Exit anyway.
 
-For real local Commit, reader locks and unknown outcomes, read [storage and recovery](workspace-storage-recovery.md). For publication, adoption or divergent versions, read [synchronization](workspace-synchronization.md). For safe updater handoff, read [application updates](application-updates.md). For retained Person and note writing, use [Testing placement](../testing.md#placement).
+For real local Commit, reader locks and unknown outcomes, read [storage and recovery](workspace-storage-recovery.md). For publication, adoption or divergent versions, read [synchronization](workspace-synchronization.md). For safe updater handoff, read [application updates](application-updates.md). For retained writing, read [Person profiles](person-profiles.md) and [note writing](note-writing.md).
 
 ## Create/Open and current-format compatibility
 
@@ -82,6 +82,11 @@ still require the exact folder and live current-data/owner/recovery observations
 within the same bounded wait, not just a successful folder-name match.
 
 ## Settings, truthful feedback and picker assertion boundaries
+
+Hosted Workspace-path primary-click nonmutation observes the subsequent physical
+right-click opening its Copy path menu before reading the sentinel, without invoking
+Copy or reseeding the clipboard. That ordered input proves WPF processed the primary
+click, rather than sampling early.
 
 The compiled chrome contract keeps folder management and Import inside Settings,
 the quiet Workspace name non-interactive, and search outside the People-only view.
@@ -243,4 +248,3 @@ export/newer writing/repeated/canceled-intent compiled regression remains.
 Public real-store tests additionally cover changed receipt bytes, locked/corrupt
 artifacts, unavailable local storage and an actual pre-Commit sibling transaction
 whose unresolved receipt must refuse cached Ready until explicit recovery.
-

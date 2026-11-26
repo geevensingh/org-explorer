@@ -4,9 +4,17 @@
 
 Read this for immutable note drafts, autosave, admitted/newer generations, failed saves, scoped discard and independent durable writing.
 
-Related guidance: [Exact note reading and context](note-reading-context.md), [Person-text cancellation](person-text.md), [Workspace-led recovery and publication](../testing.md#placement), and [separate rich-scale contracts](../testing.md#separate-scale-commands-and-results).
+Related guidance: [Exact note reading and context](note-reading-context.md), [Person-text cancellation](person-text.md), [Workspace recovery](workspace-storage-recovery.md), [publication and adoption](workspace-synchronization.md), and [separate rich-scale contracts](scale-verification.md#separate-scale-commands-and-results).
 
 ## Immutable drafts and scoped cancellation
+
+`DraftDiscard.Tests.ps1` now runs both named Person/Team public workflow/view-model
+cases from the already-built Core test assembly (the core lane supplies its
+isolated assembly path). It refuses missing/skipped/partial results. The actual
+shared draft coordinator, not a compiled retired `NoteDraftState` with a fake
+dispatcher timer, proves admitted-discard refusal, exact owner writing and
+scoped idle discard preserving independent unsubmitted input. Filesystem cases
+remain responsible for SQLite durability and actual effect barriers.
 
 `BeginNoteDraft` captures an immutable Person/Team document base (or expected
 absence) at the workflow/view-model seam. Editors display that snapshot and
@@ -63,7 +71,13 @@ one worker serializes captured revisions, retains newer generations after comple
 and makes failed writing retryable without another creation identity. Local Person
 and exact-note browsing do not use the legacy draft veto. Safe close still requires
 all retained writing to commit. The focused stalled/recovery and informed-exit
-[Workspace-led contracts](../testing.md#placement) cover the remaining failure/close behavior.
+[contracts](workspace-opening-exit.md#normal-close-cancel-and-informed-exit-anyway) cover the remaining failure/close behavior.
+
+The failed-note case also opens Settings and attempts Close once. Rejection must
+reveal the retained work area instead of leaving Settings over the failed editor,
+including after queued focus work settles. Owner, title, Markdown, actionable
+failure text and saved file bytes must remain intact. The hosted Person-note
+journey retains its original Close action and visible failure/content assertions.
 
 The combined hosted follow-up also runs focused actual compiled
 `--verify-cutover-recovery-copy`, `--verify-independent-note-leave`,
@@ -210,7 +224,7 @@ are observation boundaries, not a database-only commit timestamp or proof of
 a slow-write root cause. Neither delayed collection nor instrumentation can
 satisfy the native durability/during-typing assertions. Small-fixture note p95
 remains enforced at 1,000 ms; only the rich normal/held-export note phases use
-the temporarily enforced [1,050-ms ceiling](../testing.md#separate-scale-commands-and-results), retaining the
+the temporarily enforced [1,050-ms ceiling](scale-verification.md#separate-scale-commands-and-results), retaining the
 1,000-ms goal.
 The invisible compiled selection also records twenty actual note Add handlers,
 layout, Person selection and independently reopened commits under a clearly

@@ -4,7 +4,7 @@
 
 Open this reference when changing complete logical snapshots, publication truth, incoming adoption, periodic/manual synchronization or deliberate whole-version recovery.
 
-For local Commit and unresolved receipts, read [storage and recovery](workspace-storage-recovery.md). For latest-publication close guards, read [opening and exit](workspace-opening-exit.md). For held reviewed Apply, read [Import and producer verification](import-and-producer.md). For explicit rich-scale selection and budgets, use [Testing scale contracts](../testing.md#separate-scale-commands-and-results).
+For local Commit and unresolved receipts, read [storage and recovery](workspace-storage-recovery.md). For latest-publication close guards, read [opening and exit](workspace-opening-exit.md). For held reviewed Apply, read [Import and producer verification](import-and-producer.md). For explicit rich-scale selection and budgets, read [scale contracts](scale-verification.md#separate-scale-commands-and-results).
 
 ## Fresh publication validation and close-preparation boundaries
 
@@ -375,4 +375,3 @@ and retained recovery IDs to `sqlite-conflict-visible`,
 replaying that tail is not hosted interaction acceptance, redesigned exit or
 rich 10,000-Person/background-export latency evidence. All existing lane budgets,
 latency targets, scenario manifests and size/assertion matrices remain unchanged.
-

@@ -4,7 +4,7 @@
 
 Read this for anchored Person reading, responsive People/Person allocation, search-clear restoration, retained-draft geometry and native versus invisible layout evidence.
 
-Related guidance: [Profile/editor assertions](person-profiles.md), [Person search](person-search-navigation.md), [current/frozen note reading](note-reading-context.md), and [required size matrices](../testing.md#real-desktop-execution).
+Related guidance: [Profile/editor assertions](person-profiles.md), [Person search](person-search-navigation.md), [current/frozen note reading](note-reading-context.md), and [required size matrices](required-desktop-scenarios.md#high-resolution-required-scenarios).
 
 ## Browsing restoration
 

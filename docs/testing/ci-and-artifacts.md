@@ -99,6 +99,14 @@ It needs no GitHub credentials, network or desktop.
 
 ## Product output and native resource contracts
 
+Installer-runner process tests use a separate non-UI .NET fixture, never the
+installed app or setup. Its parent exits with application files already removed
+while a named-event-gated cleanup child still owns the fixture installation.
+Reinstall must remain blocked until that child exits; a held child must consume
+the original remaining deadline, fail, and be terminated with its owned job.
+These process-boundary regressions do not replace hosted installation/Workspace
+preservation verification.
+
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
 
@@ -135,3 +143,20 @@ IDs/names before abnormal app termination. Scale fixtures also live at their
 reported scenario paths: apps/workflows stop before cleanup, successful fixtures
 are removed, and failed fixtures remain for investigation. Hosted artifacts
 include result JSON and logs, not the complete fictitious Workspace.
+
+## Testing documentation contract
+
+For Testing navigation or reference changes, run these offline checks:
+
+```powershell
+.\tests\TestingDocumentation.Tests.ps1
+.\eng\Test-TestingDocumentation.ps1
+```
+
+The core lane runs the same fixture and real-graph contract. It checks the
+300-physical-line entry budget, local destinations/fragments, old root forwarding
+destinations, reference reachability and return links. Inbound discovery is a
+targeted tracked-Markdown search for Testing links; only links into the owned
+graph are checked there. Supporting destinations are read for anchors, not crawled.
+Fenced/inline examples are not navigation; external URLs are not contacted.
+The check needs Git and PowerShell, no application, user Workspace or desktop.

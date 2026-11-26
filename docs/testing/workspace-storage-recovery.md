@@ -4,7 +4,7 @@
 
 Open this reference when changing local SQLite Commit, WAL readers, storage observation, paused recovery, receipts or crash reconciliation.
 
-For Create/Open and exit choices, read [opening and exit](workspace-opening-exit.md). For complete-snapshot publication, adoption or conflict retention, read [synchronization](workspace-synchronization.md). For Person/note generations and independent writing, use [Testing placement](../testing.md#placement).
+For Create/Open and exit choices, read [opening and exit](workspace-opening-exit.md). For complete-snapshot publication, adoption or conflict retention, read [synchronization](workspace-synchronization.md). For generations and independent writing, read [Person profiles](person-profiles.md) and [note writing](note-writing.md).
 
 ## Local Commit outcomes and storage observation
 
@@ -236,4 +236,3 @@ Invalid complete snapshots leave valid local reading/editing available with a
 separate synchronization error; stale note rejection is a semantic conflict,
 not a fabricated failed storage device. The focused SQLite/snapshot suites and
 both explicit full-rich suites remain required at their existing selections.
-

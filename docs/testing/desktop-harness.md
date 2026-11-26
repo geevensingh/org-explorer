@@ -15,7 +15,19 @@ client are not run.
 This catches XAML connection failures that compilation alone misses. It does not
 prove rendered controls, navigation, dialog discovery or any smoke/scale result.
 
-For non-UI build/load commands, read [local contract checks](ci-and-artifacts.md#local-contract-checks). The separate compiled profile-refresh/domain continuations remain under [Testing](../testing.md#required-prmain-execution).
+For non-UI build/load commands, read [local contract checks](ci-and-artifacts.md#local-contract-checks). For compiled domain assertions, read [Person profiles](person-profiles.md#compiled-profile-and-copy-assertions), [Person-text controls](person-text.md#compiled-controls-and-native-popup-evidence), [note reading](note-reading-context.md) and [reading layout](person-reading-layout.md#compiled-layout-and-divider-assertions).
+
+The #100 hosted-failure regressions also run in that full selection. Focused
+`--verify-cutover-publication`, `--verify-cutover-note-modes`,
+`--verify-cutover-acknowledgment`, `--verify-cutover-failure-feedback`,
+`--verify-cutover-incoming` and `--verify-cutover-close-publication` selectors
+load actual BAML without showing a window or creating a native handle.
+They use public SQLite creation and complete
+snapshot transport, not canonical-file edits. The folder adapter creates the
+actual synchronization directory before the picker can select it. Clean note
+owner returns reopen Read; pending/failed writing returns Edit with its exact
+owner, identity, draft and error. The native journeys retain both-scope reading,
+historical context and independently reopened writing assertions.
 
 ## Running required desktop suites
 

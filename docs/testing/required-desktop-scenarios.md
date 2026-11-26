@@ -2,7 +2,7 @@
 
 [Return to Testing](../testing.md).
 
-For the complete ordinary and high-resolution native selections, including their embedded assertions and size matrices, use this reference. Read [harness setup and permission](desktop-harness.md#running-required-desktop-suites) before execution and [CI partition/artifact gates](ci-and-artifacts.md#required-prmain-execution) for required-lane results. Independent Person and Workspace regression contracts remain under [Testing placement](../testing.md#placement).
+For the complete ordinary and high-resolution native selections, including their embedded assertions and size matrices, use this reference. Read [harness setup and permission](desktop-harness.md#running-required-desktop-suites) before execution and [CI partition/artifact gates](ci-and-artifacts.md#required-prmain-execution) for required-lane results. For independent regressions, read [Person profiles](person-profiles.md), [note writing](note-writing.md) and [Workspace lifecycle](workspace-opening-exit.md).
 
 ## Ordinary required scenarios
 

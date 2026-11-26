@@ -4,7 +4,7 @@
 
 Read this for ongoing/Other selection, exact Person-note or Team-note destinations, Read/Edit presentation and current versus frozen context.
 
-Related guidance: [Retained note writing](note-writing.md), [Person search](person-search-navigation.md), [long-reading layout](person-reading-layout.md), and [required Team/history selections](../testing.md#real-desktop-execution).
+Related guidance: [Retained note writing](note-writing.md), [Person search](person-search-navigation.md), [long-reading layout](person-reading-layout.md), and [required Team/history selections](required-desktop-scenarios.md).
 
 ## Ongoing and exact selections
 

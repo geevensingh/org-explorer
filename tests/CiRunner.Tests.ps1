@@ -33,6 +33,20 @@ foreach ($required in @("'high-resolution'", "'--prepare-high-resolution'", "'--
     "'--high-resolution'", 'HighResolutionScenarios.json', "'--verify-update-yield'", 'ImplementationBaseline.Tests.ps1')) {
     if (!$source.Contains($required)) { throw "Required CI execution is missing $required" }
 }
+$laneSwitch = $runner.Find({
+    param($node)
+    $node -is [Management.Automation.Language.SwitchStatementAst] -and $node.Condition.Extent.Text -eq '$Lane'
+}, $true)
+$coreClause = @($laneSwitch.Clauses | Where-Object { $_.Item1.Extent.Text -eq 'core' })[0].Item2
+$documentationCall = {
+    param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and
+        $node.CommandElements[0].Extent.Text -match 'TestingDocumentation\.Tests\.ps1'
+}
+if (@($coreClause.FindAll($documentationCall, $true)).Count -ne 1 -or
+    @($runner.FindAll($documentationCall, $true)).Count -ne 1) {
+    throw 'Testing documentation fixtures and the real graph must run exactly once, only in the existing core lane.'
+}
 $uiScale = Get-Content (Join-Path $root 'eng\Run-UiScale.ps1') -Raw
 foreach ($required in @("'--prepare-high-resolution'", "'--verify-high-resolution'")) {
     if (!$uiScale.Contains($required)) { throw "Explicit UI scale must share verified display preparation: $required" }

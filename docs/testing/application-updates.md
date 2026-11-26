@@ -4,7 +4,7 @@
 
 Open this reference when changing signed update work-draining, safe restart, installer handoff or installed-update Workspace preservation.
 
-For retained local failures and receipts, read [storage and recovery](workspace-storage-recovery.md). For close/Exit anyway interaction, read [opening and exit](workspace-opening-exit.md). For Person/profile/note submission rules, use [Testing placement](../testing.md#placement). Required update-settings scenario selection and desktop prerequisites remain in [real desktop execution](../testing.md#real-desktop-execution). For release/manual procedure, use [release verification](../testing.md#active-pre-publication-integration). The [update protocol](../update-protocol.md#controlled-verification) supplies supporting trust and transport rules.
+For retained local failures and receipts, read [storage and recovery](workspace-storage-recovery.md). For close/Exit anyway interaction, read [opening and exit](workspace-opening-exit.md). For independent submission, read [Person profiles](person-profiles.md) and [note writing](note-writing.md). For update-settings selection and prerequisites, read [ordinary scenarios](required-desktop-scenarios.md#ordinary-required-scenarios) and [desktop setup](desktop-harness.md#running-required-desktop-suites). For release/manual procedure, read [release verification](release-and-manual.md#active-pre-publication-integration). The [update protocol](../update-protocol.md#controlled-verification) supplies supporting trust and transport rules.
 
 ## Actual signed commands, dispatcher yield and final durable bytes
 
@@ -76,4 +76,3 @@ Original unpackaged safe-point byte checks and nonmutating installer/uninstall
 all-file checks remain strict. Both receipts and changed filenames are retained
 for diagnosis. This is a controlled two-import fixture oracle, not arbitrary
 accepted-import enumeration. Normal production builds exclude these oracle types.
-

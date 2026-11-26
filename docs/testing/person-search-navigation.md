@@ -4,7 +4,7 @@
 
 Read this for Person-level search, ranking and attributed evidence, accepted/rejected destinations, browsing bookmarks and exact retained owner writing.
 
-Related guidance: [Exact note destinations](note-reading-context.md), [browsing restoration and layout](person-reading-layout.md), and [required native search selections](../testing.md#real-desktop-execution).
+Related guidance: [Exact note destinations](note-reading-context.md), [browsing restoration and layout](person-reading-layout.md), and [required native search selections](required-desktop-scenarios.md).
 
 ## Browsing bookmarks and destinations
 
@@ -176,3 +176,18 @@ The ordinary (43-Person), responsive and invisible replay (44-Person) browsing
 paths share only their fixture records and long-note paragraph inputs.
 Expected identities, exact row positions and document/owner assertions remain
 independently literal; the full populations, actions and deadlines are unchanged.
+
+Normal/responsive search journeys observe archived-target startup recovery,
+unchanged Workspace bytes and deliberate archived access with reopened ratios.
+No additional whole journeys, manifest changes or deadline increases are needed.
+Startup helpers require the exact Workspace, completed activity, current
+validated data, expected Person and absence of visible Workspace/view recovery
+errors. No-selection expectations remain for fixtures without saved valid views.
+Their runner regression rejects an earlier open-success observation until the
+saved destination is actually present. The full UI-scale mutation journey now
+waits for that validated startup restoration instead of issuing a redundant
+manual open whose completion could clear its new query. Its 10,000-Person fixture,
+180-second waits and final durable profile/Manager/favorite/photo checks remain.
+Local helper/file/control checks do not prove hosted reopen or UI-scale execution.
+
+For the lifecycle prerequisites, read [Workspace startup restoration](workspace-opening-exit.md#startup-preferences-and-exact-remembered-destinations).

@@ -4,7 +4,7 @@
 
 Open this reference when changing reviewed Import, failed-Apply reentry/discard, producer capture, collector leasing or resumable collection policy.
 
-For local Commit/refusal and recovery, read [storage and recovery](workspace-storage-recovery.md). For publication/adoption of accepted batches and complete resources, read [synchronization](workspace-synchronization.md). The [Import format](../import-format.md) and [local collection protocol](../../.github/skills/update-org/collection.md) supply supporting format/source rules. For independent Person/profile/note writing, use [Testing placement](../testing.md#placement).
+For local Commit/refusal and recovery, read [storage and recovery](workspace-storage-recovery.md). For publication/adoption of accepted batches and complete resources, read [synchronization](workspace-synchronization.md). The [Import format](../import-format.md) and [local collection protocol](../../.github/skills/update-org/collection.md) supply supporting format/source rules. For independent writing, read [Person profiles](person-profiles.md) and [note writing](note-writing.md).
 
 ## Producer process, collector policy and fictitious inputs
 
@@ -113,4 +113,3 @@ The two unadjusted times remain diagnostic, not a per-selection deadline or a p9
 estimate. Schema 2 marks `heldApplyBrowsing.timingUse` as `diagnostic` and removes
 the old per-case `budgetMs` field. The original 42 native navigation samples are
 informational; ordinary durability, continued typing and functional checks remain.
-

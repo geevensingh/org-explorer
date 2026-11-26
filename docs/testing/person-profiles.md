@@ -4,7 +4,7 @@
 
 Read this for Person category/reporting facts, whole-profile editing, Manager-owned Team names, photos and profile Copy assertions.
 
-Related guidance: [Person-text submission](person-text.md), [independent note writing](note-writing.md), [reading layout](person-reading-layout.md), and [required native selections](../testing.md#real-desktop-execution).
+Related guidance: [Person-text submission](person-text.md), [independent note writing](note-writing.md), [reading layout](person-reading-layout.md), and [required native selections](required-desktop-scenarios.md).
 
 ## Profile editing and cancellation
 
