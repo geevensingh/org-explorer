@@ -1225,6 +1225,30 @@ reopen. This confirms the non-timing fixture's interaction with the request
 deadline, not a production-storage failure or the cause of the historical hosted
 continuation delay. Separate exact three-second queued/stalled/unknown-outcome
 contracts and production deadlines are unchanged.
+The bounded persistence held-save audit extends this fixture isolation only to
+three demonstrated non-timing contracts in `SqliteWorkspaceTests`: cancelled
+durability observation during a real Commit, newer typing during a successful
+public save return, and stale-base refusal after public save admission. Each
+delayed regression reuses its complete original scenario with a 3.2-second
+wall-clock continuation delay, retaining the original admission/outer waits,
+actual held work, cancellation, exact immutable bases and writing, public
+independent reopen, ownership and final flush/refusal assertions.
+The successful-return and stale-base fixtures control only the VM request clock;
+real backend clocks are unchanged. The cancelled-observation fixture must use
+the same existing `SaveClock` at both public workflow and VM dependencies,
+following `Held_bulk_Import`: the held real Commit spans both request lifetimes.
+The original-clock cancellation counterexample failed twice at final flush;
+VM-only control still failed, while both-clock control preserves Pending/Unknown
+until actual release and commit. Original-clock delayed variants in both note
+scopes also rejected newer typing or replaced the required external-base error
+with Stalled; VM-only control preserves their intended outcomes. These prove
+fixture/deadline interactions, not the historical hosted scheduling cause.
+Autosave cadence, real storage/observation clocks, three-second production
+budgets and all intentional queue/stall/unknown-outcome timing tests remain.
+No blanket clock change is made to unproven candidates, including independent
+profile/Preferred-name Cancel behind a held note Commit, direct retained-base
+saving, lost-return reconciliation during snapshot I/O, or pending creation
+behind a competing SQLite transaction.
 `OrgExplorer.Storage.ProcessFixture` is an owned, non-UI child killed at the
 existing storage observer's actual
 SQLite pre/post-Commit boundaries for both note scopes and complete profiles.
