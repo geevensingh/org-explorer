@@ -1,9 +1,12 @@
 function Assert-ReleaseVerification(
-    [string]$PerformanceDirectory, [string]$UiScaleDirectory, [string]$Candidate, [DateTimeOffset]$StartedAt
+    [string]$PerformanceDirectory, [string]$UiScaleDirectory, [string]$Candidate, [DateTimeOffset]$StartedAt,
+    [string]$ExpectedPolicyVersion
 ) {
     . "$PSScriptRoot\PerformanceSuite.ps1"
     . "$PSScriptRoot\DesktopResults.ps1"
     . "$PSScriptRoot\UiScaleResults.ps1"
+    if (!$ExpectedPolicyVersion) { $ExpectedPolicyVersion = Get-SourceTimingPolicyVersion $Candidate }
+    $policy = Get-ApprovedTimingPolicy $ExpectedPolicyVersion
     foreach ($suite in @('non-ui-performance', 'ui-scale')) {
         $directory = if ($suite -eq 'non-ui-performance') { $PerformanceDirectory } else { $UiScaleDirectory }
         $rootReport = Join-Path $directory 'result.json'
@@ -19,13 +22,14 @@ function Assert-ReleaseVerification(
             if ((Get-Content (Join-Path $run 'result.json') -Raw) -cne $reportText) {
                 throw 'UI-scale union root and unique-run evidence disagree.'
             }
-            Assert-UiScaleUnion (Join-Path $run 'prefix') (Join-Path $run 'tail') $Candidate $report.runId $report.runAttempt
+            Assert-UiScaleUnion (Join-Path $run 'prefix') (Join-Path $run 'tail') $Candidate $report.runId $report.runAttempt -ExpectedPolicyVersion $ExpectedPolicyVersion
             foreach ($worker in @('prefix', 'tail')) {
-                $execution = (Get-UiScaleWorkerResult (Join-Path $run $worker) $worker $Candidate $report.runId $report.runAttempt).report
+                $execution = (Get-UiScaleWorkerResult (Join-Path $run $worker) $worker $Candidate $report.runId $report.runAttempt -ExpectedPolicyVersion $ExpectedPolicyVersion).report
+                $limit = if ($worker -ceq 'prefix') { $policy.prefixSafetySeconds } else { $policy.tailSafetySeconds }
                 if ([DateTimeOffset]$execution.startedAt -lt $StartedAt -or
                     [DateTimeOffset]$execution.completedAt -gt [DateTimeOffset]::UtcNow -or
-                    ([DateTimeOffset]$execution.completedAt - [DateTimeOffset]$execution.startedAt).TotalSeconds -gt 660) {
-                    throw 'Release requires both fresh current-execution rich workers within their own unchanged 660-second budgets.'
+                    ([DateTimeOffset]$execution.completedAt - [DateTimeOffset]$execution.startedAt).TotalSeconds -gt $limit) {
+                    throw 'Release requires both fresh current-execution rich workers within their source-bound safety limits.'
                 }
             }
             continue

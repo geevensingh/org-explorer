@@ -7,11 +7,13 @@ param(
     [ValidatePattern('^[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*$')][string] $CohortId,
     [ValidateRange(1, 5)][int] $Sample,
     [string[]] $RequiredJobOutcomes = @(),
-    [string] $ResultsDirectory = '.ci-results\ui-scale-union'
+    [string] $ResultsDirectory = '.ci-results\ui-scale-union',
+    [string] $ExpectedPolicyVersion
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\DesktopResults.ps1"
 . "$PSScriptRoot\UiScaleResults.ps1"
+if (!$ExpectedPolicyVersion) { $ExpectedPolicyVersion = Get-SourceTimingPolicyVersion $ExpectedRevision }
 if ($CohortId) {
     if ($CohortId -cne "$ExpectedRevision-$RunId-$RunAttempt" -or $Sample -lt 1) {
         throw 'Rich union requires exact candidate, sample and current run/attempt.'
@@ -24,6 +26,7 @@ New-Item -ItemType Directory -Path $run | Out-Null
 $report = @{ schemaVersion = 1; suite = 'ui-scale'; verificationMode = 'isolated-workers'; outcome = 'running'
     revision = $ExpectedRevision; expectedRevision = $ExpectedRevision; runId = $RunId; runAttempt = $RunAttempt
     runDirectory = $runName; collectionStartedAt = [DateTimeOffset]::UtcNow.ToString('O') }
+$report.policyVersion = $ExpectedPolicyVersion
 if ($CohortId) { $report.cohortId = $CohortId; $report.sample = $Sample }
 $path = Join-Path $ResultsDirectory 'result.json'
 $report | ConvertTo-Json | Set-Content $path
@@ -34,10 +37,10 @@ try {
         @($RequiredJobOutcomes | Where-Object { $_ -cne 'success' }).Count)) {
         throw 'Missing, failed, skipped or diagnostic scale work cannot pass acceptance.'
     }
-    Assert-UiScaleUnion $PrefixDirectory $TailDirectory $ExpectedRevision $RunId $RunAttempt $CohortId $Sample
+    Assert-UiScaleUnion $PrefixDirectory $TailDirectory $ExpectedRevision $RunId $RunAttempt $CohortId $Sample $ExpectedPolicyVersion
     Copy-Item -LiteralPath $PrefixDirectory -Destination (Join-Path $run 'prefix') -Recurse
     Copy-Item -LiteralPath $TailDirectory -Destination (Join-Path $run 'tail') -Recurse
-    Assert-UiScaleUnion (Join-Path $run 'prefix') (Join-Path $run 'tail') $ExpectedRevision $RunId $RunAttempt $CohortId $Sample
+    Assert-UiScaleUnion (Join-Path $run 'prefix') (Join-Path $run 'tail') $ExpectedRevision $RunId $RunAttempt $CohortId $Sample $ExpectedPolicyVersion
     $report.outcome = 'success'
 } catch {
     $primaryFailure = $_

@@ -1,7 +1,9 @@
 function Invoke-ScaleSuite(
     [string] $Suite, [string] $Label, [string] $ResultsDirectory, [string] $ExpectedRevision,
     [hashtable] $Selection, [scriptblock] $Verify,
-    [ValidateSet(660, 900)][int] $ObservationSeconds = 660
+    [ValidateSet(660, 900)][int] $ObservationSeconds = 660,
+    [string] $ExpectedPolicyVersion = 'rich-scale-original-v1',
+    [switch] $DiagnosticOnly
 ) {
     $ErrorActionPreference = 'Stop'
     $root = Split-Path $PSScriptRoot -Parent
@@ -14,6 +16,11 @@ function Invoke-ScaleSuite(
     New-Item -ItemType Directory $run -Force | Out-Null
     $build = Join-Path $run 'build'
     $ceilingSeconds = 660
+    if ($Suite -ceq 'ui-scale') {
+        $policy = Get-ApprovedTimingPolicy $ExpectedPolicyVersion
+        $ceilingSeconds = if ($Selection.worker -ceq 'prefix') { $policy.prefixSafetySeconds } else { $policy.tailSafetySeconds }
+    }
+    $diagnostic = $DiagnosticOnly -or $ObservationSeconds -gt $ceilingSeconds
     $executionEnvironment = @{
         processors = [Environment]::ProcessorCount
         os = [Runtime.InteropServices.RuntimeInformation]::OSDescription
@@ -39,7 +46,7 @@ function Invoke-ScaleSuite(
             executionSeconds = ([DateTimeOffset]::UtcNow - $state.started).TotalSeconds
             ceilingSeconds = $ceilingSeconds; steps = @($state.steps.ToArray())
             runDirectory = [IO.Path]::GetRelativePath($results, $run); queuesIncluded = $false; cdIncluded = $false
-            observationSeconds = $ObservationSeconds; diagnosticOnly = $ObservationSeconds -gt $ceilingSeconds
+            observationSeconds = $ObservationSeconds; diagnosticOnly = [bool]$diagnostic
             acceptanceDeadlineAt = $state.started.AddSeconds($ceilingSeconds).ToString('O')
             observationDeadlineAt = $state.started.AddSeconds($ObservationSeconds).ToString('O')
             observedOutcome = $state.observedOutcome; phase = $state.phase; activeCommand = $state.activeCommand
@@ -48,6 +55,7 @@ function Invoke-ScaleSuite(
             environment = $executionEnvironment
             configuration = $state.configuration; configurationErrors = $state.configurationErrors
         }
+        if ($Suite -ceq 'ui-scale') { $report.policyVersion = $ExpectedPolicyVersion }
         foreach ($key in $Selection.Keys) { $report[$key] = $Selection[$key] }
         $json = $report | ConvertTo-Json -Depth 12
         foreach ($path in @((Join-Path $run 'result.json'), (Join-Path $results 'result.json'))) {
@@ -212,8 +220,8 @@ function Invoke-ScaleSuite(
             } catch { $state.configurationErrors += "Rich comparison configuration unavailable: $($_.Exception.Message)" }
         }
         Write-Host "$Label`: revision $($state.revision); tracked changes $($state.dirty); shared ceiling $ceilingSeconds s."
-        if ($ObservationSeconds -gt $ceilingSeconds) {
-            Write-Host "DIAGNOSTIC ONLY: observation window $ObservationSeconds s; the 660-second verification verdict is unchanged and this invocation cannot pass."
+        if ($diagnostic) {
+            Write-Host "DIAGNOSTIC ONLY: observation window $ObservationSeconds s; this invocation cannot pass or supply a baseline."
         }
         & $Verify $run $build
         $currentRevision = (& git rev-parse HEAD).Trim()
@@ -224,7 +232,7 @@ function Invoke-ScaleSuite(
             throw "The candidate checkout changed during $Label verification."
         }
         $state.observedOutcome = 'success'
-        $state.outcome = if ($ObservationSeconds -gt $ceilingSeconds) { 'diagnostic_complete' } else { 'success' }
+        $state.outcome = if ($diagnostic) { 'diagnostic_complete' } else { 'success' }
         if ($state.outcome -eq 'diagnostic_complete') {
             $state.failure = 'Extended observation is diagnostic only, not passing candidate verification.'
         }

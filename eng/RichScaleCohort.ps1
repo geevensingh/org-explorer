@@ -1,11 +1,11 @@
 . "$PSScriptRoot\DesktopResults.ps1"
 . "$PSScriptRoot\UiScaleResults.ps1"
 
-function Get-RichCohortSeriesKey($Sample) {
+function Get-RichCohortSeriesKey($Sample, [string]$ExpectedPolicyVersion = 'rich-scale-original-v1') {
     $configuration = @{} + $Sample.configuration
     foreach ($worker in @('prefix', 'tail')) {
         $configuration[$worker] = Get-HealthSeriesKey @{
-            policyVersion = 'rich-scale-original-v1'; selector = "--ui-scale-$worker"
+            policyVersion = $ExpectedPolicyVersion; selector = "--ui-scale-$worker"
             configuration = $Sample.rich[$worker].report.configuration
         }
     }
@@ -13,13 +13,15 @@ function Get-RichCohortSeriesKey($Sample) {
     $configuration.nativeVersion = $Sample.rich.handoff.binding.nativeVersion
     $configuration.nativeSourceId = $Sample.rich.handoff.binding.nativeSourceId
     return Get-HealthSeriesKey @{
-        policyVersion = 'rich-scale-original-v1'; selector = 'complete-non-ui-prefix-tail-union'
+        policyVersion = $ExpectedPolicyVersion; selector = 'complete-non-ui-prefix-tail-union'
         configuration = $configuration
     }
 }
 
 function Read-RichCohortSample($Sample, [string]$Directory, [string]$Revision, [string]$CohortId,
-    [string]$RunId, [string]$RunAttempt, $Jobs, $Artifacts, $Collection) {
+    [string]$RunId, [string]$RunAttempt, $Jobs, $Artifacts, $Collection,
+    [string]$ExpectedPolicyVersion = 'rich-scale-original-v1') {
+    $policy = Get-ApprovedTimingPolicy $ExpectedPolicyVersion
     $Sample.rich = [ordered]@{ validation = 'incomplete'; seriesKey = $null; handoff = $null; receipt = $null }
     $directories = @{}
     $outcomes = @($Sample.validation)
@@ -74,7 +76,8 @@ function Read-RichCohortSample($Sample, [string]$Directory, [string]$Revision, [
                         $run = Join-Path $downloadDirectory $report.runDirectory
                         if ($worker -ne 'union') {
                             Assert-HealthNumber $report.executionSeconds "$worker executionSeconds"
-                            if ($report.outcome -ceq 'failure' -or $report.executionSeconds -gt 660) { $part.validation = 'failure' }
+                            $limit = if ($worker -ceq 'prefix') { $policy.prefixSafetySeconds } else { $policy.tailSafetySeconds }
+                            if ($report.outcome -ceq 'failure' -or $report.executionSeconds -gt $limit) { $part.validation = 'failure' }
                             $log = Join-Path $run 'ui-scale.log'
                             if (Test-Path -LiteralPath $log) {
                                 $occurrences = @{}
@@ -113,7 +116,7 @@ function Read-RichCohortSample($Sample, [string]$Directory, [string]$Revision, [
                                 elseif ($key -in @('handoff', 'receipt')) { $Sample.rich[$key] = $data }
                                 else { $part[$key] = $data }
                             }
-                            $null = Get-UiScaleWorkerResult $downloadDirectory $worker $Revision $RunId $RunAttempt $CohortId $Sample.number
+                            $null = Get-UiScaleWorkerResult $downloadDirectory $worker $Revision $RunId $RunAttempt $CohortId $Sample.number $ExpectedPolicyVersion
                         } elseif ($report.suite -cne 'ui-scale' -or $report.verificationMode -cne 'isolated-workers' -or
                             $report.outcome -cne 'success') { throw 'Original strict union did not pass.' }
                         if ($workerJobs.Count -eq 1 -and $workerJobs[0].status -ceq 'completed' -and $workerJobs[0].conclusion -ceq 'success') {
@@ -131,9 +134,9 @@ function Read-RichCohortSample($Sample, [string]$Directory, [string]$Revision, [
     }
     if ($directories.Count -eq 3) {
         try {
-            Assert-UiScaleUnion $directories.prefix $directories.tail $Revision $RunId $RunAttempt $CohortId $Sample.number
+            Assert-UiScaleUnion $directories.prefix $directories.tail $Revision $RunId $RunAttempt $CohortId $Sample.number $ExpectedPolicyVersion
             $union = Join-Path $directories.union $Sample.rich.union.report.runDirectory
-            Assert-UiScaleUnion (Join-Path $union 'prefix') (Join-Path $union 'tail') $Revision $RunId $RunAttempt $CohortId $Sample.number
+            Assert-UiScaleUnion (Join-Path $union 'prefix') (Join-Path $union 'tail') $Revision $RunId $RunAttempt $CohortId $Sample.number $ExpectedPolicyVersion
             if (@($outcomes | Where-Object { $_ -cne 'success' }).Count -eq 0) { $Sample.rich.validation = 'success' }
         } catch { $Sample.diagnostics += "Complete rich union rejected: $($_.Exception.Message)" }
     }
@@ -142,11 +145,12 @@ function Read-RichCohortSample($Sample, [string]$Directory, [string]$Revision, [
             elseif ($outcomes -ccontains 'cancelled') { 'cancelled' }
             elseif ($outcomes -ccontains 'skipped') { 'skipped' } else { 'incomplete' }
     }
-    try { $Sample.rich.seriesKey = Get-RichCohortSeriesKey $Sample }
+    try { $Sample.rich.seriesKey = Get-RichCohortSeriesKey $Sample $ExpectedPolicyVersion }
     catch { $Sample.diagnostics += "Complete cohort comparison unavailable: $($_.Exception.Message)" }
 }
 
-function Assert-RichCohortSample($Sample, $Record, $Seen) {
+function Assert-RichCohortSample($Sample, $Record, $Seen, [string]$ExpectedPolicyVersion = 'rich-scale-original-v1') {
+    $policy = Get-ApprovedTimingPolicy $ExpectedPolicyVersion
     if ($Sample.rich.validation -cnotin @('success', 'incomplete') -or
         ($Sample.validation -ceq 'success' -and $Sample.rich.validation -cne 'success')) {
         throw 'Complete cohort acceptance lacks the original strict rich union.'
@@ -178,15 +182,16 @@ function Assert-RichCohortSample($Sample, $Record, $Seen) {
                 Assert-HealthNumber $report.executionSeconds 'rich whole execution'
             }
         }
+        $limit = if ($worker -ceq 'prefix') { $policy.prefixSafetySeconds } else { $policy.tailSafetySeconds }
         if ($Sample.validation -ceq 'success' -and ($part.validation -cne 'success' -or $part.jobOutcome -cne 'success' -or
             $null -eq $part.report -or $part.report.outcome -cne 'success' -or
-            ($worker -ne 'union' -and ($part.report.executionSeconds -gt 660 -or $part.report.diagnosticOnly -or
-                $part.report.ceilingSeconds -ne 660 -or $part.report.observationSeconds -ne 660)))) {
+            ($worker -ne 'union' -and ($part.report.executionSeconds -gt $limit -or $part.report.diagnosticOnly -or
+                $part.report.ceilingSeconds -ne $limit -or $part.report.observationSeconds -ne $limit)))) {
             throw 'A failed, diagnostic or over-budget rich worker cannot qualify.'
         }
         if ($Sample.validation -ceq 'success' -and $worker -ne 'union') {
             $report = $part.report | ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
-            $plan = Assert-UiScaleWorkerReport $report $worker $Record.revision $Record.cohortRunId $Record.cohortRunAttempt $Record.cohortId $Sample.number
+            $plan = Assert-UiScaleWorkerReport $report $worker $Record.revision $Record.cohortRunId $Record.cohortRunAttempt $Record.cohortId $Sample.number $ExpectedPolicyVersion
             $occurrences = @{}
             foreach ($phase in $plan.phases[$worker]) {
                 if (!$occurrences.ContainsKey($phase)) { $occurrences[$phase] = 0 }
@@ -224,9 +229,9 @@ function Assert-RichCohortSample($Sample, $Record, $Seen) {
             $evidence[$key] = $evidence[$key] | ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
         }
         $handoff = $handoff | ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
-        Assert-UiScaleRichEvidence $evidence $handoff $Record.revision $Record.cohortRunId $Record.cohortRunAttempt
+        Assert-UiScaleRichEvidence $evidence $handoff $Record.revision $Record.cohortRunId $Record.cohortRunAttempt $ExpectedPolicyVersion
     }
-    if ($null -ne $Sample.rich.seriesKey -and $Sample.rich.seriesKey -cne (Get-RichCohortSeriesKey $Sample)) {
+    if ($null -ne $Sample.rich.seriesKey -and $Sample.rich.seriesKey -cne (Get-RichCohortSeriesKey $Sample $ExpectedPolicyVersion)) {
         throw 'Historical complete cohort comparison configuration differs.'
     }
 }

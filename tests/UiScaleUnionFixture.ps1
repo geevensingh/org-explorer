@@ -1,7 +1,8 @@
 # Synthetic runner artifacts only: no native UI or product behavior is claimed by this contract fixture.
 function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
     [string] $RunId = '123', [string] $RunAttempt = '2', [DateTimeOffset] $StartedAt = [DateTimeOffset]::UtcNow.AddMinutes(-1),
-    [string] $RunName = ('run-' + ('b' * 32)), [string] $TailRunName = $RunName) {
+    [string] $RunName = ('run-' + ('b' * 32)), [string] $TailRunName = $RunName,
+    [string] $TimingPolicyVersion = 'rich-scale-original-v1') {
     . "$PSScriptRoot\..\eng\DesktopResults.ps1"
     . "$PSScriptRoot\..\eng\UiScaleResults.ps1"
     $plan = Get-UiScalePlan
@@ -50,11 +51,14 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
                 processors = 4; image = 'win25'; imageVersion = '20261116'; powershell = '7.6'
                 setup = 'locked-restore;isolated-build;setup-and-cleanup-included'; display = @{ width = 1920; height = 1080 }
                 native = @{ version = 'synthetic-native'; sourceId = 'synthetic-source'; loadedSha256 = 'D' * 64 } }
-            ceilingSeconds = 660; observationSeconds = 660; executionSeconds = 1
+            ceilingSeconds = if ($TimingPolicyVersion -ceq 'ci-timing-v2' -and $worker -ceq 'prefix') { 900 } else { 660 }
+            observationSeconds = if ($TimingPolicyVersion -ceq 'ci-timing-v2' -and $worker -ceq 'prefix') { 900 } else { 660 }
+            executionSeconds = 1
             startedAt = $StartedAt.ToString('O'); completedAt = $StartedAt.AddSeconds(1).ToString('O')
             runDirectory = $workerRun; requiredScenarios = @($plan.workers[$worker]); completedPhases = @($plan.phases[$worker])
             handoffSha256 = $hash; steps = @('restore-app', 'restore-tests', 'build-app', 'display-prerequisite', 'ui-scale') |
                 ForEach-Object { @{ name = $_; exitCode = 0; seconds = 0 } } }
+        if ($TimingPolicyVersion -ceq 'ci-timing-v2') { $report.policyVersion = $TimingPolicyVersion }
         Write-Json (Join-Path $workerDirectory 'result.json') $report
         Write-Json (Join-Path $run 'result.json') $report
         Write-Json (Join-Path $run 'scenarios.json') @{ schemaVersion = 1; scenarios = @($plan.workers[$worker] |
@@ -72,10 +76,12 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
         $note.addTeamNote = @{ samplesMs = @(1) * 20; p95Ms = 1 }
         $note.personNavigation = @{ samplesMs = @(1) * 42; p95Ms = 1 }
         $note.localDurability = @{ samplesMs = @(1) * 21; p95Ms = 1; goalMs = 1000; goalMet = $true
-            budgetMs = 1050; budgetEnforced = $true; temporaryCeiling = $true; timingUse = 'acceptance'
+            budgetMs = if ($TimingPolicyVersion -ceq 'ci-timing-v2') { 1500 } else { 1050 }
+            budgetEnforced = $true; temporaryCeiling = $TimingPolicyVersion -cne 'ci-timing-v2'; timingUse = 'acceptance'
             independentFullReopenVerificationMs = @(1) * 21
             independentVerificationScope = 'fresh-final-prefix-owner-and-exact-writing'
             committedDuringTyping = @($true) * 21; continuedEditsPerNote = 6; nominalEditSpacingMs = 250 }
+        if ($TimingPolicyVersion -ceq 'ci-timing-v2') { $note.localDurability.policyVersion = $TimingPolicyVersion }
         Write-Json (Join-Path $prefix "$runName\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json") $note
     }
     foreach ($sample in @(@($prefix, 'scale-mutation-save-prefix', 'background-export'),
@@ -108,6 +114,6 @@ function New-RichCohortSampleFixture([string]$Directory, [string]$Candidate, [in
     }
     $fixture.union = Join-Path $Directory 'union'
     & "$PSScriptRoot\..\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $fixture.prefix -TailDirectory $fixture.tail `
-        -ExpectedRevision $Candidate -RunId $RunId -RunAttempt $RunAttempt -ResultsDirectory $fixture.union -CohortId $cohortId -Sample $Sample
+        -ExpectedRevision $Candidate -RunId $RunId -RunAttempt $RunAttempt -ResultsDirectory $fixture.union -CohortId $cohortId -Sample $Sample -ExpectedPolicyVersion rich-scale-original-v1
     return $fixture
 }
