@@ -20,9 +20,17 @@ internal static partial class Program
              {"email":"avery@example.com","displayName":"Avery","managerEmail":"casey@example.com"}]}
             """) as JsonObject ?? throw new InvalidOperationException("Navigation fixture is not an object.");
         if (responsive)
+        {
+            foreach (var person in JsonNode.Parse("""
+                [{"email":"alex@example.com","displayName":"Alex","managerEmail":null},
+                 {"email":"menu-outside@example.com","displayName":"Outside nested","managerEmail":"alex@example.com"},
+                 {"email":"menu-outside-leaf@example.com","displayName":"Outside leaf","managerEmail":"menu-outside@example.com"}]
+                """)!.AsArray())
+                importData["people"]!.AsArray().Add(person!.DeepClone());
             foreach (var person in CompactIdentityFixturePeople())
                 importData["people"]!.AsArray().Add(person?.DeepClone()
                     ?? throw new InvalidOperationException("Compact identity fixture is missing a Person."));
+        }
         File.WriteAllText(import, importData.ToJsonString());
         Process? process = null;
         try

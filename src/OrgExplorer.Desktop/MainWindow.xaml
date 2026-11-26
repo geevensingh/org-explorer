@@ -11,6 +11,8 @@
   <Window.CommandBindings>
     <CommandBinding Command="{x:Static local:MainWindow.CollapseSubtreeCommand}"
                     CanExecute="CanCollapseSubtree" Executed="CollapseSubtree"/>
+    <CommandBinding Command="{x:Static local:MainWindow.CollapseOtherBranchesCommand}"
+                    CanExecute="CanCollapseOtherBranches" Executed="CollapseOtherBranches"/>
   </Window.CommandBindings>
   <Window.Resources>
     <SolidColorBrush x:Key="AccentBrush" Color="#0969DA"/>
@@ -275,6 +277,15 @@
       <Setter Property="ContextMenu">
         <Setter.Value>
           <ContextMenu>
+            <ContextMenu.Resources>
+              <Style TargetType="MenuItem">
+                <Style.Triggers>
+                  <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                  </Trigger>
+                </Style.Triggers>
+              </Style>
+            </ContextMenu.Resources>
             <ContextMenu.Style>
               <Style TargetType="ContextMenu">
                 <EventSetter Event="Closed" Handler="CloseReportingMenu"/>
@@ -282,6 +293,10 @@
             </ContextMenu.Style>
             <MenuItem Header="Collapse subtree" AutomationProperties.AutomationId="CollapseSubtree"
                       Command="{x:Static local:MainWindow.CollapseSubtreeCommand}"
+                      CommandParameter="{Binding PlacementTarget.DataContext.Person.Email, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+            <MenuItem Header="Collapse other branches" AutomationProperties.AutomationId="CollapseOtherBranches"
+                      Command="{x:Static local:MainWindow.CollapseOtherBranchesCommand}"
                       CommandParameter="{Binding PlacementTarget.DataContext.Person.Email, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
           </ContextMenu>

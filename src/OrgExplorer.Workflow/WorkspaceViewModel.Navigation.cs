@@ -1,6 +1,6 @@
 namespace OrgExplorer.Workflow;
 
-public enum PeopleTreeAction { CollapseSubtree }
+public enum PeopleTreeAction { CollapseSubtree, CollapseOtherBranches }
 
 public sealed record PeopleNavigationView(
     string Query, bool OverlayOpen, string? SelectedEmail, SearchResult? SelectedResult,
@@ -236,23 +236,34 @@ public sealed partial class WorkspaceViewModel
 
     public string? PeopleTreeActionFeedback { get; private set; }
 
-    public IReadOnlyList<PeopleTreeAction> GetPeopleTreeActions(string email) =>
-        CurrentReportingSubtree(email).Overlaps(PeopleNavigation.ExpandedPeople)
-            ? [PeopleTreeAction.CollapseSubtree] : [];
+    public IReadOnlyList<PeopleTreeAction> GetPeopleTreeActions(string email)
+    {
+        var subtree = CurrentReportingSubtree(email);
+        var actions = new List<PeopleTreeAction>();
+        if (subtree.Overlaps(PeopleNavigation.ExpandedPeople)) actions.Add(PeopleTreeAction.CollapseSubtree);
+        if (CurrentReportingOutsideBranches(subtree, email).Overlaps(PeopleNavigation.ExpandedPeople))
+            actions.Add(PeopleTreeAction.CollapseOtherBranches);
+        return actions;
+    }
 
     public bool ExecutePeopleTreeAction(string email, PeopleTreeAction action)
     {
-        if (action != PeopleTreeAction.CollapseSubtree) throw new ArgumentOutOfRangeException(nameof(action));
         var subtree = CurrentReportingSubtree(email);
-        if (!subtree.Overlaps(PeopleNavigation.ExpandedPeople))
+        var (scope, label) = action switch
         {
-            PeopleTreeActionFeedback = "Collapse subtree was not applied: that current reporting subtree has no expansion to reset.";
+            PeopleTreeAction.CollapseSubtree => (subtree, "Collapse subtree"),
+            PeopleTreeAction.CollapseOtherBranches => (CurrentReportingOutsideBranches(subtree, email), "Collapse other branches"),
+            _ => throw new ArgumentOutOfRangeException(nameof(action))
+        };
+        if (!scope.Overlaps(PeopleNavigation.ExpandedPeople))
+        {
+            PeopleTreeActionFeedback = $"{label} was not applied: that current reporting scope has no expansion to reset.";
             PropertyChanged?.Invoke(this, new(nameof(PeopleTreeActionFeedback)));
             return false;
         }
         PeopleNavigation = PeopleNavigation with
         {
-            ExpandedPeople = PeopleNavigation.ExpandedPeople.Where(person => !subtree.Contains(person)).ToArray()
+            ExpandedPeople = PeopleNavigation.ExpandedPeople.Where(person => !scope.Contains(person)).ToArray()
         };
         PeopleTreeActionFeedback = null;
         // Presentation changes must not enter the mutation/navigation observation path or clear retained errors.
@@ -280,6 +291,29 @@ public sealed partial class WorkspaceViewModel
             foreach (var report in node.Reports) pending.Push(report);
         }
         return subtree;
+    }
+
+    private HashSet<string> CurrentReportingOutsideBranches(HashSet<string> subtree, string email)
+    {
+        var outside = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (subtree.Count == 0) return outside;
+        var parents = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<ReportingNode>(ReportingRoots);
+        while (pending.TryPop(out var node))
+            if (outside.Add(node.Person.Email))
+                foreach (var report in node.Reports)
+                {
+                    parents.Add(report.Person.Email, node.Person.Email);
+                    pending.Push(report);
+                }
+        var protectedPeople = new HashSet<string>(subtree, StringComparer.OrdinalIgnoreCase);
+        while (parents.TryGetValue(email, out var manager))
+        {
+            protectedPeople.Add(manager);
+            email = manager;
+        }
+        outside.ExceptWith(protectedPeople);
+        return outside;
     }
 
     public bool NavigatePerson(string email) => Observe(() =>
