@@ -106,7 +106,9 @@ foreach ($path in $documents.Keys) {
     foreach ($link in $documents[$path].links) {
         if ($link.destination -match '^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|//)') { continue }
         $destination = Get-LocalPath $path $link.destination
-        if (!$owned -and $destination -ne $entry -and $destination -notin $references) { continue }
+        $testingDestination = $destination -eq $entry -or $destination.StartsWith(
+            $referenceDirectory + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+        if (!$owned -and !$testingDestination) { continue }
         $source = [IO.Path]::GetRelativePath($root, $path)
         Assert-RepositoryPath $destination "${source}:$($link.line): $($link.destination)"
         if (![IO.File]::Exists($destination)) {

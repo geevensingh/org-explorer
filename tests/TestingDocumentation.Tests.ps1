@@ -116,7 +116,7 @@ try {
     Write-Host 'PASS: a resolving but wrong compatibility destination cannot replace the owning contract.'
 
     Reset-Fixture
-    Write-Fixture 'docs\testing.md' ($entryText + @'
+    $fencedEntry = $entryText + @'
 
 ````markdown
 ## Fenced heading
@@ -130,9 +130,10 @@ throw 'This documented example must never execute.'
 Inline `[Example](testing/missing.md)` is not a link.
 <!-- [Comment](testing/missing.md) -->
 [External](https://invalid.example.test/never-contact)
-'@)
+'@
+    Write-Fixture 'docs\testing.md' $fencedEntry
     Invoke-Check
-    Write-Fixture 'docs\testing.md' ($entryText + "[Not an anchor](#fenced-heading)`n")
+    Write-Fixture 'docs\testing.md' ($fencedEntry + "`n[Not an anchor](#fenced-heading)`n")
     Invoke-Check 'unresolved fragment: #fenced-heading'
     Write-Host 'PASS: fenced/inline examples, comments and external URLs are not local navigation or execution.'
 
@@ -173,6 +174,13 @@ Inline `[Example](testing/missing.md)` is not a link.
     Write-Fixture 'README.md' "[Broken old link](docs/testing.md#absent)`n"
     Invoke-Check 'README.md:1: unresolved fragment: docs/testing.md#absent'
     Write-Host 'PASS: affected inbound fragments are checked; supporting/unrelated navigation is not crawled.'
+
+    Write-Fixture 'docs\testing\current-topic.md' "# Current topic`n[Testing](../testing.md)`n"
+    Write-Fixture 'docs\testing.md' ($entryText + "[Current topic](testing/current-topic.md)`n")
+    Write-Fixture 'README.md' "[Old topic](docs/testing/old-topic.md)`n"
+    Invoke-Check 'README.md:1: missing local file: docs/testing/old-topic.md'
+    Remove-Item -LiteralPath (Join-Path $fixture 'docs\testing\current-topic.md')
+    Write-Host 'PASS: stale inbound links to missing Testing references fail even when the router points to the current reference.'
 
     Reset-Fixture
     Write-Fixture 'README.md' ''
