@@ -6,6 +6,7 @@ function Set-TimingMainContext($History) {
         throw 'Canonical timing references require complete actual main ancestry, never shallow or guessed order.'
     }
     $History.mainRevision = Invoke-HealthGit $History.directory @('rev-parse', 'refs/heads/timing-main')
+    $History.mainContextDirectory = $History.directory
     $History.mainOrder = @{}
     $revisions = (Invoke-HealthGit $History.directory @('rev-list', '--first-parent', '--reverse', $History.mainRevision)) -split "`n"
     for ($index = 0; $index -lt $revisions.Count; $index++) {
@@ -192,7 +193,8 @@ function Get-TimingCanonicalReference($History, [string]$SeriesKey, [string]$Can
         $_.Contains('recordType') -and $_.recordType -ceq 'timing-reference' -and $_.seriesKey -ceq $SeriesKey
     })
     if (!$events.Count) { return $null }
-    if (!$History.Contains('mainOrder')) { Set-TimingMainContext $History }
+    if (!$History.Contains('mainOrder') -or !$History.Contains('mainContextDirectory') -or
+        $History.mainContextDirectory -cne $History.directory) { Set-TimingMainContext $History }
     if ($CandidateRevision) { Assert-TimingMainRevision $History $CandidateRevision }
     foreach ($event in $events) {
         Assert-TimingMainRevision $History $event.revision
@@ -333,6 +335,8 @@ function Assert-TimingHistory($History) {
 
 function Publish-TimingReference($History, $Record, [string]$ComparisonCommit) {
     if ($Record.eligibility -cne 'eligible') { return "retained: $($Record.eligibility)" }
+    Set-TimingMainContext $History
+    Assert-TimingMainRevision $History $Record.revision
     $key = Get-TimingCohortKey $Record
     $active = Get-TimingCanonicalReference $History $key
     $bootstrap = Get-TimingBootstrap $History $Record.bootstrapRevision

@@ -552,6 +552,35 @@ try {
             "Original $outcome was dropped, replaced, promoted or lost its prior reference."
     }
     $failedJob.conclusion = 'success'
+    $profileReport = Get-Content (Join-Path $global:BaselineFixture.evidence["non-ui-cohort-$failureRevision-106-1-sample-1"] 'result.json') -Raw |
+        ConvertFrom-Json -AsHashtable
+    $profileLog = Join-Path $global:BaselineFixture.evidence["non-ui-cohort-$failureRevision-106-1-sample-1"] "$($profileReport.runDirectory)\scale-measurements.log"
+    $validProfileLog = Get-Content $profileLog -Raw
+    foreach ($defect in @('hard', 'malformed-p95')) {
+        $lines = @($validProfileLog -split "\r?\n" | Where-Object { $_ -and !$_.StartsWith('SCALE ORDINARY-PROFILE ') })
+        $profileLine = @($validProfileLog -split "\r?\n" | Where-Object { $_.StartsWith('SCALE ORDINARY-PROFILE ') })[0]
+        $rawProfile = $profileLine.Substring('SCALE ORDINARY-PROFILE '.Length) | ConvertFrom-Json -AsHashtable
+        if ($defect -ceq 'hard') { $rawProfile.samplesMs = @(1000.1) * 21; $rawProfile.p95Ms = 1000.1 }
+        else { $rawProfile.p95Ms = 999 }
+        $lines += 'SCALE ORDINARY-PROFILE ' + ($rawProfile | ConvertTo-Json -Depth 10 -Compress)
+        $lines | Set-Content $profileLog
+        $defectWork = Join-Path $fixture $defect
+        Rejects {
+            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $failureRevision -CiRunId 49 -CiRunAttempt 1 `
+                -CohortRunId 106 -CohortRunAttempt 1 -WorkingDirectory $defectWork -RichScale `
+                -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+        } 'An individual hard outcome or malformed raw percentile became accepting evidence.'
+        $defective = Get-Content (Join-Path $defectWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($defective.eligibility -ceq 'rejected' -and $defective.reliability.success -eq 2 -and
+            $defective.extraSamples.Count -eq 0 -and $defective.samples.Count -eq 3) `
+            'A hard/malformed attempt was averaged away or replaced by extra samples.'
+        if ($defect -ceq 'hard') {
+            Assert ($defective.metrics.'profile-p95-ms'.median -eq 504 -and
+                $defective.timingEvaluation.metrics.'profile-p95-ms'.health -ceq 'red') `
+                'A passing cohort median concealed the original individual hard violation.'
+        }
+    }
+    $validProfileLog | Set-Content $profileLog
     $hookPath = Join-Path $remote 'hooks\pre-receive'
     $beforeRefusal = (& git --git-dir=$remote rev-parse refs/heads/ci-health-data).Trim()
     "#!/bin/sh`nexit 1" | Set-Content -LiteralPath $hookPath -Encoding utf8NoBOM
@@ -577,6 +606,22 @@ try {
         $null -eq $unavailable.revision -and $unavailable.jobs.Count -eq 12 -and
         $unavailable.collectionOutcome -ceq 'success') `
         'Unavailable plan lost original jobs/outcome, invented candidate identity or became a comparison input.'
+    $badRemote = Join-Path $fixture 'malformed-history.git'
+    Copy-Item -LiteralPath $remote -Destination $badRemote -Recurse
+    $badWriter = Join-Path $fixture 'malformed-writer'
+    & git clone --quiet --branch ci-health-data $badRemote $badWriter
+    $badPath = Join-Path $badWriter "rich-scale-cohorts\$changedRevision\105\1.json"
+    $bad = Get-Content $badPath -Raw | ConvertFrom-Json -AsHashtable
+    $bad.timingEvaluation.metrics.executionSeconds.median = 999
+    $bad | ConvertTo-Json -Depth 30 | Set-Content $badPath
+    $null = Invoke-FixtureGit $badWriter @('add', '.')
+    $null = Invoke-FixtureGit $badWriter @('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+        'commit', '--quiet', '-m', 'Malformed stored comparison fixture')
+    $null = Invoke-FixtureGit $badWriter @('push', '--quiet', 'origin', 'ci-health-data')
+    Rejects {
+        $null = Open-HealthHistory (Join-Path $fixture 'bad-reader.git') $badRemote -AllowLocalFixture `
+            -RecordTypes (Get-LaneHealthRecordTypes)
+    } 'Stored grade inputs that disagreed with immutable measurements were accepted as a canonical reference.'
     Write-Host "PASS: $checks public automatic baseline checks."
     $global:LASTEXITCODE = 0
 } finally {
