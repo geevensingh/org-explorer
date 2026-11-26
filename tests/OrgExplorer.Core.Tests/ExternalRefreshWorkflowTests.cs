@@ -1,10 +1,16 @@
 using OrgExplorer.Workflow;
+using System.Reflection;
 using Xunit;
 
 namespace OrgExplorer.Core.Tests;
 
 public sealed class ExternalRefreshWorkflowTests
 {
+    private sealed class RefreshContractClock : TimeProvider
+    {
+        public override long GetTimestamp() => 0;
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -72,11 +78,23 @@ public sealed class ExternalRefreshWorkflowTests
     [InlineData(false, NoteScope.Team)]
     [InlineData(true, NoteScope.Person)]
     [InlineData(true, NoteScope.Team)]
-    public async Task Accepted_refresh_keeps_valid_current_or_Archived_reading_and_exact_independent_failed_writing(
-        bool archived, NoteScope scope)
+    public Task Accepted_refresh_keeps_valid_current_or_Archived_reading_and_exact_independent_failed_writing(
+        bool archived, NoteScope scope) => VerifyFailedWritingRefresh(archived, scope, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public Task Accepted_refresh_failed_writing_contract_survives_delayed_error_creation(NoteScope scope) =>
+        VerifyFailedWritingRefresh(true, scope, TimeSpan.FromMilliseconds(3200));
+
+    private static async Task VerifyFailedWritingRefresh(bool archived, NoteScope scope, TimeSpan creationDelay)
     {
         var workflow = ApplicationWorkflow.CreateInMemory();
-        using var app = new WorkspaceViewModel(workflow);
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, PersonNoteTests.NoteSaveBoundary>();
+        var boundary = (PersonNoteTests.NoteSaveBoundary)(object)proxy;
+        boundary.Inner = workflow;
+        // Error retention is not a request-deadline contract; real stall policies are covered separately.
+        using var app = new WorkspaceViewModel(proxy, timeProvider: new RefreshContractClock());
         Assert.True(app.OpenWorkspace("fictitious"));
         Assert.True(app.ApplyImport(app.PreviewImport(Batch($$"""
             {"email":"reader@example.com","displayName":"Reader","managerEmail":null,"archived":{{archived.ToString().ToLowerInvariant()}}}
@@ -99,11 +117,44 @@ public sealed class ExternalRefreshWorkflowTests
         app.RetainPersonTextDraft(app.GetRelationships("reader@example.com")!.Person,
             PersonTextField.PreferredName, "Exact Preferred-name draft");
         var preferred = app.GetPersonTextDraft("reader@example.com", PersonTextField.PreferredName);
+        using var release = new ManualResetEventSlim();
+        var admitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (creationDelay > TimeSpan.Zero)
+            boundary.BeforeSave = () => { admitted.TrySetResult(); release.Wait(); };
         app.UpdateNoteDraft(scope, note, "", "Exact unsaved note writing");
-        Assert.False(await app.FlushNoteDraftsAsync());
+        Task<bool> flushing;
+        try
+        {
+            if (creationDelay > TimeSpan.Zero)
+            {
+                await admitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await Task.Delay(creationDelay);
+            }
+            flushing = app.FlushNoteDraftsAsync();
+            if (creationDelay > TimeSpan.Zero)
+            {
+                var unfinished = app.GetRetainedNoteDraft(scope, note)!;
+                Assert.True(unfinished.IsSaving);
+                Assert.Null(unfinished.Error);
+                Assert.Equal(LocalSavePhase.Pending, app.LocalSave.Phase);
+                Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
+                Assert.False(flushing.IsCompleted);
+            }
+        }
+        finally
+        {
+            boundary.BeforeSave = null;
+            release.Set();
+            if (creationDelay > TimeSpan.Zero)
+                Assert.True(SpinWait.SpinUntil(() => app.GetRetainedNoteDraft(scope, note)?.IsSaving != true,
+                    TimeSpan.FromSeconds(5)), "The released public save did not finish.");
+        }
+        Assert.False(await flushing);
         var writing = app.GetRetainedNoteDraft(scope, note);
         Assert.NotNull(writing);
+        Assert.False(writing.IsSaving);
         Assert.Contains("NOT saved", writing.Error);
+        Assert.False(app.LocalSave.HasUnresolvedOutcome);
         var error = app.LocalSaveError;
         Assert.NotNull(error);
         var destination = app.PeopleNavigation.LastValidView;

@@ -284,6 +284,14 @@ snapshot adoption, cross-branch selection, current/Archived exact reading,
 non-activating search/Import, and unchanged saved destinations. Real folders
 retain failed Person/Team writing, profile and Preferred-name drafts and independent
 errors, and refuse invalid, incomplete, deferred, unavailable or stale data.
+The in-memory refresh/error-retention contract controls only its view-model
+request clock. Its two-scope delayed-validation cases hold the real public save
+boundary beyond three wall-clock seconds, then require the actual invalid-title
+failure before refresh and preserve its exact writing/error afterward. With the
+production request clock, that delay reproduces an early `Stalled`/unknown flush
+refusal and a null draft error before refresh while the backend is still Ready.
+This proves the fixture interaction, not the historical delaying actor.
+Production clocks and separate exact three-second stall/outcome checks remain unchanged.
 Existing hosted profile/reopen, archival and search/responsive journeys observe
 the actual profile identity, selected row's rendered text and clickable point
 inside the tree viewport, expanded ancestors and deferred reveal after Import
