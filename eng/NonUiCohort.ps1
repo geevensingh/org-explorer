@@ -358,17 +358,29 @@ function Set-NonUiCohortComparison($Record, $History) {
 
 function Format-NonUiCohort($Record, [string]$Publication) {
     $rich = $Record.schemaVersion -eq 2
+    $automatic = $Record.mode -ceq 'automatic-baseline'
     $lines = @(
         if ($rich) { '### Complete performance/scale cohort' } else { '### Independent non-UI performance cohort' }
         ''
         "Candidate: ``$($Record.revision)``; cohort ``$($Record.cohortId)``."
         "Validation: **$($Record.validation)**; timing: **$($Record.timingHealth)**; eligibility: **$($Record.eligibility)**."
         "Original collection workflow: $($Record.collectionStatus) / $($Record.collectionOutcome). Historical observations are not fresh release acceptance."
-        "Policy: ``$($Record.policyVersion)``. Active-reference promotion: **disabled**. Rich-scale acceptance: **$($Record.richScaleAcceptance)**."
-        'Original per-worker 660-second setup/workload/cleanup budgets and 1,000-ms profile p95 hard limit remain enforced.'
+        if ($automatic) {
+            "Policy: ``$($Record.policyVersion)``; immutable source policy ``$($Record.sourcePolicyVersion)``. Automatic-reference decision: **$($Record.promotion)**. Rich-scale acceptance: **$($Record.richScaleAcceptance)**."
+            'Approved prefix safety is 900 seconds; non-UI/tail safety remains 660 seconds, including setup/cleanup. Profile p95 remains <=1,000ms.'
+            "Bootstrap source: ``$($Record.bootstrapRevision)``; verified main: ``$($Record.mainRevision)``; pinned history: ``$($Record.historySnapshot)``."
+            "Additional requested independent executions: $($Record.extraSamples -join ', '); maximum total five. Failures never request replacements."
+        } else {
+            "Policy: ``$($Record.policyVersion)``. Active-reference promotion: **disabled**. Rich-scale acceptance: **$($Record.richScaleAcceptance)**."
+            'Original per-worker 660-second setup/workload/cleanup budgets and 1,000-ms profile p95 hard limit remain enforced.'
+        }
         if ($rich) {
             'Each sample owns non-UI, prefix, actual-snapshot Join/tail and strict union. The executionSeconds metric is NON-UI only; prefix/tail are separate. Their sum is consumed worker time, never one 660-second execution.'
-            'Rich notes retain both complete 20/42/21 phases, raw nearest-rank p95, continued-typing durability and the temporary enforced 1,050-ms ceiling (1,000-ms goal).'
+            if ($automatic) {
+                'Rich notes retain both complete 20/42/21 phases, all raw nearest-rank p95 samples, continued-typing durability, 1,000ms goal and inclusive 1,500ms ceiling. Original historical policies/verdicts are unchanged.'
+            } else {
+                'Rich notes retain both complete 20/42/21 phases, raw nearest-rank p95, continued-typing durability and the temporary enforced 1,050-ms ceiling (1,000-ms goal).'
+            }
         }
         if ($Record.unexpectedExecutions) {
             'Unexpected matching extra executions are retained and reject the cohort. The controller did not request them; three greens cannot be selected from this evidence.'
@@ -402,7 +414,9 @@ function Format-NonUiCohort($Record, [string]$Publication) {
         ''
         "All attempts: $($Record.reliability.attempts); success $($Record.reliability.success); failure $($Record.reliability.failure); incomplete $($Record.reliability.incomplete); cancelled $($Record.reliability.cancelled); skipped $($Record.reliability.skipped)."
         'Medians include every available numeric measurement, including failed attempts; rejected nonnumeric values remain in raw records and are unavailable, not zero. No cause or calibrated noise threshold is inferred.'
-        'Live eligibility/noise calibration is pending #130. This is not a canonical reference.'
+        if ($automatic) {
+            'Comparison is preserved before eligible promotion. Canonical reference events are immutable; the effective per-series pointer follows actual main ancestry, never completion time.'
+        } else { 'Live eligibility/noise calibration is pending #130. This is not a canonical reference.' }
         if ($null -ne $Record.reference) {
             "Reference: $($Record.reference.kind) ``$($Record.reference.revision)`` / ``$($Record.reference.cohortId)``; age $($Record.reference.ageSeconds) s; NON-UI median $($Record.reference.medianSeconds) s; change $($Record.reference.deltaSeconds) s. Raw evidence: [$($Record.reference.evidenceState)]($($Record.reference.evidenceUrl))."
         } else { 'Comparison reference: unavailable (no complete compatible non-self cohort observation).' }

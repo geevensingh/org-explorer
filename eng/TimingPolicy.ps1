@@ -23,7 +23,7 @@ function Get-SourceTimingPolicyVersion([string]$Revision, [switch]$Hosted, [stri
         if ($blob.encoding -cne 'base64') { throw 'Unsupported timing policy source encoding.' }
         $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($blob.content))
     } else {
-        $gitArguments = if ($GitDirectory) { @("--git-dir=$GitDirectory") }
+        [string[]]$gitArguments = if ($GitDirectory) { @("--git-dir=$GitDirectory") }
             else { @('-C', (Split-Path $PSScriptRoot -Parent)) }
         $entry = @(git @gitArguments ls-tree $Revision -- $path)
         if ($LASTEXITCODE -ne 0) { throw 'Trusted timing policy source revision is unavailable.' }

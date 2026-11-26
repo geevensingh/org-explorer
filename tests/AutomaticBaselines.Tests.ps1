@@ -27,41 +27,60 @@ function gh {
         Copy-Item -LiteralPath $global:BaselineFixture.evidence[$name] -Destination $destination -Recurse
         return
     }
-    switch -Regex ($args[1]) {
-        '/actions/runs/42/attempts/1$' { $global:BaselineFixture.ci | ConvertTo-Json -Depth 10; return }
-        '/actions/runs/42(/attempts/1)?/jobs\?per_page=100$' {
+    $endpoint = $args[1]
+    $ciId = $global:BaselineFixture.ci.id
+    $cohortRun = $global:BaselineFixture.cohortRun
+    switch -Regex ($endpoint) {
+        "/actions/runs/$ciId/attempts/1$" { $global:BaselineFixture.ci | ConvertTo-Json -Depth 10; return }
+        "/actions/runs/$ciId(/attempts/1)?/jobs\?per_page=100$" {
             ConvertTo-Json -InputObject @(@{ jobs = $global:BaselineFixture.ciJobs }) -Depth 10; return
         }
-        '/actions/runs/42/artifacts\?per_page=100$' {
+        "/actions/runs/$ciId/artifacts\?per_page=100$" {
             ConvertTo-Json -InputObject @(@{ artifacts = @() }) -Depth 10; return
         }
-        '/actions/runs/99/attempts/1$' {
-            @{ id = 99; run_attempt = 1; head_sha = $global:BaselineFixture.controller
+        "/actions/runs/$cohortRun/attempts/1$" {
+            @{ id = $cohortRun; run_attempt = 1; head_sha = $global:BaselineFixture.controller
                 event = 'workflow_run'; path = '.github/workflows/non-ui-cohorts.yml'; status = $global:BaselineFixture.status
                 conclusion = $global:BaselineFixture.outcome
                 head_repository = @{ full_name = 'geevensingh/org-explorer' } } | ConvertTo-Json -Depth 10
             return
         }
-        '/actions/runs/99/attempts/1/jobs\?per_page=100$' {
+        "/actions/runs/$cohortRun/attempts/1/jobs\?per_page=100$" {
             ConvertTo-Json -InputObject @(@{ jobs = $global:BaselineFixture.jobs }) -Depth 10; return
         }
-        '/actions/runs/99/artifacts\?per_page=100$' {
+        "/actions/runs/$cohortRun/artifacts\?per_page=100$" {
             ConvertTo-Json -InputObject @(@{ artifacts = $global:BaselineFixture.artifacts }) -Depth 10; return
         }
         default { throw "Unexpected external GitHub operation: $($args -join ' ')" }
     }
 }
+function Add-MainFixtureRevision([string]$Text) {
+    $Text | Set-Content (Join-Path $source 'product.txt')
+    $null = Invoke-FixtureGit $source @('add', 'product.txt')
+    $null = Invoke-FixtureGit $source @('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+        'commit', '--quiet', '-m', $Text)
+    $null = Invoke-FixtureGit $source @('push', '--quiet', 'origin', 'main')
+    return Invoke-FixtureGit $source @('rev-parse', 'HEAD')
+}
+function Select-BaselineFixture([string]$Revision, [int]$CiId, [int]$CohortRun) {
+    $global:BaselineFixture.ci.head_sha = $Revision; $global:BaselineFixture.ci.id = $CiId
+    $global:BaselineFixture.cohortRun = $CohortRun; $global:BaselineFixture.controller = $Revision
+    $global:BaselineFixture.status = 'in_progress'; $global:BaselineFixture.outcome = $null
+    $global:BaselineFixture.jobs = @(); $global:BaselineFixture.artifacts = @()
+}
 function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Seconds, [double]$Latency) {
     . "$PSScriptRoot\UiScaleUnionFixture.ps1"
     . "$root\eng\NonUiCohort.ps1"
-    $directory = Join-Path $fixture "evidence-$Revision-$Number"
+    $runId = [string]$global:BaselineFixture.cohortRun
+    $directory = Join-Path $fixture "evidence-$Revision-$runId-$Number"
     $nonUi = Join-Path $directory 'non-ui'
     $invocation = [guid]::NewGuid().ToString('N')
     $runName = "run-$invocation"
+    $cohortId = "$Revision-$runId-1"
     New-Item -ItemType Directory -Path (Join-Path $nonUi $runName) -Force | Out-Null
     $report = @{
         schemaVersion = 1; suite = 'non-ui-performance'; revision = $Revision; expectedRevision = $Revision
-        cohortId = "$Revision-99-1"; sample = $Number; invocationId = $invocation; runId = '99'; runAttempt = '1'
+        cohortId = $cohortId; sample = $Number; invocationId = $invocation; runId = $runId; runAttempt = '1'
         filter = 'Category=Performance'; requiredTests = @($PerformanceTests)
         outcome = 'success'; observedOutcome = 'success'; diagnosticOnly = $false; phase = 'finished'
         trackedChanges = $false; untrackedChanges = $false; ceilingSeconds = 660; observationSeconds = 660
@@ -85,7 +104,7 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
         percentile = 'Nearest rank: sorted sample at ceil(0.95 * count), one based.' }
     $log += 'SCALE ORDINARY-PROFILE ' + ($profile | ConvertTo-Json -Compress)
     $log | Set-Content (Join-Path $nonUi "$runName\scale-measurements.log")
-    $rich = New-RichCohortSampleFixture (Join-Path $directory 'rich') $Revision $Number '99' '1'
+    $rich = New-RichCohortSampleFixture (Join-Path $directory 'rich') $Revision $Number $runId '1'
     foreach ($worker in @('prefix', 'tail')) {
         $path = Join-Path $rich[$worker] 'result.json'
         $data = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable
@@ -105,28 +124,30 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
                 $note = Get-Content $notePath -Raw | ConvertFrom-Json -AsHashtable
                 $note.localDurability.samplesMs = @($Latency) * 21; $note.localDurability.p95Ms = $Latency
                 $note.localDurability.budgetMs = 1500; $note.localDurability.policyVersion = 'ci-timing-v2'
+                $note.localDurability.temporaryCeiling = $false
+                $note.localDurability.goalMet = $Latency -le 1000
                 $note | ConvertTo-Json -Depth 15 | Set-Content $notePath
             }
         }
     }
     & "$root\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $rich.prefix -TailDirectory $rich.tail `
-        -ExpectedRevision $Revision -RunId 99 -RunAttempt 1 -ResultsDirectory (Join-Path $directory 'active-union') `
-        -CohortId "$Revision-99-1" -Sample $Number -ExpectedPolicyVersion ci-timing-v2
+        -ExpectedRevision $Revision -RunId $runId -RunAttempt 1 -ResultsDirectory (Join-Path $directory 'active-union') `
+        -CohortId $cohortId -Sample $Number -ExpectedPolicyVersion ci-timing-v2
     $rich.union = Join-Path $directory 'active-union'
     foreach ($worker in @('non-ui', 'prefix', 'tail', 'union')) {
-        $name = if ($worker -ceq 'non-ui') { "non-ui-cohort-$Revision-99-1-sample-$Number" }
-            else { "rich-cohort-$Revision-99-1-sample-$Number-$worker" }
+        $name = if ($worker -ceq 'non-ui') { "non-ui-cohort-$cohortId-sample-$Number" }
+            else { "rich-cohort-$cohortId-sample-$Number-$worker" }
         $global:BaselineFixture.evidence[$name] = if ($worker -ceq 'non-ui') { $nonUi } else { $rich[$worker] }
-        $id = 1000 + 10 * $Number + [array]::IndexOf(@('non-ui', 'prefix', 'tail', 'union'), $worker)
+        $id = [int]$runId * 100 + 10 * $Number + [array]::IndexOf(@('non-ui', 'prefix', 'tail', 'union'), $worker)
         $global:BaselineFixture.jobs += @{ id = $id; runner_id = $id + 1000; status = 'completed'; conclusion = 'success'
             name = if ($worker -ceq 'non-ui') { "Non-UI cohort sample ($Number)" } else { "Rich cohort $worker ($Number)" } }
         $global:BaselineFixture.artifacts += @{ id = $id + 2000; name = $name; expired = $false
             expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('d' * 64)
-            workflow_run = @{ id = 99; head_sha = $global:BaselineFixture.controller } }
+            workflow_run = @{ id = [long]$runId; head_sha = $global:BaselineFixture.controller } }
     }
 }
 try {
-    $remote = Join-Path $fixture 'remote.git'
+    $remote = Join-Path $fixture 'remote with spaces.git'
     $source = Join-Path $fixture 'source'
     & git init --bare --quiet $remote
     & git clone --quiet $remote $source
@@ -154,7 +175,7 @@ try {
         'High-resolution Windows smoke (context)', 'CI') | ForEach-Object {
         @{ name = $_; status = 'completed'; conclusion = 'success' }
     })
-    $global:BaselineFixture = @{ ci = $ci; ciJobs = $ciJobs; controller = $second; status = 'in_progress'
+    $global:BaselineFixture = @{ ci = $ci; ciJobs = $ciJobs; controller = $second; cohortRun = 99; status = 'in_progress'
         outcome = $null; jobs = @(); artifacts = @(); evidence = @{} }
     $work = Join-Path $fixture 'plan'
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $second -CiRunId 42 -CiRunAttempt 1 `
@@ -220,6 +241,52 @@ try {
     $referencePaths = @(& git --git-dir=$remote ls-tree -r --name-only refs/heads/ci-health-data |
         Where-Object { $_.StartsWith('timing-references/') })
     Assert ($referencePaths.Count -eq 1) 'An eligible complete first series did not publish an immutable canonical reference.'
+    Assert ((Get-Content (Join-Path $candidateWork 'summary.md') -Raw).Contains('eligible reference event published') -and
+        !(Get-Content (Join-Path $candidateWork 'summary.md') -Raw).Contains('Active-reference promotion: **disabled**')) `
+        'Successful automatic promotion still reported observation-only disabled policy.'
+    $ci.id = 43; $ci.head_sha = $third
+    $global:BaselineFixture.cohortRun = 100; $global:BaselineFixture.controller = $third
+    $global:BaselineFixture.jobs = @(); $global:BaselineFixture.artifacts = @()
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $third -CiRunId 43 -CiRunAttempt 1 `
+        -CohortRunId 100 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'next-plan') -RichScale -PublishPlan `
+        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    for ($number = 1; $number -le 3; $number++) {
+        New-CompleteBaselineSample $number $third @(149, 150, 151)[$number - 1] @(496, 500, 504)[$number - 1]
+    }
+    $nextWork = Join-Path $fixture 'next-reference'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $third -CiRunId 43 -CiRunAttempt 1 `
+        -CohortRunId 100 -CohortRunAttempt 1 -WorkingDirectory $nextWork -RichScale -Publish `
+        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    $next = Get-Content (Join-Path $nextWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($next.eligibility -ceq 'eligible' -and $next.reference.revision -ceq $second -and
+        $next.extraSamples.Count -eq 0 -and $next.reference.medianSeconds -eq 150 -and $next.reference.deltaSeconds -eq 0) `
+        'New application revision required identical code, self-baselined or failed automatic compatible three-run promotion.'
+    $fourth = Add-MainFixtureRevision 'Otherwise complete warning candidate'
+    Select-BaselineFixture $fourth 44 101
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $fourth -CiRunId 44 -CiRunAttempt 1 `
+        -CohortRunId 101 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'extension-plan') -RichScale -PublishPlan `
+        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    for ($number = 1; $number -le 3; $number++) {
+        New-CompleteBaselineSample $number $fourth @(151, 151.5, 153)[$number - 1] @(501, 502, 503)[$number - 1]
+    }
+    $decisionWork = Join-Path $fixture 'extension-decision'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $fourth -CiRunId 44 -CiRunAttempt 1 `
+        -CohortRunId 101 -CohortRunAttempt 1 -WorkingDirectory $decisionWork -RichScale -PublishDecision `
+        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    $decision = Get-Content (Join-Path $decisionWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($decision.eligibility -ceq 'extend' -and ($decision.extraSamples -join ',') -ceq '4,5' -and
+        $decision.reference.revision -ceq $third) 'Otherwise complete warning did not preserve comparison before exactly two additional executions.'
+    foreach ($number in @(4, 5)) { New-CompleteBaselineSample $number $fourth 152 502 }
+    $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+    $fiveWork = Join-Path $fixture 'extended-reference'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $fourth -CiRunId 44 -CiRunAttempt 1 `
+        -CohortRunId 101 -CohortRunAttempt 1 -WorkingDirectory $fiveWork -RichScale -Publish `
+        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+    $five = Get-Content (Join-Path $fiveWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($five.samples.Count -eq 5 -and $five.eligibility -ceq 'eligible' -and $five.timingHealth -ceq 'yellow' -and
+        $five.extraSamples.Count -eq 0 -and $five.historySnapshot -ceq $decision.historySnapshot -and
+        $five.reference.revision -ceq $third -and $five.metrics.executionSeconds.median -eq 152) `
+        'Stable five-run warning lost its pinned comparison, median, warning history or automatic eligible promotion.'
     Write-Host "PASS: $checks public automatic baseline checks."
     $global:LASTEXITCODE = 0
 } finally {
