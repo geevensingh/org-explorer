@@ -1,11 +1,26 @@
 # CI reliability and timing health
 
-**Status:** Approved design and implementation plan; not implemented.
+**Status:** Implementation integrated on `integration/ci-reliability`; final
+complete hosted verification and joint `main` delivery pending under #133.
 
-**Reviewed baseline:** freshly fetched `main` at
+**Reviewed design baseline:** freshly fetched `main` at
 `caec4da7a96a57a5e49b3ea047f29eaabf299835`, verified on 2026-11-25.
 Implementation must repeat the [implementation preflight](agents/implementation-preflight.md).
 This document does not amend today's acceptance rules by itself.
+
+**Current integration policy:** the [approved versioned policy](ci-timing-policy-proposal.md)
+is implemented by #131/#132 as source-bound `ci-timing-v2`: rich prefix
+900-second safety/30-minute watchdog, both rich note phases 1,000-ms goal and
+1,500-ms inclusive ceiling. Serious-relative blocking additionally requires
+five complete comparable executions and both 20%/100-ms product-latency or
+20%/30-second whole-duration floors, alongside the approved empirical rule.
+Other product, causal, matrix and sample requirements are unchanged.
+
+The original 660-second/1,050-ms observations below retain their original
+policies and verdicts. Pre-delivery pilot/manual/diagnostic evidence cannot
+become a canonical `main` reference. Automatic default-branch activation and
+production history establishment remain pending joint delivery; public isolated
+Git fixtures prove those contracts without granting production authority.
 
 ## Objective
 
@@ -26,7 +41,7 @@ A completed run can pass validation while timing health is yellow. A run killed
 before completing its assertions has incomplete validation, not proof that the
 product is wrong and not permission to report a pass.
 
-## Starting evidence and current contracts
+## Starting evidence and original contracts
 
 The initial read-only inventory found these lanes at the reviewed revision.
 The audit must verify the full selection beneath each entry, not just workflow
@@ -41,13 +56,14 @@ names or green workflow conclusions.
 | Installer | Separate path-filtered/manual installer lifecycle checks with their stated platform and trust limitations |
 | Release and renewal | Fresh exact-candidate verification, current-run/attempt artifacts, publication provenance and renewal checks; historical success is not fresh acceptance |
 
-Current CI lane execution ceilings include 300, 660 and 900 seconds. Non-UI
+At the reviewed design baseline, CI lane execution ceilings included 300, 660
+and 900 seconds. Non-UI
 performance and each rich UI-scale worker have a 660-second whole-execution
 acceptance budget, including setup and cleanup. A larger Actions job timeout is
 reporting/watchdog allowance, not extra passing time. Extended scale observation
 is diagnostic and cannot currently qualify for acceptance.
 
-Rich note durability currently has a 1,000-ms goal and an explicitly temporary
+At that baseline, rich note durability had a 1,000-ms goal and an explicitly temporary
 1,050-ms enforced ceiling. Other product latency and correctness contracts remain
 separate. Preserve raw samples, required sample counts and existing percentile
 calculations; a cohort median must not replace a per-run acceptance assertion.
@@ -292,10 +308,14 @@ and return the verified immutable source branch, base commit, documentation
 commit and exact file list in the producer's handoff record. Do not infer the
 documentation commit from a later moving branch tip.
 
-Integration owner and receiving branch are pending at planning time. The
-implementation receiver must establish them, verify and incorporate this
-document before starting code or dispatching dependent work, and deliver its
-matching behavior and documentation together.
+The approved source is `geevensingh-ci-reliability-design`, documentation commit
+`4334a254827d450151b536347b52dc20b49fd487`, immediately based on
+`caec4da7a96a57a5e49b3ea047f29eaabf299835`, changing exactly
+`docs/ci-reliability-plan.md` in `geevensingh/org-explorer`. Integration owner
+#123 established `integration/ci-reliability` and incorporated that source commit
+by ancestry. Its immutable handoff fields do not move with later implementation
+or documentation updates. Each receiver must reverify source/incorporation and
+the freshly fetched integration baseline in its own worktree.
 
 Keep this design unmerged into `main` until joint delivery under the
 [documentation handoff contract](agents/documentation-handoff.md). The planning

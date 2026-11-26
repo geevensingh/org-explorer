@@ -1,10 +1,11 @@
 # Timing policy: ci-timing-preview-v2
 
-**Status: approved v2 runner/result policy activated by #131.**
+**Status: approved `ci-timing-v2` runner/result gates and canonical promotion
+implemented on integration by #131/#132; final verification and joint delivery pending.**
 The owner approved the [watchdog/rich-note amendment](https://github.com/geevensingh/org-explorer/issues/130#issuecomment-7179249205)
 and [practical-significance floors](https://github.com/geevensingh/org-explorer/issues/130#issuecomment-7179368429).
-#130 is closed after independent verification. #131 owns gate/runner/validator
-activation; #132 owns canonical promotion; #133 still owns final complete verification.
+#130, #131 and #132 are closed after independent integration verification.
+#133 still owns final complete hosted verification and the joint-delivery record.
 Existing acceptance and historical verdicts remain enforced. No additional
 measurement executions are requested by this policy or the preview code.
 
@@ -177,13 +178,13 @@ minimum L, maximum U, median M and full observed range R=U-L. A user's21 raw
 latency samples still produce that execution's original nearest-rank p95;
 three p95 values from three workers are not63 independent executions.
 
-| Metric/workload | Healthy / warning policy | Approved blocking requirement / safety, pending activation |
+| Metric/workload | Healthy / warning policy | Implemented blocking requirement / safety |
 |---|---|---|
 | Core whole duration | Empirical envelope; existing300s target remains descriptive | Preserve300s policy/safety; no evidence justifies padding this lane |
 | Filesystem whole duration | Empirical envelope; existing300s target descriptive | Preserve660s safety and full real-storage selection |
 | Each desktop/high-resolution partition | Empirical envelope, per actual partition/companions | Preserve900s safety, full UI/state/size matrices |
 | Non-UI whole duration | Empirical envelope, no healthy band inferred from mixed pilots | Preserve660s safety; observed complete workers are far below it |
-| Rich prefix whole duration | Empirical envelope; unavailable reference means unbaselined | **900s safety instead of660s whole-suite acceptance**, with**30m watchdog**, after consistent activation |
+| Rich prefix whole duration | Empirical envelope; unavailable reference means unbaselined | **900s safety instead of660s whole-suite acceptance**, with**30m watchdog**, source-bound v2 |
 | Rich tail whole duration | Separate empirical envelope; never summed with prefix/non-UI | Preserve660s safety; only two complete pilot tails, so healthy band pending |
 | Rich normal/held note p95 | Goal<=1000ms; goal miss within1500ms is yellow unless supported serious-relative red; otherwise envelope | Each p95<=**1500ms**, inclusive, all21 during-typing/final-writing checks; owner-approved change from1050ms, activated only by #131 |
 | Non-UI/rich/ordinary profile p95; ordinary note durability | Empirical comparison plus existing one-second requirement | Preserve original1000ms limits and all raw/per-run assertions; no rich exception for ordinary notes |
@@ -300,7 +301,7 @@ Application commit/binary hashes remain provenance across revisions, not equalit
 keys; the stricter exact identities within each real rich handoff stay enforced.
 
 Changed compatible workload/environment definitions may bootstrap a new eligible
-series automatically once this algorithm is approved, never auto-change hard
+series automatically under the approved algorithm, never auto-change hard
 product requirements. Keep all-attempt trends and prior references, including
 age and raw artifact expiry. Compact validated numeric history survives expiry;
 it never certifies fresh release acceptance. Release compares only an already
@@ -310,9 +311,10 @@ available reference and never waits for or self-baselines against collection.
 
 Keep one active noncancelling reference cohort, sequential independent samples,
 and at most two measurement workers within a sample (non-UI plus prefix).
-Tail waits only for its own handoff; union follows it. This changes concurrency
-from the currently independent collector and belongs to activation, not this
-ticket. It must not share production-release cancellation/concurrency.
+Tail waits only for its own handoff; union follows it. The integrated automatic
+and non-promoting pilot workflows implement this bound in their separate
+noncancelling collection group. It does not share production-release
+cancellation/concurrency.
 
 The original full pilot consumed approximately775/786 worker-seconds in its two
 complete samples and at least846s in its failed third (runner sums, not billing).
@@ -388,12 +390,14 @@ authority remains baseline-ineligible; absent data-branch history is visible.
 
 **Approved handoff version: ci-timing-preview-v2**, including both linked owner
 amendments. Unsupported fixed healthy/noise bands remain pending, not invented.
-Independent verification must confirm proposal/public examples/code agreement
-before #130 closes. #131 must update runners, watchdogs, deadline propagation,
-raw rich-note policy metadata, result/union validators, collectors, gates and
-documentation consistently to this same version. #132 must implement trusted
-promotion/series/ancestry and must never let artifact-declared limits confer
-authority. #133 must demonstrate three eligible complete full samples after
-activation, with every original failed/incomplete/cancelled attempt and the
-unresolved #154 limitation intact. No further measurement, main merge, promotion
-or activation is performed in this calibration amendment.
+The independently integrated #131/#132 implementations consume this same
+approved policy through runners, watchdogs, deadline propagation, raw rich-note
+metadata, validators, collectors, gates and trusted promotion/series/ancestry.
+Artifact-declared limits cannot confer authority. #133 must demonstrate three
+complete policy-accepted full samples, retaining every original failed,
+incomplete or cancelled attempt and the unresolved #154 limitation. Its
+pre-delivery pilot is explicitly non-promoting: actual hosted acceptance is not
+canonical `main` eligibility. Public isolated Git fixtures prove promotion and
+ordering; default-branch controller activation and production references remain
+pending joint delivery. The calibration amendment itself performed no further
+measurement, main merge, promotion or activation.

@@ -5,6 +5,17 @@ and agents ([approved spec #21](https://github.com/geevensingh/org-explorer/issu
 Choose the lowest-cost agreed surface that can prove the behavior, not a project
 name. A desktop click alone does not establish a successful navigation or save.
 
+The CI reliability implementation is integrated under source-bound
+`ci-timing-v2`; final complete hosted verification and joint `main` delivery
+remain pending. The [approved policy](ci-timing-policy-proposal.md) distinguishes
+current 900s/30m rich-prefix and 1000ms/1500ms rich-note rules from original
+660s/1050ms results. Legacy observation/preview sections retain their original
+scope, not a claim that current complete-cohort gates are inactive.
+Pre-delivery full pilots are read-only, baseline-ineligible measurements; their
+three complete accepted executions cannot establish canonical `main` authority.
+Default-branch automatic workflow activation and production history are separate
+from isolated public-contract fixtures and remain pending joint delivery.
+
 Visual-refresh journeys can capture named, already-observed states through the
 shared `CaptureVisualEvidence` harness helper. It reads actual desktop pixels
 without opening, focusing, resizing or repairing a view. The existing hosted
@@ -43,7 +54,7 @@ check, not the requested percentage, proves that browsing was preserved.
 The #130 staged diagnostic uses the registered Scale verification workflow's
 `prefix_only_diagnostic` manual input at its exact workflow-source SHA. Only one
 rich prefix runs: 900 seconds of observation, a 17-minute hosted watchdog, and
-the observation deadline inherited by the held publisher. Normal executions
+the observation deadline inherited by the held publisher. Normal executions at that original diagnostic source
 still inherit 660 seconds. Both absolute deadlines are retained in runner JSON;
 cleanup still enforces the original 660-second verdict even if diagnostic work
 finishes later. Diagnostic artifacts cannot accept a candidate or supply a
