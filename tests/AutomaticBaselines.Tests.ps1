@@ -1,4 +1,4 @@
-param([switch]$PlanOnly)
+param([switch]$PlanOnly, [switch]$SmokeOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -189,7 +189,7 @@ try {
     if ($PlanOnly) { Write-Host "PASS: $checks automatic baseline plan checks."; return }
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $second -CiRunId 42 -CiRunAttempt 1 `
         -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'durable-plan') -RichScale `
-        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2 -BootstrapRevision $second -PublishPlan
+        -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2 -InitializeBootstrap -PublishPlan
     $bootstrap = (& git --git-dir=$remote show 'refs/heads/ci-health-data:timing-bootstrap/ci-timing-v2.json') -join "`n" |
         ConvertFrom-Json -AsHashtable
     Assert ($bootstrap.revision -ceq $second -and $bootstrap.policyVersion -ceq 'ci-timing-v2') `
@@ -244,6 +244,11 @@ try {
     Assert ((Get-Content (Join-Path $candidateWork 'summary.md') -Raw).Contains('eligible reference event published') -and
         !(Get-Content (Join-Path $candidateWork 'summary.md') -Raw).Contains('Active-reference promotion: **disabled**')) `
         'Successful automatic promotion still reported observation-only disabled policy.'
+    if ($SmokeOnly) {
+        Write-Host "PASS: $checks public automatic baseline smoke checks."
+        $global:LASTEXITCODE = 0
+        return
+    }
     $ci.id = 43; $ci.head_sha = $third
     $global:BaselineFixture.cohortRun = 100; $global:BaselineFixture.controller = $third
     $global:BaselineFixture.jobs = @(); $global:BaselineFixture.artifacts = @()

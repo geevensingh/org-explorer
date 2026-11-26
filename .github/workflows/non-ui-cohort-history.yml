@@ -27,7 +27,7 @@ jobs:
           OBSERVED_RUN: ${{ github.event.workflow_run.id }}
           OBSERVED_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
-          .\eng\Invoke-NonUiCohortObservation.ps1 -RunId ([long]$env:OBSERVED_RUN) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\cohort-history
+          .\eng\Invoke-NonUiCohortObservation.ps1 -RunId ([long]$env:OBSERVED_RUN) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\cohort-history -ApprovedPolicyVersion ci-timing-v2
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:

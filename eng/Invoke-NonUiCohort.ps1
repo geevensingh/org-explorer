@@ -17,6 +17,7 @@ param(
     [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2')][string]$TimingPolicyVersion = 'ci-timing-preview-v2',
     [ValidateSet('ci-timing-v2')][string]$ApprovedPolicyVersion,
     [ValidatePattern('^[0-9a-f]{40}$')][string]$BootstrapRevision,
+    [switch]$InitializeBootstrap,
     [switch]$PublishPlan,
     [switch]$PublishDecision,
     [switch]$Publish,
@@ -39,6 +40,9 @@ if ($ApprovedPolicyVersion -and (!$RichScale -or $Pilot -or $TimingPolicyPreview
 }
 if ($PublishPlan -and (!$ApprovedPolicyVersion -or $Stage -cne 'Plan')) {
     throw 'Durable collection plans require explicit approved automatic planning.'
+}
+if ($InitializeBootstrap -and (!$PublishPlan -or $BootstrapRevision)) {
+    throw 'Explicit latest-main bootstrap initialization is trusted automatic planning only, never a moving replacement.'
 }
 if ($PublishDecision -and (!$ApprovedPolicyVersion -or $Stage -cne 'Summarize' -or $ExpectedSamples -ne 3)) {
     throw 'Only the approved three-execution decision can authorize bounded cohort extension.'
@@ -79,6 +83,9 @@ if ($Stage -ceq 'Plan') {
     }
     $collect = !@($previous | Where-Object { $_.revision -ceq $Revision }).Count
     if ($ApprovedPolicyVersion) {
+        if ($InitializeBootstrap -and !@($history.records | Where-Object {
+            $_.Contains('recordType') -and $_.recordType -ceq 'timing-bootstrap'
+        }).Count) { $BootstrapRevision = $history.mainRevision }
         $BootstrapRevision = Get-TimingBootstrap $history $BootstrapRevision
     } elseif (!$Pilot) {
         $main = Invoke-HealthApi 'git/ref/heads/main'
