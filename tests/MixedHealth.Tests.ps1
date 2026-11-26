@@ -20,6 +20,8 @@ function gh {
         $directory = $a[[Array]::IndexOf($a, '--dir') + 1]
         New-Item -ItemType Directory -Path $directory -Force | Out-Null
         Copy-Item (Join-Path $f.evidence '*') $directory
+    } elseif ($a[1] -cmatch '/git/trees/[0-9a-f]{40}\?recursive=1$') {
+        @{ truncated = $false; tree = @() } | ConvertTo-Json -Depth 5
     } elseif ($a[1] -cmatch '/jobs\?') {
         ConvertTo-Json -InputObject @(@{ jobs = @(@{ id = 172
             name = if ($f.lane -ceq 'core') { 'Core and view models' } else { 'Real filesystem persistence' }

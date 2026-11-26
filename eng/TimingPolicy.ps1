@@ -23,7 +23,7 @@ function Get-SourceTimingPolicyVersion([string]$Revision, [switch]$Hosted, [stri
         if ($blob.encoding -cne 'base64') { throw 'Unsupported timing policy source encoding.' }
         $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($blob.content))
     } else {
-        $gitArguments = if ($GitDirectory) { @("--git-dir=$GitDirectory") }
+        [string[]]$gitArguments = if ($GitDirectory) { @("--git-dir=$GitDirectory") }
             else { @('-C', (Split-Path $PSScriptRoot -Parent)) }
         $entry = @(git @gitArguments ls-tree $Revision -- $path)
         if ($LASTEXITCODE -ne 0) { throw 'Trusted timing policy source revision is unavailable.' }
@@ -302,7 +302,15 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
         elseif ($evaluation.validationBlocking) { 'inconclusive' }
         elseif (!$evaluation.metrics.Count -or @($evaluation.metrics.Values | Where-Object { $_.health -cne 'green' }).Count) { 'unbaselined' } else { 'green' }
     $evaluation.blocking = $evaluation.validationBlocking -or $red
+    $relativeUncertain = @($evaluation.metrics.Values | Where-Object {
+        $_.Contains('relativeRule') -and $_.relativeRule -cne 'informational' -and $_.relativeHealth -ceq 'inconclusive'
+    }).Count -gt 0
+    if ($Record.recordType -ceq 'performance-cohort' -and !$evaluation.blocking -and !$relativeUncertain -and
+        (Get-TimingCohortKey $Record) -and $Record.samples.Count -eq 3 -and $yellow) {
+        $evaluation.additionalSamples = @(4, 5)
+    }
     $evaluation.eligibility = if ($evaluation.blocking) { 'rejected' }
+        elseif ($relativeUncertain) { 'inconclusive' }
         elseif ($evaluation.additionalSamples.Count) { 'extend' }
         elseif ($evaluation.eligibility -ceq 'inconclusive') { 'inconclusive' } else { 'eligible' }
     foreach ($metric in $evaluation.metrics.Values) {

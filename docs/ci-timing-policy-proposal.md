@@ -1,10 +1,10 @@
 # Timing policy: ci-timing-preview-v2
 
-**Status: amended numerical policy approved; observation only, not activated.**
+**Status: approved v2 runner/result policy activated by #131.**
 The owner approved the [watchdog/rich-note amendment](https://github.com/geevensingh/org-explorer/issues/130#issuecomment-7179249205)
 and [practical-significance floors](https://github.com/geevensingh/org-explorer/issues/130#issuecomment-7179368429).
-#130 remains open until independent verification. #131 owns gate/runner/validator
-activation; #132 owns canonical promotion; #133 owns final complete verification.
+#130 is closed after independent verification. #131 owns gate/runner/validator
+activation; #132 owns canonical promotion; #133 still owns final complete verification.
 Existing acceptance and historical verdicts remain enforced. No additional
 measurement executions are requested by this policy or the preview code.
 
@@ -21,9 +21,24 @@ Historical `ci-timing-preview-v1`, its17-minute/1050ms values and its unapproved
 preview grades remain available at
 [the preserved source](https://github.com/geevensingh/org-explorer/blob/2f9050f020df974da1ba7a4e33a13e32cbe3fa3f/docs/ci-timing-policy-proposal.md).
 The public observers also accept `TimingPolicyVersion ci-timing-preview-v1` for
-read-only replay. Version selection cannot authorize dispatch, gates or history
+read-only replay. Preview version selection cannot authorize dispatch, gates or history
 writes. New previews default to approved v2; original raw policy/validation is
 kept separate from the approved absolute-requirement preview.
+
+Current source commits carry `eng/timing-policy.json` with the approved active
+identifier `ci-timing-v2`. Runners and rich raw metadata use that identifier.
+Collectors derive the expected policy from the exact trusted source Git object
+(or authenticated immutable source tree), never a result's declared ceiling.
+An absent source marker selects `rich-scale-original-v1`; unknown versions or
+extra policy fields fail closed. Validators retain explicit legacy consumption
+at660s/1050ms; old diagnostics and preview records are not converted to v2.
+The shared evaluator reports `timingEvaluation` separately from `policyPreview`
+and original validation. Yellow/unbaselined alone do not block, and zero-range/
+zero-median relative uncertainty cannot authorize promotion. Complete three-run
+yellow evidence requests only samples4/5; actual failures do not request retries.
+The prefix now uses900s safety and30m watchdog; the tail/non-UI remain660s/13m.
+Both rich note phases enforce1500ms inclusively with a1000ms goal. This activates
+contracts, not proof of three complete hosted executions or canonical rollout.
 
 ## Verified baseline and diagnostic
 

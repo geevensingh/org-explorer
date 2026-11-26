@@ -67,8 +67,11 @@ function Assert-UiScaleWorkerReport($Report, [string] $Worker, [string] $Revisio
         $report.trackedChanges -isnot [bool] -or $report.trackedChanges -or
         $report.untrackedChanges -isnot [bool] -or $report.untrackedChanges -or
         $report.diagnosticOnly -isnot [bool] -or $report.diagnosticOnly -or
+        $report.ceilingSeconds -isnot [ValueType] -or $report.ceilingSeconds -is [bool] -or
+        $report.observationSeconds -isnot [ValueType] -or $report.observationSeconds -is [bool] -or
         $report.ceilingSeconds -ne $ceiling -or $report.observationSeconds -ne $ceiling -or
-        $null -eq $report.executionSeconds -or ![double]::IsFinite($report.executionSeconds) -or
+        $report.executionSeconds -isnot [ValueType] -or $report.executionSeconds -is [bool] -or
+        ![double]::IsFinite($report.executionSeconds) -or
         $report.executionSeconds -lt 0 -or $report.executionSeconds -gt $ceiling -or
         !$report.startedAt -or !$report.completedAt -or
         [DateTimeOffset]$report.completedAt -lt [DateTimeOffset]$report.startedAt -or

@@ -53,4 +53,30 @@ function Assert-ReleaseVerification(
             Assert-PerformanceResults $run
         }
     }
+    if ($ExpectedPolicyVersion -ceq 'ci-timing-v2') {
+        $evaluations = @()
+        $union = Get-Content (Join-Path $UiScaleDirectory 'result.json') -Raw | ConvertFrom-Json
+        $owned = Join-Path $UiScaleDirectory $union.runDirectory
+        foreach ($worker in @('prefix', 'tail')) {
+            $result = Get-UiScaleWorkerResult (Join-Path $owned $worker) $worker $Candidate $union.runId $union.runAttempt -ExpectedPolicyVersion $ExpectedPolicyVersion
+            $metrics = @()
+            if ($worker -ceq 'prefix') {
+                foreach ($phase in @('normal-executable', 'background-export')) {
+                    $note = Get-Content (Join-Path $result.run "scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json") -Raw |
+                        ConvertFrom-Json -AsHashtable
+                    $metrics += @{ name = "note-durability-$phase"; value = $note.localDurability.p95Ms
+                        samples = $note.localDurability.samplesMs; budgetMs = 1500; goalMs = 1000 }
+                }
+            }
+            $record = @{
+                recordType = 'release-verification'; lane = "ui-scale-$worker"; validation = 'success'
+                revision = $Candidate; runId = $union.runId; runAttempt = $union.runAttempt
+                measurements = @{ executionSeconds = $result.report.executionSeconds; metrics = $metrics }
+            }
+            Set-TimingPolicyEvaluation $record
+            $evaluations += $record
+            if ($env:GITHUB_STEP_SUMMARY) { Format-TimingPolicyEvaluation $record.timingEvaluation | Add-Content $env:GITHUB_STEP_SUMMARY }
+        }
+        ConvertTo-Json -InputObject @($evaluations) -Depth 30 | Set-Content (Join-Path $UiScaleDirectory 'timing-evaluation.json')
+    }
 }

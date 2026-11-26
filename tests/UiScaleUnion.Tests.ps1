@@ -25,6 +25,39 @@ $report | ConvertTo-Json -Depth 12 | Set-Content $path
 $report | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $active.prefix "$($active.runName)\result.json")
 Assert-UiScaleUnion $active.prefix $active.tail $candidate '123' '2' -ExpectedPolicyVersion ci-timing-v2
 $checks++
+foreach ($defect in @('prefix-safety', 'tail-safety', 'declared-ceiling', 'string-duration', 'string-ceiling',
+    'diagnostic', 'unfinished', 'note-ceiling', 'source-policy', 'legacy-source')) {
+    $active = New-UiScaleUnionFixture (Join-Path $ResultsDirectory "active-$defect") $candidate -TimingPolicyVersion ci-timing-v2
+    $expected = 'ci-timing-v2'
+    $worker = if ($defect -ceq 'tail-safety') { 'tail' } else { 'prefix' }
+    $path = Join-Path $active[$worker] 'result.json'
+    $report = Get-Content $path -Raw | ConvertFrom-Json
+    switch ($defect) {
+        'prefix-safety' { $report.executionSeconds = 900.0001 }
+        'tail-safety' { $report.executionSeconds = 660.0001 }
+        'declared-ceiling' { $report.ceilingSeconds = 1800; $report.observationSeconds = 1800 }
+        'string-duration' { $report.executionSeconds = '1' }
+        'string-ceiling' { $report.ceilingSeconds = '900' }
+        'diagnostic' { $report.diagnosticOnly = $true }
+        'unfinished' { $report.phase = 'cleanup' }
+        'source-policy' { $report.policyVersion = 'ci-timing-v3' }
+        'legacy-source' { $expected = 'rich-scale-original-v1' }
+        'note-ceiling' {
+            $notePath = Join-Path $active.prefix "$($active.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-background-export.json"
+            $note = Get-Content $notePath -Raw | ConvertFrom-Json
+            $note.localDurability.samplesMs = @(1) * 19 + @(1500.0001, 1520)
+            $note.localDurability.p95Ms = 1500.0001; $note.localDurability.goalMet = $false
+            $note | ConvertTo-Json -Depth 12 | Set-Content $notePath
+        }
+    }
+    $report | ConvertTo-Json -Depth 12 | Set-Content $path
+    $report | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $active[$worker] "$($active.runName)\result.json")
+    $rejected = $false
+    try { Assert-UiScaleUnion $active.prefix $active.tail $candidate '123' '2' -ExpectedPolicyVersion $expected }
+    catch { $rejected = $true }
+    if (!$rejected) { throw "Active policy accepted $defect." }
+    $checks++
+}
 foreach ($phase in @('normal-executable', 'background-export')) {
     foreach ($case in @(
         @{ p95 = 1000.0; rejected = $false },

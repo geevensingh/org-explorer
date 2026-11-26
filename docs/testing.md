@@ -63,8 +63,9 @@ incomplete/no-reference states. See the
 rich-note1000ms goal/1500ms ceiling in both phases, and BOTH20%/100ms latency or
 20%/30s duration practical floors on top of the full five-run relative rule.
 `TimingPolicyVersion ci-timing-preview-v1` retains read-only old17-minute/1050ms
-preview behavior. These are previews, not #131 activation: original1050ms/660s
-results remain under their original validation. Public checks include inclusive
+preview behavior. Preview selection never activates a gate. #131 separately
+activates source-bound `ci-timing-v2`; original1050ms/660s results remain under
+their original validation. Public checks include inclusive
 1500ms and practical boundaries, missing/zero-median uncertainty and the
 nonblocking1000→1050 example. They do not establish hosted speed or rollout.
 
@@ -2827,10 +2828,12 @@ Optional cohort/sample runner bindings supplement, never replace, the existing
 same-candidate source/product/native and run/attempt identities. A tail cannot
 consume another sample's prefix, and the collector revalidates both original
 artifacts and the union's owned copies. Each measurement worker retains its own
-660-second setup-through-cleanup acceptance budget and thirteen-minute watchdog.
+source-bound setup-through-cleanup safety limit: prefix900 seconds/30-minute
+watchdog; tail and non-UI660 seconds/thirteen-minute watchdog.
 Worker durations are separate; their sum is not one 660-second execution.
-Rich note durability keeps its temporary enforced 1,050-ms ceiling and 1,000-ms
-goal; ordinary profile p95 keeps its 1,000-ms limit.
+Rich note durability uses the approved enforced1,500-ms ceiling and1,000-ms
+goal under `ci-timing-v2`; legacy sources retain1,050ms. Ordinary profile p95
+keeps its1,000-ms limit.
 
 Raw evidence has exact candidate/cohort/run/attempt/sample/worker names and
 30-day retention. Repeated collector downloads use fresh physical directories.
@@ -2844,9 +2847,10 @@ individual measurement and descriptive median/range survives in compact history.
 Missing/failed/skipped/cancelled/diagnostic evidence rejects complete acceptance;
 no failure is voted away or replaced by a green retry.
 
-Live collection policy remains `rich-cohort-observation-v2`: approved timing
-preview `ci-timing-preview-v2` awaits #131/#132 activation and promotion stays
-disabled. Isolated `TEST-rich-range-v2` exercises
+Observation collection retains `rich-cohort-observation-v2`, with source-bound
+`effectivePolicyVersion` distinguishing current `ci-timing-v2` raw acceptance
+from immutable legacy observations. Canonical promotion still belongs to #132.
+Isolated `TEST-rich-range-v2` exercises
 otherwise eligible inconsistency extending from three to at most five complete
 executions; the live workflow cannot invent that policy or publish TEST records.
 Collection has a distinct noncancelling queued concurrency group, not release
@@ -3051,20 +3055,22 @@ informational editor/navigation timings so functional validation can finish
 without further performance work. Their historical 100-ms `budgetMs` references
 remain, with `budgetEnforced: false` and `timingUse: informational`; every sample,
 percentile and functional usable-state assertion is retained. Ordinary
-durable-save p95 retains its 1,000-ms goal. On 2026-11-24 the owner approved a
-temporary 1,050-ms **enforced** ceiling only for these rich ordinary note saves
-in both `normal-executable` and `background-export`. The note result contract
-records `localDurability.goalMs: 1000`, `budgetMs: 1050`,
-`budgetEnforced: true`, `temporaryCeiling: true` and `timingUse: acceptance`.
+durable-save p95 retains its1,000-ms goal. #130's approved v2 policy, activated
+by #131, enforces1,500ms only for these rich ordinary note saves in both
+`normal-executable` and `background-export`. The current note result contract
+records `localDurability.policyVersion: ci-timing-v2`, `goalMs: 1000`,
+`budgetMs: 1500`, `budgetEnforced: true`, `temporaryCeiling: false`
+and `timingUse: acceptance`.
 `goalMet` is computed from the original nearest-rank p95 against 1,000 ms; an
 accepted p95 above the goal must report `goalMet: false`, not claim one-second
 success. The union recomputes p95 from all 21 raw samples and requires this exact
-policy metadata in both phases. At 1,050 ms it accepts; above it, it rejects.
+source-bound policy metadata in both phases. At1,500ms it accepts; above it, it rejects.
 All commits must still be observed during continued typing. Profile saves,
 small-fixture note/first-commit one-second checks, queue-inclusive three-second
-stall, held-adoption capture proof and both 660-second worker budgets are
-unchanged. This is temporary acceptance pending later optimization/review, not
-informational-only durability or authority to increase another limit. Historical
+stall and held-adoption capture proof are unchanged. Prefix execution safety
+alone changes to900s; tail safety remains660s. This is not informational-only
+durability or authority to increase another limit. Legacy1050ms/660s sources
+still use their original effective policy. Historical
 failed runs retain their original measurements and verdicts.
 Missing/incorrect UI, owner, writing or durability remains a failure within the
 original observations.
@@ -3160,10 +3166,11 @@ Missing/locked interactive desktops and unavailable pixels are visible failures;
 never skip rendering, change shared-machine settings or launch local automation
 without separate permission.
 
-Non-UI performance and **each isolated rich UI worker** have their own
-**660-second whole-execution pass/fail budget**. The hosted
-watchdog allows thirteen minutes so termination, failure reporting and artifact
-upload can finish after a failed budget; the extra time cannot make the run pass.
+Under source-bound `ci-timing-v2`, the isolated rich prefix has **900-second
+whole-execution safety** and a **30-minute watchdog**. Non-UI performance and
+the rich tail keep **660-second safety** and thirteen-minute watchdogs.
+Legacy sources retain660s/1050ms acceptance. Termination, failure reporting and
+artifact upload may use watchdog allowance, never extra accepting execution.
 `SCALE_STARTED_AT` begins before checkout/SDK setup;
 restore, builds, fixture generation, assertions and cleanup all count. These
 are execution bounds, not new latency thresholds or a baseline collection scheme.
@@ -3231,12 +3238,13 @@ through storage callbacks. Fixture disposal reports them as verification failure
 after closing clients and cleaning owned fixtures, preserving real save outcomes
 and original storage errors rather than silently accepting missing diagnostics.
 
-The direct scale workflow's `extended_observation` input is explicitly diagnostic.
-It requests observation for up to 900 seconds while retaining the original
-660-second per-worker verdict and thirteen-minute worker watchdog.
+The direct scale workflow's `extended_observation` input remains explicitly
+diagnostic and nonaccepting even when its900s observation equals current
+prefix safety. Current prefix watchdog is30m; tail safety/watchdog remain660s/13m.
+Historical diagnostic source retains its original660s verdict and17m watchdog.
 Reports set `diagnosticOnly`, distinguish observed completion from the verdict,
 and never report candidate-verification success in this mode, even if observed
-completion is under 660 seconds. Its artifact name starts with
+completion is within the effective safety limit. Its artifact name starts with
 `diagnostic-ui-scale-`, not the normal verification prefix. A diagnostic prefix
 is never an accepting handoff; diagnostic reports cannot pass the union. Normal release
 verification and non-UI execution do not opt into it.

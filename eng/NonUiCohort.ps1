@@ -175,6 +175,11 @@ function Get-NonUiCohortMetrics($Samples) {
 
 function Assert-NonUiCohortRecord($Record, [string]$Path) {
     $rich = $Record.schemaVersion -eq 2
+    $effectivePolicy = if ($Record.Contains('effectivePolicyVersion')) { $Record.effectivePolicyVersion } else { 'rich-scale-original-v1' }
+    $null = Get-ApprovedTimingPolicy $effectivePolicy
+    if ($Record.Contains('sourcePolicyRevision') -and $Record.sourcePolicyRevision -cne $Record.revision) {
+        throw 'Cohort effective policy is not bound to its source candidate.'
+    }
     Assert-HealthNumber $Record.schemaVersion 'cohort schemaVersion'
     if ($Record.schemaVersion -notin @(1, 2) -or $Record.recordType -cne 'performance-cohort' -or
         $Record.repository -cne $FilesystemHealthRepository -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
@@ -219,7 +224,7 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
                 $seen[$key] = $true
             } elseif ($sample.validation -ceq 'success') { throw "Complete execution lacks independent $field." }
         }
-        if ($rich) { Assert-RichCohortSample $sample $Record $seen }
+        if ($rich) { Assert-RichCohortSample $sample $Record $seen $effectivePolicy }
         if ($null -ne $sample.measurements) {
             Assert-HealthNumber $sample.measurements.executionSeconds 'executionSeconds'
             Assert-HealthDate $sample.measurements.startedAt 'execution startedAt'
@@ -341,6 +346,7 @@ function Set-NonUiCohortComparison($Record, $History) {
 
 function Format-NonUiCohort($Record, [string]$Publication) {
     $rich = $Record.schemaVersion -eq 2
+    $active = $Record.Contains('effectivePolicyVersion') -and $Record.effectivePolicyVersion -ceq 'ci-timing-v2'
     $lines = @(
         if ($rich) { '### Complete performance/scale cohort' } else { '### Independent non-UI performance cohort' }
         ''
@@ -348,10 +354,12 @@ function Format-NonUiCohort($Record, [string]$Publication) {
         "Validation: **$($Record.validation)**; timing: **$($Record.timingHealth)**; eligibility: **$($Record.eligibility)**."
         "Original collection workflow: $($Record.collectionStatus) / $($Record.collectionOutcome). Historical observations are not fresh release acceptance."
         "Policy: ``$($Record.policyVersion)``. Active-reference promotion: **disabled**. Rich-scale acceptance: **$($Record.richScaleAcceptance)**."
-        'Original per-worker 660-second setup/workload/cleanup budgets and 1,000-ms profile p95 hard limit remain enforced.'
+        if ($active) { 'Source-bound prefix900s safety/30m watchdog; tail/non-UI660s safety. Profile p95 remains1,000ms.' }
+        else { 'Original per-worker 660-second setup/workload/cleanup budgets and 1,000-ms profile p95 hard limit remain enforced.' }
         if ($rich) {
             'Each sample owns non-UI, prefix, actual-snapshot Join/tail and strict union. The executionSeconds metric is NON-UI only; prefix/tail are separate. Their sum is consumed worker time, never one 660-second execution.'
-            'Rich notes retain both complete 20/42/21 phases, raw nearest-rank p95, continued-typing durability and the temporary enforced 1,050-ms ceiling (1,000-ms goal).'
+            if ($active) { 'Rich notes retain both complete20/42/21 phases, raw nearest-rank p95 and continued typing under the approved1,500ms ceiling/1,000ms goal.' }
+            else { 'Rich notes retain both complete 20/42/21 phases, raw nearest-rank p95, continued-typing durability and the temporary enforced 1,050-ms ceiling (1,000-ms goal).' }
         }
         if ($Record.unexpectedExecutions) {
             'Unexpected matching extra executions are retained and reject the cohort. The controller did not request them; three greens cannot be selected from this evidence.'
