@@ -223,6 +223,11 @@ try {
         Assert (!$active.timingEvaluation.blocking -and $active.timingEvaluation.health -ceq 'yellow' -and
             $active.timingEvaluation.version -ceq 'ci-timing-v2' -and
             $active.timingEvaluation.additionalSamples.Count -eq 2) 'Current cohort hid its accepted boundary/headroom warning or blocked without a reference.'
+        $activeSummary = Get-Content (Join-Path $activeWork 'summary.md') -Raw
+        Assert ($activeSummary.Contains('approved ci-timing-v2 is active') -and
+            !$activeSummary.Contains('pending #130') -and
+            $activeSummary.Contains('This read-only observation cannot promote a reference.')) `
+            'Active-policy reporting claimed pending calibration or conferred canonical authority on an observation.'
         $path = Join-Path $rich.prefix 'result.json'
         $original = Get-Content $path -Raw
         try {

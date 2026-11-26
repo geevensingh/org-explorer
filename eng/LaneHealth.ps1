@@ -698,7 +698,7 @@ function Format-LaneHealth($Records, [string]$Publication) {
             "Candidate: ``$($record.revision)``; source controller: $(if ($record.controllerRevision) { '``' + $record.controllerRevision + '``' } else { 'unavailable (local result)' }); run/attempt: $($record.runId)/$($record.runAttempt).",
             "Candidate evidence: $($record.candidateState).",
             "Observer code: $(if ($record.writerRevision) { '``' + $record.writerRevision + '``' } else { 'unavailable (local projection)' }) ($($record.writerScope)); source workflow revision is recorded separately.",
-            "History eligibility: $(if ($record.comparisonInputEligible) { 'qualified main observation; canonical baseline eligibility remains pending calibration' } elseif ($record.recordType -ceq 'local-lane-observation') { 'baseline-ineligible local observation; never a comparison input' } else { 'baseline-ineligible PR/manual/fork observation; never a comparison input' }).",
+            "History eligibility: $(if ($record.comparisonInputEligible) { 'qualified main observation; this lane record is not a canonical baseline' } elseif ($record.recordType -ceq 'local-lane-observation') { 'baseline-ineligible local observation; never a comparison input' } else { 'baseline-ineligible PR/manual/fork observation; never a comparison input' }).",
             "Policy: ``$($record.originalPolicy)``; scope: $($record.verificationScope).")
         if ($record.Contains('runnerOutcome') -and $null -ne $record.runnerOutcome) {
             $lines += "Raw runner outcome: **$($record.runnerOutcome)**; completed correctness checks: **$($record.correctnessChecks)**; original-policy acceptance: **$($record.originalPolicyAcceptance)**."

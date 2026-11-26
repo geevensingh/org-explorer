@@ -432,6 +432,8 @@ function Format-NonUiCohort($Record, [string]$Publication) {
         'Medians include every available numeric measurement, including failed attempts; rejected nonnumeric values remain in raw records and are unavailable, not zero. No cause or calibrated noise threshold is inferred.'
         if ($automatic) {
             'Comparison is preserved before eligible promotion. Canonical reference events are immutable; the effective per-series pointer follows actual main ancestry, never completion time.'
+        } elseif ($active) {
+            'Canonical eligibility requires qualified automatic collection; approved ci-timing-v2 is active. This read-only observation cannot promote a reference.'
         } else { 'Live eligibility/noise calibration is pending #130. This is not a canonical reference.' }
         if ($null -ne $Record.reference) {
             "Reference: $($Record.reference.kind) ``$($Record.reference.revision)`` / ``$($Record.reference.cohortId)``; age $($Record.reference.ageSeconds) s; NON-UI median $($Record.reference.medianSeconds) s; change $($Record.reference.deltaSeconds) s. Raw evidence: [$($Record.reference.evidenceState)]($($Record.reference.evidenceUrl))."

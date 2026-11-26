@@ -179,6 +179,9 @@ try {
                 $record.measurements.ceilingSeconds -eq 900 -and
                 $record.timingEvaluation.metrics.'note-durability-background-export'.hardLimit -eq 1500) `
                 'Scoped public collection/evaluation/publication did not retain approved900s/1500ms policy.'
+            Assert ($result.summary.Contains('this lane record is not a canonical baseline') -and
+                !$result.summary.Contains('canonical baseline eligibility remains pending calibration')) `
+                'Qualified active lane reporting confused an observation with pending canonical calibration.'
         }
         Write-Host 'PASS: scoped release/renewal prefix661s +1030ms is yellow/nonblocking and publishes under900s/1500ms.'
         return
