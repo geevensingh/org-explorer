@@ -154,6 +154,7 @@ public partial class MainWindow : Window
         FavoriteButton.IsEnabled = false;
         FavoriteStatus.Text = "Select a Person.";
         expandedPeople.Clear();
+        reportingRows.Clear();
         pendingSearchRevealEmail = null;
         peopleBrowseRequest++;
         workflow.ShowArchivedPeople(ShowArchivedPeople.IsChecked == true);
@@ -387,12 +388,14 @@ public partial class MainWindow : Window
             RefreshPeople();
             return false;
         }
+        if (searchNavigation) CancelOutstandingTreeExpansion();
         RefreshPeople();
         RestoreRealizedTreeState(PeopleList);
         return true;
     }
     private void ExpandPersonPath(string email)
     {
+        expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
         var context = workflow.GetRelationships(email);
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         while (context is not null && visited.Add(context.Person.Email))
@@ -421,8 +424,17 @@ public partial class MainWindow : Window
         if (!treeRestorers.TryGetValue(item, out _))
         {
             treeRestorers.Add(item, new object());
-            item.DataContextChanged += (_, _) => RestoreTreeItem(item, null!);
+            item.DataContextChanged += (_, changed) =>
+            {
+                if (changed.OldValue is ReportingNode previous) ForgetReportingItem(item, previous.Person.Email);
+                RestoreTreeItem(item, null!);
+            };
+            item.Unloaded += (_, _) =>
+            {
+                if (item.DataContext is ReportingNode previous) ForgetReportingItem(item, previous.Person.Email);
+            };
         }
+        reportingRows[node.Person.Email] = new(item);
         var wasLoading = loading;
         loading = true;
         try
@@ -431,6 +443,12 @@ public partial class MainWindow : Window
             item.IsSelected = string.Equals(node.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase);
         }
         finally { loading = wasLoading; }
+    }
+    private void ForgetReportingItem(TreeViewItem item, string email)
+    {
+        if (reportingRows.TryGetValue(email, out var reference) &&
+            reference.TryGetTarget(out var current) && ReferenceEquals(current, item))
+            reportingRows.Remove(email);
     }
     private void ExpandPerson(object sender, RoutedEventArgs e)
     {

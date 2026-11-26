@@ -19,6 +19,7 @@ public partial class MainWindow
     private IInputElement? reportingMenuReturnFocus;
     private int reportingMenuRequest;
     private TreeViewItem? treeExpansionTarget;
+    private readonly Dictionary<string, WeakReference<TreeViewItem>> reportingRows = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer treeExpansionTimer = new(DispatcherPriority.Background)
         { Interval = TimeSpan.FromMilliseconds(16) };
 
@@ -26,19 +27,23 @@ public partial class MainWindow
     {
         treeExpansionTimer.Tick += (_, _) =>
         {
-            var previous = workflow.PeopleTreeExpansion;
-            workflow.ContinuePeopleTreeExpansion();
+            var added = workflow.ContinuePeopleTreeExpansion();
+            expandedPeople.UnionWith(added);
             var wasChanging = changingTreePresentation;
             changingTreePresentation = true;
             try
             {
-                if (workflow.PeopleNavigation.IsBrowsing &&
-                    (workflow.PeopleTreeExpansion?.ExpandedBranches != previous?.ExpandedBranches ||
-                     workflow.PeopleTreeExpansion is not { IsRunning: true }))
+                if (workflow.PeopleNavigation.IsBrowsing && added.Count > 0)
                 {
-                    expandedPeople.Clear();
-                    expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
-                    RestoreRealizedTreeState(PeopleList);
+                    foreach (var email in added)
+                        if (reportingRows.TryGetValue(email, out var reference))
+                        {
+                            if (reference.TryGetTarget(out var container) &&
+                                container.DataContext is ReportingNode node &&
+                                node.Person.Email.Equals(email, StringComparison.OrdinalIgnoreCase))
+                                RestoreTreeItem(container, null!);
+                            else reportingRows.Remove(email);
+                        }
                     if (treeExpansionTarget is { DataContext: ReportingNode target } row &&
                         target.Person.Email.Equals(workflow.PeopleTreeExpansion?.TargetEmail, StringComparison.OrdinalIgnoreCase))
                         row.BringIntoView(new Rect(0, 0, 1, Math.Min(28, row.ActualHeight)));

@@ -59,6 +59,17 @@ unfinished timer-driven expansion, requires progress and cancellation to remain
 presented beside search results in wide and compact People, and cancels through
 the real button while retaining exact partial expansion and independent profile
 writing. Search-clear preserves that partial state and resumability.
+Accepted Enter activation of a different Person is also exercised after progress
+while search hides the tree, both running and already cancelled. It must retain
+all completed branches, cancel outstanding work and leave no later batch to move
+back from the accepted destination. Query entry alone remains non-navigating.
+An observed real child collection in a previously realized, collapsed unrelated
+branch proves that a timer batch does not enumerate its 256 reports. Expansion
+returns only the current batch's added identities and updates their tracked
+containers; existing Loaded/recycled-row restoration remains responsible for
+later realization. The compiled check also requires the affected row to expand
+and cancellation to remain available. This is a work-count regression, not a
+native timing measurement or a substitute for full-population UI scale.
 It also retains exact independent profile/note drafts.
 The focused non-UI selector below runs this same contract; it remains included
 in the existing full `--verify-profile-refresh` companion check:

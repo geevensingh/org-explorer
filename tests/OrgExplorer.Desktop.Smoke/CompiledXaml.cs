@@ -3190,7 +3190,14 @@ internal static partial class Program
             new { email = $"branch{index:000}@example.com", displayName = $"Search branch {index:000}", managerEmail = (string?)"root@example.com" },
             new { email = $"leaf{index:000}@example.com", displayName = $"Search leaf {index:000}", managerEmail = (string?)$"branch{index:000}@example.com" }
         }).Prepend(new { email = "root@example.com", displayName = "Root", managerEmail = (string?)null })
-          .Append(new { email = "owner@example.com", displayName = "Unrelated owner", managerEmail = (string?)null });
+          .Append(new { email = "owner@example.com", displayName = "Unrelated owner", managerEmail = (string?)null })
+          .Append(new { email = "destination@example.com", displayName = "Search destination", managerEmail = (string?)null })
+          .Append(new { email = "unrelated@example.com", displayName = "A separate reporting branch", managerEmail = (string?)null })
+          .Concat(Enumerable.Range(0, 256).Select(index => new
+          {
+              email = $"unrelated{index:000}@example.com", displayName = $"Unrelated report {index:000}",
+              managerEmail = (string?)"unrelated@example.com"
+          }));
         using (var seed = ApplicationWorkflow.CreateFileBacked())
             if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport(JsonSerializer.Serialize(new
             {
@@ -3278,7 +3285,123 @@ internal static partial class Program
         }
         Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => model.CanSafelyClose);
+        Layout(1100, 900);
+        VisualDescendants(tree).OfType<ScrollViewer>().First().ScrollToTop();
+        Layout(1100, 900);
+        var unrelated = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "unrelated@example.com");
+        var unrelatedRow = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(unrelated);
+        var unrelatedItems = new ObservedReportingItems(unrelated.Reports);
+        unrelatedRow.ItemsSource = unrelatedItems;
+        unrelatedRow.IsExpanded = true;
+        Layout(1100, 900);
+        unrelatedRow.IsExpanded = false;
+        Layout(1100, 900);
+        var expansionRoot = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "root@example.com");
+        var expansionRow = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(expansionRoot);
+        var collapseRoot = (RoutedCommand)expansionRow.ContextMenu.Items.OfType<MenuItem>()
+            .Single(item => Equals(item.Header, "Collapse subtree")).Command;
+        var expandRoot = (RoutedCommand)expansionRow.ContextMenu.Items.OfType<MenuItem>()
+            .Single(item => Equals(item.Header, "Expand subtree")).Command;
+        collapseRoot.Execute("root@example.com", expansionRow);
+        int? unrelatedReads = null;
+        void ObserveBatch(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(WorkspaceViewModel.PeopleTreeExpansion) ||
+                model.PeopleTreeExpansion is not { IsRunning: true, ExpandedBranches: > 0 }) return;
+            window.Dispatcher.BeginInvoke(() =>
+            {
+                unrelatedReads = unrelatedItems.Reads;
+                Control<Button>("CancelTreeExpansionButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            }, DispatcherPriority.Normal);
+        }
+        unrelatedItems.Reads = 0;
+        model.PropertyChanged += ObserveBatch;
+        try
+        {
+            expandRoot.Execute("root@example.com", expansionRow);
+            PumpUntil(() => unrelatedReads.HasValue);
+        }
+        finally { model.PropertyChanged -= ObserveBatch; }
+        if (unrelatedReads != 0 || !expansionRow.IsExpanded ||
+            model.PeopleTreeExpansion is not { Status: PeopleTreeExpansionStatus.Cancelled })
+            throw new InvalidOperationException($"One expansion batch enumerated {unrelatedReads} unrelated collapsed items instead of updating only its affected rows.");
+        unrelatedRow.ItemsSource = unrelated.Reports;
+        foreach (var cancelled in new[] { true, false })
+        {
+            Layout(1100, 900);
+            var query = Control<TextBox>("SearchQuery");
+            var results = Control<ListBox>("SearchResults");
+            void Activate(string email)
+            {
+                PumpUntil(() => results.Items.Cast<PersonSearchResult>().Any(result => result.Person.Email == email));
+                results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(result => result.Person.Email == email);
+                results.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
+                    new UnshownInputSource { RootVisual = surface }, 0, Key.Enter) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+                PumpUntil(() => Control<TextBlock>("Email").Text == email && model.PeopleNavigation.IsBrowsing);
+                Layout(1100, 900);
+            }
+            query.Text = "Unrelated owner";
+            Activate("owner@example.com");
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            var node = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "root@example.com");
+            var row = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(node);
+            var collapse = (RoutedCommand)row.ContextMenu.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Collapse subtree")).Command;
+            var expand = (RoutedCommand)row.ContextMenu.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Expand subtree")).Command;
+            collapse.Execute("root@example.com", row);
+            expand.Execute("root@example.com", row);
+            PumpUntil(() => model.PeopleTreeExpansion is { ExpandedBranches: > 0 });
+            query.Text = "Search destination";
+            // Advance the actual operation while search hides the tree, not its retained presentation snapshot.
+            model.ContinuePeopleTreeExpansion();
+            model.ContinuePeopleTreeExpansion();
+            if (cancelled) Control<Button>("CancelTreeExpansionButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var completed = model.PeopleNavigation.ExpandedPeople.ToArray();
+            if (!completed.Contains("branch063@example.com") || model.PeopleTreeExpansion is not { VisitedPeople: < 513 })
+                throw new InvalidOperationException($"Search navigation needs genuine partial expansion completed while the tree is hidden: cancelled={cancelled}; progress={model.PeopleTreeExpansion}; feedback={model.PeopleTreeActionFeedback}; count={completed.Length}.");
+            Activate("destination@example.com");
+            var lost = completed.Except(model.PeopleNavigation.ExpandedPeople, StringComparer.OrdinalIgnoreCase).ToArray();
+            if (lost.Length != 0)
+                throw new InvalidOperationException($"Accepted search navigation discarded completed {(cancelled ? "cancelled" : "running")} expansion: {string.Join(", ", lost)}.");
+            if (model.PeopleTreeExpansion is not { Status: PeopleTreeExpansionStatus.Cancelled })
+                throw new InvalidOperationException("Accepted search navigation left recursive expansion running behind the new destination.");
+            var stopped = model.PeopleTreeExpansion;
+            model.ContinuePeopleTreeExpansion();
+            if (model.PeopleTreeExpansion != stopped)
+                throw new InvalidOperationException("A later expansion batch continued after accepted search navigation.");
+        }
         Console.WriteLine("PASS: actual nonempty query during unfinished expansion, visible progress/cancel, exact partial-state retention and search-clear in wide/compact compiled People.");
+    }
+
+    private sealed class ObservedReportingItems(IReadOnlyList<ReportingNode> items) : System.Collections.IList
+    {
+        public int Reads { get; set; }
+        public object? this[int index] { get { Reads++; return items[index]; } set => throw new NotSupportedException(); }
+        public int Count => items.Count;
+        public bool IsReadOnly => true;
+        public bool IsFixedSize => true;
+        public bool IsSynchronized => false;
+        public object SyncRoot => this;
+        public System.Collections.IEnumerator GetEnumerator()
+        {
+            for (var index = 0; index < items.Count; index++) { Reads++; yield return items[index]; }
+        }
+        public bool Contains(object? value) => IndexOf(value) >= 0;
+        public int IndexOf(object? value)
+        {
+            for (var index = 0; index < items.Count; index++)
+                if (Equals(items[index], value)) return index;
+            return -1;
+        }
+        public void CopyTo(Array array, int index) { foreach (var item in this) array.SetValue(item, index++); }
+        public int Add(object? value) => throw new NotSupportedException();
+        public void Clear() => throw new NotSupportedException();
+        public void Insert(int index, object? value) => throw new NotSupportedException();
+        public void Remove(object? value) => throw new NotSupportedException();
+        public void RemoveAt(int index) => throw new NotSupportedException();
     }
 
     private static void VerifyReportsVisibility(Window window, string settings)

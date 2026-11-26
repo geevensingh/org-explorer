@@ -321,9 +321,9 @@ public sealed partial class WorkspaceViewModel
         return true;
     }
 
-    public void ContinuePeopleTreeExpansion()
+    public IReadOnlyList<string> ContinuePeopleTreeExpansion()
     {
-        if (PeopleTreeExpansion is not { IsRunning: true } progress) return;
+        if (PeopleTreeExpansion is not { IsRunning: true } progress) return [];
         if (!IsWorkspaceCurrent || !ReferenceEquals(treeExpansionRoots, ReportingRoots))
         {
             pendingTreeExpansion.Clear();
@@ -332,15 +332,20 @@ public sealed partial class WorkspaceViewModel
             PeopleTreeActionFeedback = "Expand subtree interrupted: the current reporting view changed; completed expansion retained. Expand again in the current view.";
             PropertyChanged?.Invoke(this, new(nameof(PeopleTreeExpansion)));
             PropertyChanged?.Invoke(this, new(nameof(PeopleTreeActionFeedback)));
-            return;
+            return [];
         }
         var expanded = PeopleNavigation.ExpandedPeople.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var added = new List<string>();
         var visited = progress.VisitedPeople;
         var branches = progress.ExpandedBranches;
         for (var count = 0; count < 64 && pendingTreeExpansion.TryPop(out var node); count++)
         {
             visited++;
-            if (node.Reports.Count > 0 && expanded.Add(node.Person.Email)) branches++;
+            if (node.Reports.Count > 0 && expanded.Add(node.Person.Email))
+            {
+                branches++;
+                added.Add(node.Person.Email);
+            }
             // Visit parents before reports so every completed branch remains useful on interruption.
             for (var index = node.Reports.Count - 1; index >= 0; index--) pendingTreeExpansion.Push(node.Reports[index]);
         }
@@ -355,6 +360,7 @@ public sealed partial class WorkspaceViewModel
         if (branches != progress.ExpandedBranches)
             PropertyChanged?.Invoke(this, new(nameof(PeopleNavigation)));
         PropertyChanged?.Invoke(this, new(nameof(PeopleTreeExpansion)));
+        return added;
     }
 
     public void CancelPeopleTreeExpansion()
