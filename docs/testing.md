@@ -1207,8 +1207,26 @@ controlled request clocks and held/lost return boundaries. They prove the oldest
 queued three-second deadline, never-returning admission, explicit edit pause,
 continued arbitrary Person browsing, exact independent drafts/Team-name profiles,
 late accepted generations and real committed-state reconciliation before retry.
-Lost acknowledgment cannot create another note. `OrgExplorer.Storage.ProcessFixture`
-is an owned, non-UI child killed at the existing storage observer's actual
+Lost acknowledgment cannot create another note. The real-file lost-note-acknowledgment
+reconciliation fixture controls only its view-model request clock,
+using the existing `SaveClock`; real autosave cadence, admission, SQLite Commit
+and storage clocks remain unchanged. Both scopes also delay the successful
+postcommit return by 3.2 wall-clock seconds before creating the actual
+lost-acknowledgment exception. An independent public reopen first proves the exact
+committed GUID/title/body and wrong-owner absence. While held, the original
+immutable base and writing remain Pending with an unknown outcome and an
+unfinished flush; release produces Indeterminate with the actual acknowledgment
+error. Explicit real-store reconciliation must account for that same note before
+retry, and another public reopen still finds exactly one GUID and the exact
+title/body. The original five-second outer flush wait and all original recovery
+assertions remain. The original-clock counterexample failed twice in both scopes:
+it reported Stalled before the exception was created despite an exact committed
+reopen. This confirms the non-timing fixture's interaction with the request
+deadline, not a production-storage failure or the cause of the historical hosted
+continuation delay. Separate exact three-second queued/stalled/unknown-outcome
+contracts and production deadlines are unchanged.
+`OrgExplorer.Storage.ProcessFixture` is an owned, non-UI child killed at the
+existing storage observer's actual
 SQLite pre/post-Commit boundaries for both note scopes and complete profiles.
 Reopening uses the normal validating reader; neither Dispose nor private-table
 inspection supplies crash evidence. The child identifies its actual PID, observed
