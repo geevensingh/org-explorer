@@ -77,6 +77,20 @@ internal static class TreeItemRealization
         controls.FirstOrDefault(control => identity(control) == email && isReportingRow(control)) ??
             throw new InvalidOperationException("Missing actual UI control: " + email);
 
+    internal static Func<string, T> ReportingRows<T>(Func<string, T> find,
+        Func<T, string, bool> isCurrent) where T : class
+    {
+        var rows = new Dictionary<string, T>(StringComparer.Ordinal);
+        return email =>
+        {
+            if (rows.TryGetValue(email, out var retained) && isCurrent(retained, email)) return retained;
+            var row = find(email);
+            if (!isCurrent(row, email)) throw new InvalidOperationException("Missing current reporting row: " + email);
+            rows[email] = row;
+            return row;
+        };
+    }
+
     internal static void PrepareMenuBranch(Func<bool> isExpanded, Action<MenuBranchInput> requestInput,
         Action<Func<bool>> awaitState) =>
         AwaitExpanded(true, isExpanded, () => requestInput(MenuBranchInput.DisclosureToggle), awaitState);

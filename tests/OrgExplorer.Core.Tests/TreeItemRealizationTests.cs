@@ -7,6 +7,56 @@ public sealed class TreeItemRealizationTests
 {
     [Fact]
     [Trait("Category", "Runner")]
+    public void Reporting_row_reads_retain_live_state_without_repeating_discovery()
+    {
+        var identity = "morgan@example.com";
+        var row = new ReportingRowState();
+        var discoveries = 0;
+        var rows = TreeItemRealization.ReportingRows(_ => { discoveries++; return row; },
+            (current, email) => current.Email == email);
+        Assert.False(rows(identity).Expanded);
+        row.Expanded = true;
+        Assert.True(rows(identity).Expanded);
+        Assert.Equal(1, discoveries);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Recycled_reporting_identity_is_rediscovered_before_input()
+    {
+        var old = new ReportingRowState();
+        var replacement = new ReportingRowState();
+        var current = old;
+        var discoveries = 0;
+        var rows = TreeItemRealization.ReportingRows(_ => { discoveries++; return current; },
+            (row, email) => row.Email == email);
+        Assert.Same(old, rows("morgan@example.com"));
+        old.Email = "avery@example.com";
+        current = replacement;
+        Assert.Same(replacement, rows("morgan@example.com"));
+        Assert.Equal(2, discoveries);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Missing_reporting_identity_refuses_input_without_lookup_replay()
+    {
+        var discoveries = 0;
+        var rows = TreeItemRealization.ReportingRows(_ => { discoveries++; return new object(); }, (_, _) => false);
+        var inputs = 0;
+        Assert.Throws<InvalidOperationException>(() => { rows("missing@example.com"); inputs++; });
+        Assert.Equal(1, discoveries);
+        Assert.Equal(0, inputs);
+    }
+
+    private sealed class ReportingRowState
+    {
+        public string Email { get; set; } = "morgan@example.com";
+        public bool Expanded { get; set; }
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Reporting_row_diagnostics_retain_only_the_latest_boundaries_including_the_failed_row()
     {
         var trace = new TreeItemRealization.ReportingRowTrace<string>();

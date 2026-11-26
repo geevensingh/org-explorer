@@ -679,7 +679,21 @@ internal static partial class Program
         var treeScroll = (ScrollPattern)peopleTree.GetCurrentPattern(ScrollPattern.Pattern);
         ControlReadiness.ScrollToTopIfScrollable(() => treeScroll.Current.VerticallyScrollable,
             () => treeScroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
-        AutomationElement Row(string email) => Find(peopleTree, email);
+        var rowIdentity = new CacheRequest { TreeScope = TreeScope.Element };
+        rowIdentity.Add(AutomationElement.AutomationIdProperty);
+        rowIdentity.Add(AutomationElement.ControlTypeProperty);
+        bool CurrentRow(AutomationElement row, string email)
+        {
+            try
+            {
+                using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.Observation);
+                var current = row.GetUpdatedCache(rowIdentity);
+                return current.Cached.AutomationId == email && current.Cached.ControlType == ControlType.TreeItem;
+            }
+            catch (ElementNotAvailableException) { return false; }
+        }
+        // Retain only live providers; identity and all asserted state are freshly observed.
+        var Row = TreeItemRealization.ReportingRows(email => Find(peopleTree, email), CurrentRow);
         ExpandCollapsePattern Expansion(string email) => (ExpandCollapsePattern)Row(email).GetCurrentPattern(ExpandCollapsePattern.Pattern);
         AutomationElement? Menu() => ReportingMenu(window);
         void RightClickRow(string email)

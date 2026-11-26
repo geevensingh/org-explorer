@@ -2752,6 +2752,21 @@ internal static partial class Program
             throw new InvalidOperationException("Expanded and collapsed chevrons must keep the same depth and horizontal center without moving the Person label.");
         provider.Collapse();
         Layout();
+        var rowDiscoveries = 0;
+        var liveRows = TreeItemRealization.ReportingRows(email =>
+        {
+            rowDiscoveries++;
+            var item = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == email);
+            return (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(item);
+        }, (row, email) => row.DataContext is ReportingNode node && node.Person.Email == email);
+        if (liveRows("morgan@example.com").IsExpanded)
+            throw new InvalidOperationException("The reporting-row lookup did not observe the collapsed control.");
+        provider.Expand();
+        Layout();
+        if (!liveRows("morgan@example.com").IsExpanded || rowDiscoveries != 1)
+            throw new InvalidOperationException($"Live reporting-row observation repeated discovery or retained stale expansion: discoveries={rowDiscoveries}.");
+        provider.Collapse();
+        Layout();
         var sibling = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "casey@example.com");
         var siblingContainer = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(sibling);
         siblingContainer.IsExpanded = true;

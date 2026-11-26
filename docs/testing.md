@@ -97,8 +97,18 @@ focus and reset nested outside expansion through search-clear/reopening.
 The original Collapse subtree inputs, responsive matrices and deadlines remain.
 Retention captures expansion/focus alongside the original writing and exact
 target bounds in one fresh cached-UIA batch per boundary. The live People
-provider is retained within that subjourney to avoid repeated parent discovery;
-cached state is never reused across inputs or boundaries. These assertions
+and reporting-row providers are retained only within that menu subjourney.
+Each row lookup freshly validates its automation identity and TreeItem type;
+an unavailable or recycled identity is rediscovered before input. No cached
+identity/state frame is reused across an action, and all original retention, focus and
+geometry observations remain fresh. The runner rejects wrong identities without
+input replay; the compiled row contract observes a real disclosure transition
+without repeating row discovery. This addresses repeated discovery measured in
+reading attempt 4 of run 45768355665: all nine menus passed, but consumed about
+363 seconds with 1,112 discoveries (about 263 seconds), before the unchanged
+900-second lane watchdog fired. Provider reuse is a work-count fix; native
+elapsed savings and whole-lane completion still require hosted evidence.
+These assertions
 still require exact-candidate hosted acceptance; local compiled success does
 not establish native popup/focus behavior or whole-lane budget headroom.
 
