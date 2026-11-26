@@ -2912,6 +2912,67 @@ internal static partial class Program
         if (expand.Visibility != Visibility.Collapsed || collapse.Visibility != Visibility.Collapsed ||
             collapseOthers.Visibility != Visibility.Collapsed)
             throw new InvalidOperationException("Actual no-op leaf menu actions must be omitted, not merely disabled.");
+        var normalTreeHeight = tree.Height;
+        tree.Height = 92;
+        Layout(700, 500);
+        IScrollItemProvider LeafScroll() => (IScrollItemProvider)UIElementAutomationPeer.CreatePeerForElement(tree).GetChildren()
+            .Single(peer => peer.GetAutomationId() == "morgan@example.com").GetChildren()
+            .Single(peer => peer.GetAutomationId() == "avery@example.com").GetChildren()
+            .Single(peer => peer.GetAutomationId() == "alex@example.com").GetPattern(PatternInterface.ScrollItem);
+        (double Left, double Top, double Width, double Height) LeafBounds()
+        {
+            var origin = leaf.TranslatePoint(new Point(), tree);
+            return (origin.X, origin.Y, leaf.ActualWidth, leaf.ActualHeight);
+        }
+        bool ContextVisible()
+        {
+            var row = LeafBounds();
+            var managerTop = container.TranslatePoint(new Point(), tree).Y;
+            return row.Top >= 0 && row.Top + 20 <= tree.ActualHeight &&
+                managerTop >= 0 && managerTop + 20 <= tree.ActualHeight;
+        }
+        void AwaitContext(Func<bool> condition) => PumpUntil(() => { Layout(700, 500); return condition(); });
+        LeafScroll().ScrollIntoView();
+        AwaitContext(ContextVisible);
+        var fixtureInputs = new List<string>();
+        TreeViewItem FixtureBranch(string email) => email == "casey@example.com" ? siblingContainer :
+            (TreeViewItem)siblingContainer.ItemContainerGenerator.ContainerFromItem(outsideNode);
+        TreeItemRealization.PrepareMenuBranches(["casey@example.com", "jordan@example.com"],
+            email => FixtureBranch(email).IsExpanded, (email, input) =>
+            {
+                if (input != TreeItemRealization.MenuBranchInput.DisclosureToggle)
+                    throw new InvalidOperationException("Compiled menu setup must use the identity-owned disclosure.");
+                var row = FixtureBranch(email);
+                var toggle = (ToggleButton)row.Template.FindName("Expander", row);
+                ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle)
+                    .GetPattern(PatternInterface.Toggle)).Toggle();
+                fixtureInputs.Add(email);
+            }, AwaitContext);
+        var viewport = (0d, 0d, tree.ActualWidth, tree.ActualHeight);
+        try
+        {
+            TreeItemRealization.ReportingHeaderPoint(LeafBounds(), viewport, 1);
+            throw new InvalidOperationException("The compiled preparation replay did not reproduce its offscreen header.");
+        }
+        catch (InvalidOperationException error) when (error.Message.StartsWith("The reporting row header has no visible content pixel:", StringComparison.Ordinal))
+        {
+            Console.WriteLine("TREE-MENU-PREPARATION-COMPILED expected refusal: " + error.Message);
+        }
+        var menuRealizations = 0;
+        TreeItemRealization.AwaitVisible(() => leaf, _ =>
+        {
+            if (ContextVisible()) return;
+            menuRealizations++;
+            LeafScroll().ScrollIntoView();
+        }, _ => ContextVisible(), AwaitContext);
+        TreeItemRealization.ReportingHeaderPoint(LeafBounds(), viewport, 1);
+        if (!fixtureInputs.SequenceEqual(["casey@example.com", "jordan@example.com"]) || menuRealizations != 1 ||
+            model.PeopleNavigation.SelectedEmail != beforeAction || model.ProfileEdit != profileDraft ||
+            model.GetRetainedNoteDraft(NoteScope.Person, model.PersonNotesView.SelectedNote!.Id) != noteDraft ||
+            model.OperationError != beforeError || !model.PeopleNavigation.OverlayOpen ||
+            Control<TextBox>("OfficeNumber").Text != "  Compiled independent profile writing\r\n")
+            throw new InvalidOperationException("Pre-input menu realization replayed setup or changed retained profile/writing/People.");
+        tree.Height = normalTreeHeight;
         Layout();
         command.Execute("morgan@example.com", container);
         container.IsExpanded = true;
@@ -3087,7 +3148,7 @@ internal static partial class Program
         Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => model.CanSafelyClose);
         VerifySearchDuringTreeExpansion(window, settings);
-        Console.WriteLine("PASS: real tree selection/disclosure, all three non-navigating tree actions, actual cancellation/disclosure interruption, protected path/leaf scope, hidden/recycled reset, search/layout restoration and exact independent profile/note writing.");
+        Console.WriteLine("PASS: real tree selection/disclosure, all three non-navigating tree actions, pre-input menu realization, actual cancellation/disclosure interruption, protected path/leaf scope, hidden/recycled reset, search/layout restoration and exact independent profile/note writing.");
     }
 
     private static void VerifySearchDuringTreeExpansion(Window window, string settings)

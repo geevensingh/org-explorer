@@ -5,6 +5,83 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class TreeItemRealizationTests
 {
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData(92, 2)]
+    [InlineData(185, 2)]
+    [InlineData(92, 1)]
+    public void Outside_fixture_preparation_keeps_the_first_leaf_menu_header_reachable_in_a_constrained_viewport(
+        double height, int branchCount)
+    {
+        var expanded = new HashSet<string>(StringComparer.Ordinal);
+        var inputs = new List<(string Email, TreeItemRealization.MenuBranchInput Input)>();
+        var row = (Left: 131d, Top: 509d, Width: 303d, Height: 28d);
+        var viewport = (Left: 112d, Top: 452d, Width: 340d, Height: height);
+        var managerTop = 481d;
+        var clicks = 0;
+        var realizations = 0;
+        TreeItemRealization.PrepareMenuBranches(branchCount == 2
+            ? ["alex@example.com", "menu-outside@example.com"] : ["alex@example.com"],
+            expanded.Contains, (email, input) =>
+            {
+                inputs.Add((email, input));
+                expanded.Add(email);
+                row.Top += 28;
+                managerTop += 28;
+            }, AwaitProvider);
+        bool ContextVisible() => managerTop >= 452 && managerTop + 20 <= 452 + height &&
+            row.Top >= 452 && row.Top + 20 <= 452 + height;
+        var target = new object();
+        TreeItemRealization.AwaitVisible(() => target, _ =>
+        {
+            if (ContextVisible()) return;
+            realizations++;
+            managerTop = 488;
+            row.Top = 516;
+        }, _ => ContextVisible(), AwaitProvider);
+
+        var point = TreeItemRealization.ReportingHeaderPoint(row, viewport, 1);
+        clicks++;
+
+        Assert.InRange(point.X, 112, 451);
+        Assert.InRange(point.Y, 452, 452 + height - 1);
+        Assert.Equal(1, clicks);
+        Assert.Equal(height == 92 ? 1 : 0, realizations);
+        Assert.Equal(branchCount == 2
+            ? [("alex@example.com", TreeItemRealization.MenuBranchInput.DisclosureToggle),
+                ("menu-outside@example.com", TreeItemRealization.MenuBranchInput.DisclosureToggle)]
+            : [("alex@example.com", TreeItemRealization.MenuBranchInput.DisclosureToggle)], inputs);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Refused_initial_menu_realization_never_replays_fixture_disclosures_or_issues_a_mouse_request()
+    {
+        var expanded = new HashSet<string>(StringComparer.Ordinal);
+        var disclosures = 0;
+        var realizations = 0;
+        var mouseRequests = 0;
+        var target = new object();
+        var row = (Left: 131d, Top: 509d, Width: 303d, Height: 28d);
+        var viewport = (Left: 112d, Top: 452d, Width: 340d, Height: 92d);
+
+        Assert.Throws<TimeoutException>(() =>
+        {
+            TreeItemRealization.PrepareMenuBranches(["alex@example.com", "menu-outside@example.com"],
+                expanded.Contains, (email, _) => { disclosures++; expanded.Add(email); row.Top += 28; }, AwaitProvider);
+            TreeItemRealization.AwaitVisible(() => target, _ => realizations++,
+                _ => row.Top >= 452 && row.Top + 20 <= 544, AwaitProvider);
+            TreeItemRealization.ReportingHeaderPoint(row, viewport, 1);
+            mouseRequests++;
+        });
+
+        Assert.Equal(2, disclosures);
+        Assert.Equal(1, realizations);
+        Assert.Equal(0, mouseRequests);
+        Assert.Equal(565, row.Top);
+        Assert.Throws<InvalidOperationException>(() => TreeItemRealization.ReportingHeaderPoint(row, viewport, 1));
+    }
+
     [Fact]
     [Trait("Category", "Runner")]
     public void Menu_retention_captures_once_per_boundary_and_never_reuses_a_frame_after_input()
