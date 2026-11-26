@@ -285,6 +285,68 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             reopened.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reopening_legacy_pending_Join_retains_its_seed_and_can_adopt_ordered_writing(bool initializedOrder)
+    {
+        using var writer = Create("writer");
+        Assert.True(writer.ApplyImport(writer.PreviewImport(Initial).Id), writer.Status);
+        Assert.True(writer.EditFavorite("report@example.com", true), writer.Status);
+        Assert.True(writer.EditFavorite("manager@example.com", true), writer.Status);
+        var note = writer.CreatePersonNote("report@example.com", "Private", "Pending Join preserves complete writing")!;
+        var transport = Local("transport");
+        Assert.True(writer.ConfigureSynchronizationFolder(transport), writer.Status);
+        Assert.True(writer.SyncNow(), writer.Status);
+        var bytes = File.ReadAllBytes(Assert.Single(Directory.GetFiles(transport, "*.oesnapshot")));
+        Guid? seedRevision;
+        if (initializedOrder)
+        {
+            using (var seed = Create("receiver"))
+            {
+                seedRevision = seed.Synchronization.LocalRevision;
+                Assert.True(seed.ConfigureSynchronizationFolder(transport, true), seed.Status);
+            }
+            using var connection = new SqliteConnection($"Data Source={Path.Combine(Local("receiver"), "workspace.sqlite")};Pooling=False");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE synchronization SET snapshot_format=1;";
+            command.ExecuteNonQuery();
+        }
+        else
+        {
+            System.IO.Compression.ZipFile.ExtractToDirectory(Path.Combine(AppContext.BaseDirectory,
+                "Fixtures", "workspace-sqlite-v3-pristine-87c6ade.zip"), Local("receiver"));
+            seedRevision = Guid.Parse("1f32abe5-7cc4-4d72-8722-b3edf1c564a3");
+            using var connection = new SqliteConnection($"Data Source={Path.Combine(Local("receiver"), "workspace.sqlite")};Pooling=False");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE synchronization (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton=1), folder TEXT,
+                    published_revision TEXT, joining INTEGER NOT NULL DEFAULT 0, divergence TEXT
+                );
+                INSERT INTO synchronization(singleton,folder,joining) VALUES(1,$folder,1);
+                CREATE TABLE revision_ancestry(sequence INTEGER PRIMARY KEY, revision TEXT NOT NULL UNIQUE);
+                INSERT INTO revision_ancestry(revision) SELECT revision FROM workspace;
+                CREATE TABLE resolved_revisions(revision TEXT PRIMARY KEY);
+                """;
+            command.Parameters.AddWithValue("$folder", transport);
+            command.ExecuteNonQuery();
+        }
+
+        using var receiver = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(receiver.OpenWorkspace(Local("receiver"), WorkspaceOpenMode.ExistingOnly), receiver.Status);
+        Assert.Equal(seedRevision, receiver.Synchronization.LocalRevision);
+        Assert.Equal(transport, receiver.Synchronization.Folder);
+        Assert.True(receiver.ConfigureSynchronizationFolder(transport, true), receiver.Status);
+        Assert.True(receiver.SyncNow(), receiver.Status);
+        Assert.Equal(writer.Synchronization.LocalRevision, receiver.Synchronization.LocalRevision);
+        Assert.Equal(["report@example.com", "manager@example.com"], receiver.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Pending Join preserves complete writing", receiver.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+        Assert.Equal(bytes, File.ReadAllBytes(Assert.Single(Directory.GetFiles(transport, "*.oesnapshot"))));
+    }
+
     [Fact]
     public void Changed_order_for_an_accepted_immutable_revision_is_refused_without_replacing_local_or_provider_content()
     {

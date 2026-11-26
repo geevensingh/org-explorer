@@ -722,6 +722,7 @@ public sealed partial class ApplicationWorkflow
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
             EnsureSynchronizationHead(command, Synchronization.WorkspaceId, expected!);
+            ValidateStoredFavoriteOrder(command);
             using var evidence = BeginLocalWrite(incoming.Data.Revision.ToString("D"));
             WriteLogicalSnapshot(connection, transaction, incoming.Data);
             command.CommandText = """

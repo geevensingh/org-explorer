@@ -43,12 +43,17 @@ public sealed partial class ApplicationWorkflow
             throw new FormatException("Invalid Favorites order: every Favorite must appear exactly once.");
     }
 
-    private static IReadOnlyList<string>? ReadLocalFavoriteOrder(SqliteCommand command,
-        Dictionary<string, PersonProfile> population)
+    private static bool LocalFavoriteOrderExists(SqliteCommand command)
     {
         command.Parameters.Clear();
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='favorite_order';";
-        if (Convert.ToInt32(command.ExecuteScalar()) == 0) return null;
+        return Convert.ToInt32(command.ExecuteScalar()) != 0;
+    }
+
+    private static IReadOnlyList<string>? ReadLocalFavoriteOrder(SqliteCommand command,
+        Dictionary<string, PersonProfile> population)
+    {
+        if (!LocalFavoriteOrderExists(command)) return null;
         command.CommandText = "SELECT singleton, format_version, sequence FROM favorite_order;";
         using var reader = command.ExecuteReader();
         if (!reader.Read() || reader.GetInt32(0) != 1)
@@ -116,6 +121,8 @@ public sealed partial class ApplicationWorkflow
                 if (stored is null || !stored.SequenceEqual(order, StringComparer.OrdinalIgnoreCase))
                     throw new IOException("Saved Favorites changed before snapshot initialization. Reopen to reconcile; nothing saved.");
             }
+            else if (LocalFavoriteOrderExists(command))
+                throw new IOException("Favorites ordering appeared before initialization. Reopen to reconcile; nothing saved.");
             revision = expectedRevision;
             using var evidence = BeginLocalWrite();
             WriteLocalFavoriteOrder(command, order);

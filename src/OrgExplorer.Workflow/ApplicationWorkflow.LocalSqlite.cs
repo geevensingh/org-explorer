@@ -59,7 +59,7 @@ public sealed partial class ApplicationWorkflow
             throw new IOException("Local SQLite WAL mode could not be established. The validated data is unchanged; close other local clients and reopen. No rollback-journal fallback is used.");
     }
 
-    private bool OpenLocalSqlite(bool create)
+    private bool OpenLocalSqlite(bool create, bool recoverLocalSaves = false)
     {
         RequireLocalSqliteLocation(workspace!);
         if (File.Exists(Path.Combine(workspace!, "workspace.json")))
@@ -283,10 +283,18 @@ public sealed partial class ApplicationWorkflow
                 "No ordinary write was attempted. Browsing remains available. Explicitly reconcile local storage before editing. " +
                 error.Message);
         }
+        revision = committedRevision;
+        var evidenceReady = ReconcileLocalWriteEvidence();
+        if (recoverLocalSaves && walReady && evidenceReady)
+        {
+            localWalFault = null;
+            localSaveFault = null;
+        }
+        var canInitialize = walReady && evidenceReady && localWalFault is null && localSaveFault is null;
         if ((loadedFavorites is null || localSnapshotFormat == 1) &&
             loaded.Count == 0 && accepted.Count == 0 && localAncestry.Length == 1 &&
-            Synchronization.Folder is null && Synchronization.PublishedRevision is null &&
-            walReady && localWalFault is null && localSaveFault is null)
+            (Synchronization.Folder is null || joiningWorkspace) && Synchronization.PublishedRevision is null &&
+            canInitialize)
         {
             revision = committedRevision;
             if (ReconcileLocalWriteEvidence())
@@ -312,11 +320,11 @@ public sealed partial class ApplicationWorkflow
         }
         if (loadedFavorites is null)
         {
-            if (!walReady) throw new IOException("Legacy Favorites ordering requires healthy local storage before initialization.");
             loadedFavorites = InitialFavoriteOrder(loaded.Values);
-            committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision);
+            if (canInitialize)
+                committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision);
         }
-        else if (localSnapshotFormat == 1 && walReady && localWalFault is null && localSaveFault is null)
+        else if (localSnapshotFormat == 1 && canInitialize)
         {
             revision = committedRevision;
             if (ReconcileLocalWriteEvidence())
@@ -339,8 +347,8 @@ public sealed partial class ApplicationWorkflow
             localWalFault?.Message ?? LocalSqliteDescription(version),
             workspace, version)
         {
-            SupportsOrdinaryEdits = walReady && localWalFault is null && !synchronization.Diverged,
-            SupportsNoteEdits = walReady && localWalFault is null && !synchronization.Diverged,
+            SupportsOrdinaryEdits = canInitialize && !synchronization.Diverged,
+            SupportsNoteEdits = canInitialize && !synchronization.Diverged,
             SupportsNonblockingNoteAutosave = true, SupportedWorkspaceVersion = 3
         };
         ReconcileLocalWriteEvidence();

@@ -101,14 +101,14 @@ public sealed partial class ApplicationWorkflow
         return valid;
     }
 
-    private bool RefreshWorkspaceCore(bool onlyIfRevisionChanged = false)
+    private bool RefreshWorkspaceCore(bool onlyIfRevisionChanged = false, bool recoverLocalSaves = false)
     {
         if (workspace is null) return Fail("Open a Workspace before refreshing.");
         if (memory) return true;
         try
         {
             if (onlyIfRevisionChanged && workspaceCurrent && LocalSqliteRevision() == revision) return true;
-            var walReady = OpenLocalSqlite(create: false);
+            var walReady = OpenLocalSqlite(create: false, recoverLocalSaves: recoverLocalSaves);
             if (!walReady) return Fail(localWalFault!.Message);
             Status = localWalFault?.Message ?? "Workspace refreshed from committed local SQLite data.";
             return true;

@@ -79,11 +79,16 @@ Favorites adds `favorite_order` to SQLite format 3 without changing the
 directory-exchange format. Its single
 row has `singleton=1`, `format_version=1` and a JSON `sequence` of stable Person
 emails. An absent table denotes a supported unordered store: after complete
-validation, initialize A-Z in one evidenced local transaction. An existing table
+validation and local recovery, initialize A-Z in one evidenced local transaction.
+While WAL negotiation or an original receipt blocks persistence, retain the
+validated A-Z projection and private content for read-only browsing. Explicit
+recovery completes initialization before enabling writes. An existing table
 requires that row and the complete, valid sequence, including `[]`; missing,
 duplicate, unknown, non-Favorite or incomplete identities are rejected, never
 alphabetized as recovery. Save revalidates the stored sequence inside the same
-transaction as membership, Import or order changes. Older local Workspace
+transaction as membership, Import or order changes. Initialization rechecks its
+expected absence before writing; snapshot adoption revalidates the local order
+before replacing any content. Older local Workspace
 formats remain unsupported and are not migrated.
 
 Synchronization metadata's `snapshot_format=2` records ordered publication
@@ -91,7 +96,7 @@ support. An absent column or value 1 denotes a supported pre-transport store.
 After full validation and local recovery, initialize that marker once with a
 fresh evidenced continuation revision, preserving an already saved arrangement
 and all private content. This avoids changing the bytes of an already published
-interchange-1 revision. A pristine, empty, unconfigured seed initializes its
+interchange-1 revision. A pristine, empty, unconfigured or pending-Join seed initializes its
 empty Favorites order (if absent) and transport metadata atomically without
 advancing its unpublished revision, preserving Join eligibility. This also
 applies to supported format-3 seeds with neither ordering nor synchronization

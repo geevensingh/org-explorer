@@ -46,16 +46,152 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         return app;
     }
 
-    private void ChangeStoredFixture(string sql)
+    private void ChangeStoredFixture(string sql, string? local = null)
     {
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = Path.Combine(folder, "workspace.sqlite"), Pooling = false
+            DataSource = Path.Combine(local ?? folder, "workspace.sqlite"), Pooling = false
         }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = sql;
         command.ExecuteNonQuery();
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Legacy_initialization_refuses_ordering_that_arrives_after_validation(int format)
+    {
+        var seed = Seed();
+        Assert.True(seed.EditFavorite("avery@example.com", true), seed.Status);
+        Assert.NotNull(seed.CreatePersonNote("avery@example.com", "Private", "Keep original writing"));
+        seed.Dispose();
+        ChangeStoredFixture("DROP TABLE favorite_order; UPDATE synchronization SET snapshot_format=1;");
+        using var releasedRead = new ReleasedRead();
+        using var reader = ApplicationWorkflow.CreateFileBacked(fileObserver: releasedRead);
+        var opening = Task.Run(() => reader.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly));
+        Dictionary<string, byte[]> before;
+        try
+        {
+            Assert.True(releasedRead.Entered.Wait(TimeSpan.FromSeconds(5)), "Legacy validation did not release its read snapshot.");
+            ChangeStoredFixture($$"""
+                CREATE TABLE favorite_order (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                    format_version INTEGER NOT NULL,
+                    sequence TEXT NOT NULL
+                );
+                INSERT INTO favorite_order VALUES(1, {{format}}, '["avery@example.com","alex@example.com"]');
+                """);
+            before = WorkspaceFixtures.Bytes(folder);
+        }
+        finally { releasedRead.Release.Set(); }
+
+        Assert.False(await opening.WaitAsync(TimeSpan.FromSeconds(20)), reader.Status);
+        foreach (var (path, expected) in before)
+            Assert.Equal(expected, File.ReadAllBytes(Path.Combine(folder, path)));
+        Assert.Empty(reader.FavoritePeople);
+    }
+
+    [Fact]
+    public async Task Snapshot_adoption_refuses_future_local_order_before_replacing_private_content()
+    {
+        var writer = Seed();
+        var note = writer.CreatePersonNote("avery@example.com", "Private", "Original private writing")!;
+        var local = Path.Combine(root, "receiver");
+        var transport = Path.Combine(root, "transport");
+        using var releasedRead = new ReleasedRead { Armed = false, Phase = "snapshot.validate-commit" };
+        using var receiver = ApplicationWorkflow.CreateFileBacked(fileObserver: releasedRead);
+        Assert.True(receiver.OpenWorkspace(local), receiver.Status);
+        WorkspaceFixtures.JoinSnapshot(writer, receiver, transport);
+        var revision = receiver.Synchronization.LocalRevision;
+        Assert.True(writer.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Incoming office"), writer.Status);
+        Assert.True(writer.EditPersonNote(note.Id, "Incoming", "Incoming private writing"), writer.Status);
+        Assert.True(writer.EditFavorite("avery@example.com", true), writer.Status);
+        Assert.True(writer.SyncNow(), writer.Synchronization.Error);
+        var provider = WorkspaceFixtures.Bytes(transport);
+        releasedRead.Armed = true;
+        var syncing = Task.Run(receiver.SyncNow);
+        try
+        {
+            Assert.True(releasedRead.Entered.Wait(TimeSpan.FromSeconds(5)), "Adoption did not release its validated local read.");
+            ChangeStoredFixture("UPDATE favorite_order SET format_version=2;", local);
+        }
+        finally { releasedRead.Release.Set(); }
+
+        Assert.False(await syncing.WaitAsync(TimeSpan.FromSeconds(20)), receiver.Status);
+        Assert.Equal(revision, receiver.Synchronization.LocalRevision);
+        Assert.Equal(["alex@example.com"], receiver.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("007B", receiver.GetRelationships("avery@example.com")!.Person.OfficeNumber);
+        Assert.Equal("Original private writing", receiver.GetPersonNotes("avery@example.com").Single(item => item.Id == note.Id).Markdown);
+        foreach (var (path, expected) in provider)
+            Assert.Equal(expected, File.ReadAllBytes(Path.Combine(transport, path)));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Unordered_legacy_content_remains_browsable_until_explicit_storage_recovery(
+        bool blockedWal, bool unresolvedReceipt)
+    {
+        var seed = Seed();
+        Assert.True(seed.EditFavorite("avery@example.com", true), seed.Status);
+        var note = seed.CreatePersonNote("avery@example.com", "Private", "Read-only legacy writing")!;
+        var original = seed.Synchronization.LocalRevision;
+        var profiles = JsonSerializer.Serialize(seed.People);
+        seed.Dispose();
+        ChangeStoredFixture("DROP TABLE favorite_order; UPDATE synchronization SET snapshot_format=1;");
+        var receipt = Path.Combine(folder, $"local-write-{Guid.NewGuid():N}.json");
+        if (unresolvedReceipt) File.WriteAllText(receipt, "Unresolved original transaction");
+        using var cold = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        using (var external = new SqliteConnection($"Data Source={Path.Combine(folder, "workspace.sqlite")};Pooling=False"))
+        {
+            external.Open();
+            using var command = external.CreateCommand();
+            SqliteTransaction? reader = null;
+            try
+            {
+                if (blockedWal)
+                {
+                    command.CommandText = "PRAGMA journal_mode=DELETE;";
+                    Assert.Equal("delete", command.ExecuteScalar());
+                    reader = external.BeginTransaction(deferred: true);
+                    command.Transaction = reader;
+                    command.CommandText = "PRAGMA schema_version;";
+                    command.ExecuteScalar();
+                }
+                Assert.True(cold.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), cold.Status);
+                Assert.Equal(profiles, JsonSerializer.Serialize(cold.People));
+                Assert.Equal(["alex@example.com", "avery@example.com"], cold.FavoritePeople.Select(person => person.Email));
+                Assert.Equal("Read-only legacy writing", cold.GetPersonNotes("avery@example.com").Single(item => item.Id == note.Id).Markdown);
+                Assert.Equal(original, cold.Synchronization.LocalRevision);
+                Assert.True(cold.CanNavigatePeople);
+                Assert.False(cold.CanEditLocalWorkspace);
+                Assert.False(cold.ReorderFavorite("avery@example.com", "alex@example.com"));
+                if (unresolvedReceipt) Assert.True(cold.LocalSave.HasUnresolvedOutcome);
+                if (blockedWal) Assert.False(cold.ReconcileLocalSaves());
+            }
+            finally { reader?.Dispose(); }
+        }
+        Assert.True(cold.RefreshWorkspace(), cold.Status);
+        Assert.Equal(original, cold.Synchronization.LocalRevision);
+        Assert.False(cold.CanEditLocalWorkspace);
+        if (unresolvedReceipt)
+        {
+            Assert.False(cold.ReconcileLocalSaves());
+            Assert.Equal("Unresolved original transaction", File.ReadAllText(receipt));
+            File.Delete(receipt);
+        }
+        Assert.True(cold.ReconcileLocalSaves(), cold.Status);
+        Assert.True(cold.CanEditLocalWorkspace);
+        var initialized = cold.Synchronization.LocalRevision;
+        Assert.NotEqual(original, initialized);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(initialized, reopened.Synchronization.LocalRevision);
+        Assert.Equal(["alex@example.com", "avery@example.com"], reopened.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Read-only legacy writing", reopened.GetPersonNotes("avery@example.com").Single(item => item.Id == note.Id).Markdown);
     }
 
     [Fact]
@@ -376,6 +512,28 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         File.WriteAllBytes(file, original);
         Assert.True(receiver.SyncNow(), receiver.Synchronization.Error);
         Assert.Equal("alex@example.com", Assert.Single(receiver.FavoritePeople).Email);
+    }
+
+    private sealed class ReleasedRead : IWorkspaceFileObserver, IDisposable
+    {
+        internal ManualResetEventSlim Entered { get; } = new();
+        internal ManualResetEventSlim Release { get; } = new();
+        internal bool Armed { get; set; } = true;
+        internal string Phase { get; set; } = "local-sqlite-read-snapshot";
+        private bool observed;
+        private bool localRead;
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (!Armed || observed || phase.Kind != WorkspaceStoragePhaseKind.End) return;
+            if (phase.Name == "snapshot.local-read") localRead = true;
+            if (phase.Name != Phase || Phase == "snapshot.validate-commit" && !localRead) return;
+            observed = true;
+            Entered.Set();
+            if (!Release.Wait(TimeSpan.FromSeconds(20)))
+                throw new TimeoutException("The owning legacy test did not release its completed read.");
+        }
+        public void Dispose() { Entered.Dispose(); Release.Dispose(); }
     }
 
     public void Dispose()

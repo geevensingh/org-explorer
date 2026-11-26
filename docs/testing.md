@@ -84,7 +84,12 @@ People/search/reporting order and absence of order-only Profile evidence.
 one-time supported unordered initialization, initialized-empty/switching behavior,
 exact reopen, Save/Cancel and name/Manager/archive independence, malformed/future
 order refusal, commit-time revalidation, actual writer locks and recovery/retry
-retaining independent failed notes and Preferred-name drafts.
+retaining independent failed notes and Preferred-name drafts. Held existing
+storage-phase observations let a separate fixture writer introduce unexpected
+ordering after validation: initialization and adoption must reject it without
+overwriting the old sequence or private content. Legacy stores without an order
+remain browsable through blocked WAL negotiation or unresolved receipts, then
+initialize during explicit recovery before writes resume.
 `WorkspaceSnapshotTests` supplies #143's exact-order interchange-2
 publication/adoption/reopen, initialized-empty and supported unordered
 interchange-1 initialization (including equal-name input ties), pre-transport
@@ -106,7 +111,9 @@ Joined a complete snapshot on that revision. It is not a modern store with
 ordering removed or a main-database-only copy of active WAL state. Its original
 seed revision is `1f32abe5-7cc4-4d72-8722-b3edf1c564a3`. Both cases retain that
 revision through initialization/reopen, then publicly Join and adopt the exact
-ordered snapshot and private writing without changing provider bytes.
+ordered snapshot and private writing without changing provider bytes. Pending
+Join cases also reopen supported old seeds with a configured folder and retain
+their original revision through reconfiguration and adoption.
 The existing complete-state handoff hashes the unsorted Favorites identity
 sequence as well as Person/private content, and its ordinary fictitious-file cases
 retain a nonalphabetical arrangement after independent public Join/reopen.
