@@ -37,6 +37,11 @@ internal static class TreeItemRealization
         AssertMenuRetention(boundary, () => assertContentRetained(observation), () => assertTargetVisible(observation));
     }
 
+    internal static T ReportingTarget<T>(IEnumerable<T> controls, string email,
+        Func<T, string> identity, Func<T, bool> isReportingRow) where T : class =>
+        controls.FirstOrDefault(control => identity(control) == email && isReportingRow(control)) ??
+            throw new InvalidOperationException("Missing actual UI control: " + email);
+
     internal static void PrepareMenuBranch(Func<bool> isExpanded, Action<MenuBranchInput> requestInput,
         Action<Func<bool>> awaitState) =>
         AwaitExpanded(true, isExpanded, () => requestInput(MenuBranchInput.DisclosureToggle), awaitState);

@@ -2668,7 +2668,7 @@ internal static partial class Program
             if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
                 {"schemaVersion":1,"batchId":"87000000-0000-4000-8000-000000000001",
                  "observedAt":"2026-11-01T17:00:00Z","people":[
-                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null,"isFavorite":true},
                  {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
                  {"email":"alex@example.com","displayName":"Alex","managerEmail":"avery@example.com"},
                  {"email":"casey@example.com","displayName":"Casey","managerEmail":null},
@@ -2699,6 +2699,27 @@ internal static partial class Program
         var tree = Control<TreeView>("PeopleList");
         var manager = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "morgan@example.com");
         var container = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+        var favorites = Control<ListBox>("FavoritesList");
+        var favorite = (ListBoxItem)favorites.ItemContainerGenerator.ContainerFromItem(favorites.Items.Cast<object>().Single());
+        var favoritePeer = UIElementAutomationPeer.CreatePeerForElement(favorite);
+        var reportingPeer = UIElementAutomationPeer.CreatePeerForElement(container);
+        var capturedTarget = TreeItemRealization.ReportingTarget<AutomationPeer>(
+            [favoritePeer, reportingPeer], "morgan@example.com", peer => peer.GetAutomationId(),
+            peer => peer.GetAutomationControlType() == AutomationControlType.TreeItem);
+        Rect ObservedBounds(FrameworkElement element) =>
+            element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+        var capturedBounds = ObservedBounds((FrameworkElement)((UIElementAutomationPeer)capturedTarget).Owner);
+        var treeBounds = ObservedBounds(tree);
+        var reportingBounds = ObservedBounds(container);
+        if (reportingBounds.Top < treeBounds.Top || reportingBounds.Top + 20 > treeBounds.Bottom)
+            throw new InvalidOperationException("The real compiled reporting target is unavailable in the Favorite/People fixture.");
+        if (!ReferenceEquals(capturedTarget, reportingPeer) ||
+            favoritePeer.GetAutomationId() != reportingPeer.GetAutomationId() ||
+            favoritePeer.GetAutomationControlType() != AutomationControlType.ListItem ||
+            capturedBounds.Top < treeBounds.Top || capturedBounds.Top + 20 > treeBounds.Bottom)
+            throw new InvalidOperationException($"Scale subtree expansion changed the open profile or lost its command target: " +
+                $"captured={capturedTarget.GetAutomationControlType()}; target={capturedBounds}; " +
+                $"reporting={reportingBounds}; viewport={treeBounds}.");
         var provider = (IExpandCollapseProvider)UIElementAutomationPeer.CreatePeerForElement(container).GetPattern(PatternInterface.ExpandCollapse);
         var expander = (ToggleButton)container.Template.FindName("Expander", container);
         var chevron = (System.Windows.Shapes.Path)expander.Template.FindName("Chevron", expander);

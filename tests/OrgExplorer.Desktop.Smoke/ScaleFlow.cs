@@ -184,6 +184,7 @@ internal static partial class Program
             using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
             var cache = new CacheRequest { TreeScope = TreeScope.Element };
             foreach (var property in new[] { AutomationElement.AutomationIdProperty, AutomationElement.NameProperty,
+                AutomationElement.ControlTypeProperty,
                 AutomationElement.ItemStatusProperty, AutomationElement.IsOffscreenProperty, AutomationElement.IsEnabledProperty,
                 AutomationElement.BoundingRectangleProperty, AutomationElement.HasKeyboardFocusProperty,
                 ValuePattern.ValueProperty, ExpandCollapsePattern.ExpandCollapseStateProperty })
@@ -197,15 +198,18 @@ internal static partial class Program
             return controls.Cast<AutomationElement>().ToArray();
         }
         AutomationElement Captured(AutomationElement[] controls, string id) =>
-            controls.FirstOrDefault(control => control.Cached.AutomationId == id) ??
-                throw new InvalidOperationException("Missing actual UI control: " + id);
+            id == ScaleFixture.Email(0)
+                ? TreeItemRealization.ReportingTarget(controls, id, control => control.Cached.AutomationId,
+                    control => control.Cached.ControlType == ControlType.TreeItem)
+                : controls.FirstOrDefault(control => control.Cached.AutomationId == id) ??
+                    throw new InvalidOperationException("Missing actual UI control: " + id);
         bool Visible(AutomationElement[] controls, string id) =>
             controls.FirstOrDefault(control => control.Cached.AutomationId == id) is { } control && !control.Cached.IsOffscreen;
         string ExpansionText(AutomationElement[] controls) =>
             controls.FirstOrDefault(control => control.Cached.AutomationId == "TreeExpansionStatus")?.Cached.Name ??
                 Captured(controls, "People").Cached.ItemStatus;
         var owner = Captured(CaptureExpansion(), "Email").Cached.Name;
-        void AssertRetained(AutomationElement[]? controls = null)
+        void AssertRetained(AutomationElement[]? controls = null, string boundary = "retention")
         {
             controls ??= CaptureExpansion();
             var row = Captured(controls, ScaleFixture.Email(0));
@@ -213,7 +217,10 @@ internal static partial class Program
             var viewport = Captured(controls, "People").Cached.BoundingRectangle;
             if (Captured(controls, "Email").Cached.Name != owner || row.Cached.IsOffscreen ||
                 bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
-                throw new InvalidOperationException("Scale subtree expansion changed the open profile or lost its command target.");
+                throw new InvalidOperationException("Scale subtree expansion changed the open profile or lost its command target: " +
+                    $"boundary={boundary}; expectedOwner={owner}; actualOwner={Captured(controls, "Email").Cached.Name}; " +
+                    $"targetType={row.Cached.ControlType}; targetOffscreen={row.Cached.IsOffscreen}; " +
+                    $"target={bounds}; viewport={viewport}.");
         }
         (int People, int Branches) Progress(AutomationElement[] controls)
         {
@@ -233,7 +240,7 @@ internal static partial class Program
                 .Cast<AutomationElement>().Where(item => !item.Current.IsOffscreen).ToArray();
             var action = actions.SingleOrDefault(item => item.Current.Name == label && item.Current.IsEnabled) ??
                 throw new InvalidOperationException("The actual rich tree omitted " + label);
-            AssertRetained();
+            AssertRetained(boundary: "menu-open-" + label);
             PrimaryClick(() => action);
             AwaitScale(() => ReportingMenu(window) is null);
         }
