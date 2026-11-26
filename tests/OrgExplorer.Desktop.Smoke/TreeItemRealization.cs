@@ -1,9 +1,44 @@
+using System.IO;
+
 namespace OrgExplorer.Desktop.Smoke;
 
 internal static class TreeItemRealization
 {
     internal enum MenuBranchInput { ExpandCollapseProvider, DisclosureArrow, DisclosureToggle }
     internal enum MenuRetentionBoundary { Command, OrdinaryFixtureRestoration }
+
+    internal sealed class ReportingRowTrace<T>
+    {
+        private readonly Queue<T> recent = new();
+        private readonly HarnessRuntime.FailureLedger failures = new();
+        internal IReadOnlyList<T> Recent => recent.ToArray();
+        internal HarnessRuntime.FailureSnapshot Failures => failures.Snapshot;
+
+        internal void Retain(T observation)
+        {
+            if (recent.Count == 12) recent.Dequeue();
+            recent.Enqueue(observation);
+        }
+
+        internal void RecordFailure(Exception error) => failures.Record(error);
+
+        internal void AttemptOutput(Exception? primary, Action output)
+        {
+            try { output(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or
+                InvalidOperationException or ArgumentException or NotSupportedException or
+                System.ComponentModel.Win32Exception or System.Runtime.InteropServices.COMException or
+                System.Text.Json.JsonException)
+            {
+                failures.Record(error);
+            }
+            finally
+            {
+                if (primary is not null && failures.Snapshot.Count > 0)
+                    primary.Data["ReportingRowDiagnosticFailures"] = failures.Snapshot;
+            }
+        }
+    }
 
     internal static bool PrepareArchivedListForMenu(Func<bool> isShown, Action toggle,
         Func<bool> treeReady, Action<Func<bool>> awaitState)

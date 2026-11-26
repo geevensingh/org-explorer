@@ -324,26 +324,123 @@ internal static partial class Program
         AssertRetained();
 
         // Deliberate observation of distant rows follows the action/target-retention boundary.
+        var rowTrace = new TreeItemRealization.ReportingRowTrace<ScaleReportingRowObservation>();
+        var ownerProbe = Captured(frame, "Email");
+        void ObserveRow(string phase, string requestedEmail, string? expectedParent, AutomationElement? row,
+            bool realizeRequested, ExpandCollapseState? lastAwaitedState)
+        {
+            try
+            {
+                using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
+                var cache = new CacheRequest { TreeScope = TreeScope.Element };
+                foreach (var property in new[] { AutomationElement.AutomationIdProperty,
+                    AutomationElement.ControlTypeProperty, AutomationElement.BoundingRectangleProperty,
+                    AutomationElement.IsOffscreenProperty, AutomationElement.ItemStatusProperty,
+                    AutomationElement.IsVirtualizedItemPatternAvailableProperty,
+                    ExpandCollapsePattern.ExpandCollapseStateProperty })
+                    cache.Add(property);
+                var observedRow = row?.GetUpdatedCache(cache);
+                var observedTree = tree.GetUpdatedCache(cache);
+                var expansion = observedRow?.GetCachedPropertyValue(ExpandCollapsePattern.ExpandCollapseStateProperty, true);
+                var virtualized = observedRow?.GetCachedPropertyValue(AutomationElement.IsVirtualizedItemPatternAvailableProperty, true);
+                var type = observedRow?.GetCachedPropertyValue(AutomationElement.ControlTypeProperty, true);
+                var rowBounds = observedRow?.GetCachedPropertyValue(AutomationElement.BoundingRectangleProperty, true);
+                var viewportBounds = observedTree.GetCachedPropertyValue(AutomationElement.BoundingRectangleProperty, true);
+                rowTrace.Retain(new(Stopwatch.GetTimestamp(), phase, requestedEmail, expectedParent, realizeRequested,
+                    observedRow?.GetCachedPropertyValue(AutomationElement.AutomationIdProperty, true) as string,
+                    type is ControlType controlType ? controlType.ProgrammaticName : null,
+                    expansion is ExpandCollapseState state ? state.ToString() : null, lastAwaitedState?.ToString(),
+                    virtualized is bool available ? available : null,
+                    observedRow?.GetCachedPropertyValue(AutomationElement.IsOffscreenProperty, true) is bool offscreen ? offscreen : null,
+                    rowBounds is System.Windows.Rect rowRect ? rowRect.ToString(System.Globalization.CultureInfo.InvariantCulture) : null,
+                    viewportBounds is System.Windows.Rect viewportRect ? viewportRect.ToString(System.Globalization.CultureInfo.InvariantCulture) : null,
+                    observedTree.GetCachedPropertyValue(AutomationElement.ItemStatusProperty, true) as string, ownerProbe.Current.Name,
+                    row is null ? "The lookup did not return a row." : null));
+            }
+            catch (Exception error) when (error is ElementNotAvailableException or InvalidOperationException or
+                ArgumentException or System.Runtime.InteropServices.COMException)
+            {
+                rowTrace.RecordFailure(error);
+                rowTrace.Retain(new(Stopwatch.GetTimestamp(), phase, requestedEmail, expectedParent, realizeRequested,
+                    null, null, null, lastAwaitedState?.ToString(), null, null, null, null, null, null,
+                    error.GetType().FullName + ": " + error.Message));
+            }
+        }
         var rows = new Dictionary<string, AutomationElement>(StringComparer.OrdinalIgnoreCase) { [ScaleFixture.Email(0)] = root };
         foreach (var email in managerEmails)
         {
-            AutomationElement row;
-            if (email == ScaleFixture.Email(0)) row = root;
-            else
+            AutomationElement? row = null;
+            string? expectedParent = null;
+            var realizeRequested = false;
+            var afterRecorded = false;
+            ExpandCollapseState? lastAwaitedState = null;
+            try
             {
-                var manager = expected.GetRelationships(email)!.Manager!.Email;
-                var items = (ItemContainerPattern)rows[manager].GetCurrentPattern(ItemContainerPattern.Pattern);
-                row = items.FindItemByProperty(null, AutomationElement.AutomationIdProperty, email) ??
-                    throw new InvalidOperationException("Full expansion omitted a rich reporting row: " + email);
-                if (row.TryGetCurrentPattern(VirtualizedItemPattern.Pattern, out var virtualized))
+                if (email == ScaleFixture.Email(0)) row = root;
+                else
+                {
+                    var manager = expected.GetRelationships(email)!.Manager!.Email;
+                    expectedParent = manager;
+                    var items = (ItemContainerPattern)rows[manager].GetCurrentPattern(ItemContainerPattern.Pattern);
+                    row = items.FindItemByProperty(null, AutomationElement.AutomationIdProperty, email) ??
+                        throw new InvalidOperationException("Full expansion omitted a rich reporting row: " + email);
+                }
+                ObserveRow("before-request", email, expectedParent, row, realizeRequested, lastAwaitedState);
+                if (email != ScaleFixture.Email(0) && row.TryGetCurrentPattern(VirtualizedItemPattern.Pattern, out var virtualized))
+                {
+                    realizeRequested = true;
                     ((VirtualizedItemPattern)virtualized).Realize();
-                rows[email] = row;
+                }
+                if (email != ScaleFixture.Email(0)) rows[email] = row;
+                AwaitScale(() =>
+                {
+                    if (!afterRecorded)
+                    {
+                        // This boundary capture is inside the original 180-second observation budget.
+                        ObserveRow("after-request", email, expectedParent, row, realizeRequested, lastAwaitedState);
+                        afterRecorded = true;
+                    }
+                    lastAwaitedState = ((ExpandCollapsePattern)row.GetCurrentPattern(ExpandCollapsePattern.Pattern))
+                        .Current.ExpandCollapseState;
+                    return lastAwaitedState == ExpandCollapseState.Expanded;
+                });
+                ObserveRow("final-expanded", email, expectedParent, row, realizeRequested, lastAwaitedState);
             }
-            AwaitScale(() => ((ExpandCollapsePattern)row.GetCurrentPattern(ExpandCollapsePattern.Pattern))
-                .Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+            catch (Exception primary) when (primary is TimeoutException or ElementNotAvailableException or
+                InvalidOperationException or System.Runtime.InteropServices.COMException)
+            {
+                if (!afterRecorded)
+                    ObserveRow("after-request-failed", email, expectedParent, row, realizeRequested, lastAwaitedState);
+                ObserveRow("final-failed", email, expectedParent, row, realizeRequested, lastAwaitedState);
+                rowTrace.AttemptOutput(primary, () => Console.WriteLine("TREE-SCALE-REALIZATION " +
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+                        runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+                        runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
+                        requestedEmail = email, expectedParent, realizeRequested,
+                        originalFailure = primary.GetType().FullName, originalMessage = primary.Message,
+                        timestampFrequency = Stopwatch.Frequency, observations = rowTrace.Recent,
+                        observationFailures = rowTrace.Failures,
+                        interpretation = "Bounded non-atomic UIA observations; null fields are unsupported or unreached, not default states. No repair, input replay or time deduction."
+                    }, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase })));
+                rowTrace.AttemptOutput(primary, () => CaptureFailureEvidence(window, "tree-scale-realization-failure"));
+                if (rowTrace.Failures.Count > 0)
+                    rowTrace.AttemptOutput(primary, () => Console.Error.WriteLine("TREE-SCALE-REALIZATION-DIAGNOSTIC-FAULT " +
+                        System.Text.Json.JsonSerializer.Serialize(rowTrace.Failures)));
+                throw;
+            }
         }
+        if (rowTrace.Failures.Count > 0)
+            rowTrace.AttemptOutput(null, () => Console.Error.WriteLine("TREE-SCALE-REALIZATION-DIAGNOSTIC-FAULT " +
+                System.Text.Json.JsonSerializer.Serialize(rowTrace.Failures)));
         Console.WriteLine("PASS: native full-rich expansion visited all 9,900 current People, restored all 150 manager rows, exposed progress/cancellation during actual nonempty search and retained partial expansion through cancellation/search-clear before resuming.");
     }
+
+    private sealed record ScaleReportingRowObservation(long ObservedAt, string Phase, string RequestedEmail,
+        string? ExpectedParent, bool RealizeRequested, string? ReturnedEmail, string? ControlType,
+        string? ExpansionState, string? LastAwaitedState, bool? VirtualizedPatternAvailable, bool? IsOffscreen,
+        string? RowBounds, string? ViewportBounds, string? Operation, string? CurrentOwner, string? ObservationRefusal);
 
     private static void RunScaleMutationPrefix(string executable, string root)
     {
