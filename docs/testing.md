@@ -288,8 +288,14 @@ Existing hosted profile/reopen, archival and search/responsive journeys observe
 the actual profile identity, selected row's rendered text and clickable point
 inside the tree viewport, expanded ancestors and deferred reveal after Import
 or search. The search/responsive journeys also deliver a cross-branch candidate
-while an archived match is highlighted and Import review remains open, then
+while an archived match is highlighted and Import input remains open, then
 observe the matching profile and deferred selected row behind offscreen context.
+This accepted-refresh fixture does not create an unapplied Preview: that is
+protected pending work and must defer snapshot adoption. The existing invisible
+automatic-opening selection also drives these actual compiled 700/1100 refresh
+paths and a separate reviewed-Import refusal, checking the exact delivered
+revision before matching profile/row assertions. Neither path retries, selects
+a corrective destination or discards a review to make refresh succeed.
 The original Import journey and full responsive matrices remain intact.
 The profile fixture places a qualifying Manager behind offscreen
 single-report ancestor context. These assertions do not realize, expand or scroll

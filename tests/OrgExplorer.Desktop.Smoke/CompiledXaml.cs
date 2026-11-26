@@ -2112,11 +2112,140 @@ internal static partial class Program
 
     private static void VerifyAutomaticPeopleReading(Type windowType, string root)
     {
+        VerifyAutomaticRefreshSearch(windowType, root, compact: false);
+        VerifyAutomaticRefreshSearch(windowType, root, compact: true);
+        VerifyAutomaticRefreshSearch(windowType, root, compact: false, reviewedImport: true);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: true);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: true, invalidateReview: true);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: false);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: false, recoveryScope: NoteScope.Person);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: false, recoveryScope: NoteScope.Team);
+    }
+
+    private static void VerifyAutomaticRefreshSearch(Type windowType, string root, bool compact, bool reviewedImport = false)
+    {
+        var path = Path.Combine(root, reviewedImport ? "refresh-search-reviewed" :
+            compact ? "refresh-search-compact" : "refresh-search-wide");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(path) || !seed.ApplyImport(seed.PreviewImport(SearchImport("""
+                {"email":"former@example.com","displayName":"Needle","managerEmail":null,"archived":true}
+                """, 907)).Id) || seed.CreatePersonNote("former@example.com", "Retained writing", "Exact private writing") is null)
+                throw new InvalidOperationException(seed.Status);
+        using var peer = new SmokeSnapshotPeer(path);
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+            [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => path)], null)!;
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+        try
+        {
+            Invoke("OpenSettingsButton");
+            Invoke("OpenWorkspaceButton");
+            PumpUntil(() => model.IsWorkspaceCurrent && Control<Button>("OpenWorkspaceButton").IsEnabled);
+            var content = (FrameworkElement)window.Content;
+            var size = compact ? new Size(700, 500) : new Size(1100, 900);
+            void Layout()
+            {
+                content.Measure(size);
+                content.Arrange(new Rect(size));
+                content.UpdateLayout();
+            }
+            Layout();
+            Control<TextBox>("SearchQuery").Text = "Needle";
+            PumpUntil(() => model.PeopleNavigation.HighlightedResult?.Person.Email == "former@example.com");
+            Invoke("OpenSettingsButton");
+            Invoke("OpenImportButton");
+            var import = path + "-import.json";
+            File.WriteAllText(import, SearchImport("""{"email":"former@example.com","jobTitle":"Unaccepted review"}""", 908));
+            Control<TextBox>("ImportPath").Text = import;
+            if (reviewedImport)
+            {
+                Invoke("PreviewButton");
+                PumpUntil(() => Control<Button>("ApplyButton").IsEnabled);
+            }
+            var preferences = Path.Combine(Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY")!,
+                "workspace-settings.json");
+            var saved = File.ReadAllBytes(preferences);
+            var initialRevision = model.Synchronization.LocalRevision;
+            peer.Publish(source => source.ApplyImport(source.PreviewImport(SearchImport(AutomaticRefreshSearchPeople(), 909)).Id));
+            Invoke("OpenSettingsButton");
+            var overlay = model.PeopleNavigation.OverlayOpen;
+            Invoke("SyncNowButton");
+            PumpUntil(() => Control<Button>("SyncNowButton").IsEnabled);
+            Invoke("OpenSettingsButton");
+            Layout();
+            if (!model.IsImportOpen || Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Visible ||
+                Control<TextBox>("ImportPath").Text != import || Control<TextBox>("SearchQuery").Text != "Needle" ||
+                model.PeopleNavigation.HighlightedResult?.Person.Email != "former@example.com" ||
+                model.PeopleNavigation.OverlayOpen != overlay || !saved.SequenceEqual(File.ReadAllBytes(preferences)))
+                throw new InvalidOperationException("Snapshot checking changed Import, search/highlight/overlay or saved preferences: " +
+                    $"compact={compact}; reviewed={reviewedImport}; import={model.IsImportOpen}; panel={Control<FrameworkElement>("ImportPanel").Visibility}; " +
+                    $"path='{Control<TextBox>("ImportPath").Text}'; query='{Control<TextBox>("SearchQuery").Text}'; " +
+                    $"highlight='{model.PeopleNavigation.HighlightedResult?.Person.Email}'; overlay={overlay}->{model.PeopleNavigation.OverlayOpen}; " +
+                    $"preferencesUnchanged={saved.SequenceEqual(File.ReadAllBytes(preferences))}.");
+            if (reviewedImport)
+            {
+                if (model.Synchronization.Error is not { } error || !error.Contains("Incoming version is waiting", StringComparison.Ordinal) ||
+                    model.Synchronization.LocalRevision != initialRevision || model.PeopleNavigation.SelectedEmail is not null ||
+                    Control<TextBlock>("Email").Text != "" || model.GetRelationships("shallow@example.com") is not null)
+                    throw new InvalidOperationException("An unapplied Import preview did not retain the original graph and explicit deferred-adoption error.");
+                if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                    throw new InvalidOperationException("Refresh-search verification cannot create a native window.");
+                Console.WriteLine("PASS: actual compiled unapplied Import review defers one incoming snapshot request without selecting unaccepted data.");
+                return;
+            }
+            if (model.Synchronization.Error is not null || Control<Button>("ApplyButton").IsEnabled)
+                throw new InvalidOperationException("Valid refresh retained a failure or enabled an unreviewed Import.");
+            LogicalDescendants(Control<FrameworkElement>("ImportPanel")).OfType<Button>()
+                .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Layout();
+            using var accepted = OpenSmokeWorkspace(path);
+            if (accepted.Synchronization.LocalRevision != peer.Workflow.Synchronization.LocalRevision)
+                throw new InvalidOperationException("The added refresh-search path did not accept its incoming snapshot: " +
+                    $"compact={compact}; email='{Control<TextBlock>("Email").Text}'; query='{Control<TextBox>("SearchQuery").Text}'; " +
+                    $"highlight='{model.PeopleNavigation.HighlightedResult?.Person.Email}'; selected='{model.PeopleNavigation.SelectedEmail}'; " +
+                    $"synchronization='{model.Synchronization.Error}'.");
+            PumpUntil(() => Control<TextBlock>("Email").Text == "shallow@example.com" &&
+                Control<TextBox>("SearchQuery").Text == "Needle");
+            if (compact && Control<FrameworkElement>("PeoplePanel").Visibility != Visibility.Visible)
+                Invoke("OpenPeopleButton");
+            if (model.PeopleNavigation.HighlightedResult?.Person.Email != "former@example.com" ||
+                model.PersonNotesView.OwnerEmail != "shallow@example.com" || model.TeamNotesView.OwnerEmail != "shallow@example.com" ||
+                model.ProfileEdit is not null || model.PersonNotesView.IsEditing || model.TeamNotesView.IsEditing)
+                throw new InvalidOperationException("Automatic refresh activated a search match or failed to open ordinary Person reading.");
+            Control<TextBox>("SearchQuery").Text = "";
+            PumpUntil(() =>
+            {
+                Layout();
+                var tree = Control<TreeView>("PeopleList");
+                var row = VisualDescendants(tree).OfType<TreeViewItem>().SingleOrDefault(item =>
+                    item.DataContext is ReportingNode node && node.Person.Email == "shallow@example.com");
+                if (row is not { IsSelected: true }) return false;
+                var header = VisualDescendants(row).OfType<TextBlock>().FirstOrDefault(text => text.Text == "Z shallow Manager");
+                if (header is null) return false;
+                var bounds = header.TransformToAncestor(tree).TransformBounds(new Rect(header.RenderSize));
+                return !bounds.IsEmpty && bounds.Left >= 0 && bounds.Right <= tree.ActualWidth &&
+                    bounds.Top >= 0 && bounds.Bottom <= tree.ActualHeight;
+            });
+            var ancestor = VisualDescendants(Control<TreeView>("PeopleList")).OfType<TreeViewItem>().Single(item =>
+                item.DataContext is ReportingNode node && node.Person.Email == "z-root@example.com");
+            if (!ancestor.IsExpanded || !saved.SequenceEqual(File.ReadAllBytes(preferences)) ||
+                accepted.GetRelationships("former@example.com")!.Person.JobTitle is not null ||
+                accepted.GetPersonNotes("former@example.com", true).Single().Markdown != "Exact private writing" ||
+                accepted.GetPersonNotes("shallow@example.com", true).Count != 0 ||
+                accepted.GetTeamNotes("shallow@example.com", true).Count != 0)
+                throw new InvalidOperationException("Deferred reveal changed the unreviewed input, notes, preferences or expanded ancestor.");
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Refresh-search verification cannot create a native window.");
+            Console.WriteLine($"PASS: actual compiled {(compact ? "compact" : "wide")} refresh accepts the exact peer revision, retains Import/search and reveals its selected header without replacing preferences or writing.");
+        }
+        finally
+        {
+            window.Close();
+            Invoke("CancelExitButton");
+            model.Dispose();
+        }
     }
 
     private static void VerifyAutomaticPeopleReading(Type windowType, string root, bool importRetry,

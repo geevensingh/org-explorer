@@ -217,23 +217,10 @@ internal static partial class Program
         AssertQueryHighlight(window, "former@example.com");
         OpenImportView(window);
         Set(window, "ImportPath", import);
-        Click(window, "PreviewImport");
-        Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+        // An unapplied Preview is protected writing and legitimately defers snapshot adoption.
         var preferences = Path.Combine(root, "app-settings", "workspace-settings.json");
         var saved = File.ReadAllBytes(preferences);
-        peer.Publish(source => source.ApplyImport(source.PreviewImport(SearchImport("""
-            {"email":"a-root@example.com","displayName":"A root","managerEmail":null},
-            {"email":"a-chain@example.com","displayName":"A chain","managerEmail":"a-root@example.com"},
-            {"email":"deep@example.com","displayName":"A deep Manager","managerEmail":"a-chain@example.com"},
-            {"email":"deep-one@example.com","displayName":"Deep one","managerEmail":"deep@example.com"},
-            {"email":"deep-two@example.com","displayName":"Deep two","managerEmail":"deep@example.com"},
-            {"email":"z-root@example.com","displayName":"Z root","managerEmail":null},
-            {"email":"shallow@example.com","displayName":"Z shallow Manager","managerEmail":"z-root@example.com"},
-            {"email":"shallow-one@example.com","displayName":"Shallow one","managerEmail":"shallow@example.com"},
-            {"email":"shallow-two@example.com","displayName":"Shallow two","managerEmail":"shallow@example.com"}
-            """ + "," + string.Join(",", Enumerable.Range(1, 40).Select(index => $$"""
-                {"email":"refresh{{index:00}}@example.com","displayName":"B offscreen context {{index:00}}","managerEmail":null}
-                """)), 909)).Id));
+        peer.Publish(source => source.ApplyImport(source.PreviewImport(SearchImport(AutomaticRefreshSearchPeople(), 909)).Id));
         PublishSmokeWorkspace(window, workspace);
         Await(() => IsVisible(window, "ImportPath") && Value(window, "ImportPath") == import &&
             IsVisible(window, "BackToPeople") && !IsVisible(window, "People") &&
@@ -241,9 +228,15 @@ internal static partial class Program
         if (!saved.SequenceEqual(File.ReadAllBytes(preferences)))
             throw new InvalidOperationException("Automatic refresh changed saved Person/note or pane preferences.");
         using (var accepted = OpenSmokeWorkspace(workspace))
+        {
+            if (accepted.Synchronization.LocalRevision != peer.Workflow.Synchronization.LocalRevision)
+                throw new InvalidOperationException("Automatic refresh did not adopt the expected incoming revision: " +
+                    $"expected={peer.Workflow.Synchronization.LocalRevision}; observed={accepted.Synchronization.LocalRevision}. " +
+                    accepted.Synchronization.Error);
             if (accepted.GetRelationships("former@example.com")!.Person.JobTitle is not null ||
                 accepted.GetPersonNotes("former@example.com", true).Single().Markdown != "Exact private writing")
-                throw new InvalidOperationException("Refresh applied the Import review or changed private writing.");
+                throw new InvalidOperationException("Refresh applied the Import input or changed private writing.");
+        }
         ReturnToPeople(window);
         if (responsive && !IsVisible(window, "PeopleNavigation")) Click(window, "OpenPeople");
         Find(window, "SearchQuery").SetFocus();
@@ -261,6 +254,20 @@ internal static partial class Program
         if (!saved.SequenceEqual(File.ReadAllBytes(preferences)))
             throw new InvalidOperationException("Deferred refresh reveal published automatic browsing as a remembered destination.");
     }
+
+    private static string AutomaticRefreshSearchPeople() => """
+            {"email":"a-root@example.com","displayName":"A root","managerEmail":null},
+            {"email":"a-chain@example.com","displayName":"A chain","managerEmail":"a-root@example.com"},
+            {"email":"deep@example.com","displayName":"A deep Manager","managerEmail":"a-chain@example.com"},
+            {"email":"deep-one@example.com","displayName":"Deep one","managerEmail":"deep@example.com"},
+            {"email":"deep-two@example.com","displayName":"Deep two","managerEmail":"deep@example.com"},
+            {"email":"z-root@example.com","displayName":"Z root","managerEmail":null},
+            {"email":"shallow@example.com","displayName":"Z shallow Manager","managerEmail":"z-root@example.com"},
+            {"email":"shallow-one@example.com","displayName":"Shallow one","managerEmail":"shallow@example.com"},
+            {"email":"shallow-two@example.com","displayName":"Shallow two","managerEmail":"shallow@example.com"}
+            """ + "," + string.Join(",", Enumerable.Range(1, 40).Select(index => $$"""
+                {"email":"refresh{{index:00}}@example.com","displayName":"B offscreen context {{index:00}}","managerEmail":null}
+                """));
 
     private static string SearchBrowsingPeople(bool responsive, bool photo = false) => $$"""
             {"email":"avery@example.com","displayName":"Avery Directory","preferredName":"Ave Preferred","alias":"avhandle",
