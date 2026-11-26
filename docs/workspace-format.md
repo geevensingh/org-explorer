@@ -75,8 +75,8 @@ Import envelopes and logical fingerprints, Profile observations/changes, Person
 and Team notes, Team confirmation/context revisions, frozen Historical team
 contexts, and required photo bytes.
 
-The local Favorites slice adds `favorite_order` to SQLite format 3 without
-changing the directory-exchange or interchange-1 snapshot formats. Its single
+Favorites adds `favorite_order` to SQLite format 3 without changing the
+directory-exchange format. Its single
 row has `singleton=1`, `format_version=1` and a JSON `sequence` of stable Person
 emails. An absent table denotes a supported unordered store: after complete
 validation, initialize A-Z in one evidenced local transaction. An existing table
@@ -86,13 +86,19 @@ alphabetized as recovery. Save revalidates the stored sequence inside the same
 transaction as membership, Import or order changes. Older local Workspace
 formats remain unsupported and are not migrated.
 
-Interchange-1 still carries membership but not custom ordering. Its validated
-local projection initializes A-Z within the adoption transaction, retaining the
-incoming revision and existing complete-snapshot semantics. Exact-order
-publication/adoption remains #143; this local slice is not private-order
-portability or complete delivery of the design.
+Synchronization metadata's `snapshot_format=2` records ordered publication
+support. An absent column or value 1 denotes a supported pre-transport store.
+After full validation and local recovery, initialize that marker once with a
+fresh evidenced continuation revision, preserving an already saved arrangement
+and all private content. This avoids changing the bytes of an already published
+interchange-1 revision. A pristine, empty, unconfigured seed can initialize
+only the metadata without advancing its revision, preserving Join eligibility.
+Read-only WAL failures and unresolved transaction evidence defer the upgrade,
+retaining validated browsing and the existing explicit recovery requirement.
+Unsupported marker values refuse opening/writing, including commit-time
+revalidation; they are not silently downgraded.
 
-**Approved Favorites ordering design (delivery incomplete):** retain the saved
+**Favorites ordering (#142 and #143):** retain the saved
 Favorite sequence as private Workspace state, using stable Person identity
 rather than displayed names. A workspace without saved ordering initializes it
 once from its existing A-Z displayed-name sequence, preserving relative order
@@ -114,7 +120,7 @@ A-Z displayed-name order, retaining input order for equal names. Existing
 Favorite omission/false and accepted-batch replay semantics remain unchanged.
 Ordinary Person export continues to exclude private Favorite status and order;
 complete-snapshot sync is distinct from that exchange. See the
-[approved product behavior](design.md#favorites-ordering-approved-design-delivery-incomplete).
+[product behavior](design.md#favorites-ordering).
 
 Explicit profile/Preferred-name Save always reads the actual SQLite head and
 format. If that revision still matches the already validated local state, Save
@@ -198,7 +204,7 @@ unresolved evidence pauses editing. No valid local state means an explicit
 recovery failure, not a successful empty Workspace. Unsaved editor buffers are
 not durable restart data.
 
-## Complete logical snapshots (interchange 1)
+## Complete logical snapshots (interchange 2; supported legacy 1)
 
 Configure a separate, non-nested provider-carried folder in Settings. Multiple
 computers are supported one at a time. A new empty local Workspace may explicitly
@@ -208,7 +214,7 @@ after complete validation.
 An immutable `<workspace-id>-<revision>.oesnapshot` owns a complete logical
 version and every required resource byte. It is not a SQLite database copy.
 The strict JSON envelope contains `format: "OrgExplorer complete logical Workspace"`,
-`version: 1`, uppercase `sha256` of decoded `content`, and base64 `content`.
+`version: 2`, uppercase `sha256` of decoded `content`, and base64 `content`.
 SHA-256 establishes completeness/integrity, not authenticity.
 
 Decoded content has `workspaceFormat: 3`, `workspaceId`, `revision`, ordered
@@ -223,6 +229,26 @@ root-through-current `ancestry`, and complete arrays:
 | `historicalContexts` | Complete frozen former-chain/note/transition evidence |
 | `notes` | Scope, ID, owner, metadata and full Markdown |
 | `photos` | Immutable references and base64 resource bytes |
+| `favoriteOrder` | Exact private sequence of stable Person emails, including initialized `[]` |
+
+Interchange 2 requires `favoriteOrder`: every current Favorite appears exactly
+once, with no duplicate (including case variants), unknown or non-Favorite
+identity. Missing/null ordering, invalid values and membership disagreement are
+explicit failures, never a legacy initialization or alphabetical fallback.
+Publication reads membership and ordering from the same committed SQLite
+transaction; adoption installs both in the same local transaction. Order-only
+delivery preserves navigation, and repeated sync/reopen retains that exact order.
+
+Supported interchange 1 is unordered and must not contain `favoriteOrder`,
+even null. Its fully validated population initializes A-Z by displayed name,
+preserving equal-name relative order from the incoming population. Initialization
+and a fresh ordered continuation revision commit in the original adoption
+transaction; the original incoming revision remains in ancestry and its artifact
+is not rewritten. An initialized empty interchange-2 sequence does not initialize
+again. Choosing a retained legacy version likewise initializes its complete
+selected state in the existing fresh resolution transaction. Future interchange
+versions remain unsupported. Invalid delivery retains the last valid local
+order, membership and private content with a separate synchronization error.
 
 Optional `resolvedRevisions` records exact branch revisions acknowledged by a
 deliberate whole-version choice. The chosen data remains intact; its ancestry

@@ -84,9 +84,23 @@ People/search/reporting order and absence of order-only Profile evidence.
 one-time supported unordered initialization, initialized-empty/switching behavior,
 exact reopen, Save/Cancel and name/Manager/archive independence, malformed/future
 order refusal, commit-time revalidation, actual writer locks and recovery/retry
-retaining independent failed notes and Preferred-name drafts. These are not
-exact-order snapshot transport tests; interchange-1 remains membership-only
-until #143. The existing `search-favorites` and responsive reading journey now
+retaining independent failed notes and Preferred-name drafts.
+`WorkspaceSnapshotTests` supplies #143's exact-order interchange-2
+publication/adoption/reopen, initialized-empty and supported unordered
+interchange-1 initialization (including equal-name input ties), pre-transport
+local continuation, pristine Join and unresolved-receipt recovery. It retains
+independently expected private notes, Team names, photos, history and Import
+replay alongside exact unsorted identity sequences. Whole-version choice
+selects and later restores complete competing arrangements; malformed, changed
+and future delivery retains the previous order/content and provider bytes before
+deliberate repair/retry. Existing retained-writing, actual adoption Commit failure
+and provider-outage cases also observe ordered Favorites. Cold read-only WAL cases
+cover deferred pre-transport initialization and explicit recovery.
+Future local publication metadata refuses both reopen and commit-time downgrade.
+The existing complete-state handoff hashes the unsorted Favorites identity
+sequence as well as Person/private content, and its ordinary fictitious-file cases
+retain a nonalphabetical arrangement after independent public Join/reopen.
+The existing `search-favorites` and responsive reading journey now
 cancel and complete actual handle drags, observe the exact visible sequence and
 unchanged Person, physically click ordinary rows, and reopen that sequence.
 Compilation and invisible XAML loading do not establish those hosted interactions;

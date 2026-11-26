@@ -24,6 +24,8 @@ public sealed class UiScaleHandoffTests : IDisposable
             new { email = "owner@example.com", displayName = "Owner", managerEmail = (string?)null },
             new { email = "report@example.com", displayName = "Report", managerEmail = (string?)"owner@example.com" }
         }, 1));
+        Assert.True(source.EditFavorite("report@example.com", true), source.Status);
+        Assert.True(source.EditFavorite("owner@example.com", true), source.Status);
         var note = source.CreateTeamNote("owner@example.com", "Actual note", "# Unchanged captured writing")!;
         var settings = new WorkspaceSettings(settingsPath);
         Assert.True(settings.OpenWorkspace(source, workspace), settings.PreferenceError);
@@ -59,6 +61,7 @@ public sealed class UiScaleHandoffTests : IDisposable
         Assert.Equal(manifest.Selection, settings.GetLastView(workspace));
         Assert.Equal(manifest.Selection.NoteId, settings.GetOngoingNote(workspace, NoteScope.Team, "owner@example.com"));
         Assert.Equal("# Unchanged captured writing", Assert.Single(reopened.GetTeamNotes("owner@example.com")).Markdown);
+        Assert.Equal(["report@example.com", "owner@example.com"], reopened.FavoritePeople.Select(person => person.Email));
         Assert.Equal(new PaneProportions(33, 67), settings.GetPaneProportions(workspace));
     }
 

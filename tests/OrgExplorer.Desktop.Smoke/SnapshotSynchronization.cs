@@ -491,7 +491,7 @@ internal static partial class Program
             runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
             executableSha256 = Convert.ToHexString(SHA256.HashData(executable)),
             processId = window.Current.ProcessId,
-            interchange = "OrgExplorer complete logical Workspace; envelope 1; SQLite logical format 3",
+            interchange = "OrgExplorer complete logical Workspace; envelope 2; SQLite logical format 3",
             workspaceId = identity,
             originalRevision,
             continuationRevision = continuation,

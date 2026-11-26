@@ -38,6 +38,7 @@ public sealed partial class ApplicationWorkflow
     private WorkspaceSynchronization synchronization = new(false);
     private Guid[] localAncestry = [];
     private Guid[] localResolvedRevisions = [];
+    private int localSnapshotFormat = 2;
     private bool joiningWorkspace;
     private int snapshotAdoptionDeferrals;
     private const string SnapshotFormat = "OrgExplorer complete logical Workspace";
@@ -49,7 +50,8 @@ public sealed partial class ApplicationWorkflow
     private sealed record LogicalSnapshot(int WorkspaceFormat, Guid WorkspaceId, Guid Revision, Guid[] Ancestry,
         SnapshotRow[] People, SnapshotRow[] History, SnapshotRow[] AcceptedImports, SnapshotNote[] Notes,
         SnapshotRow[] TeamContexts, SnapshotRow[] HistoricalContexts, SnapshotPhoto[] Photos,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid[]? ResolvedRevisions = null);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid[]? ResolvedRevisions = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? FavoriteOrder = null);
     private sealed record SnapshotEnvelope(string Format, int Version, string Sha256, byte[] Content);
     private sealed record DeliveredSnapshot(LogicalSnapshot Data, string Hash, byte[] Bytes);
     private sealed class SnapshotAdoptionDeferred(string message) : IOException(message);
@@ -82,7 +84,7 @@ public sealed partial class ApplicationWorkflow
             CREATE TABLE IF NOT EXISTS synchronization (
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1), folder TEXT,
                 published_revision TEXT, joining INTEGER NOT NULL DEFAULT 0,
-                divergence TEXT
+                divergence TEXT, snapshot_format INTEGER NOT NULL DEFAULT 2
             );
             INSERT OR IGNORE INTO synchronization(singleton) VALUES(1);
             CREATE TABLE IF NOT EXISTS revision_ancestry (
@@ -95,6 +97,23 @@ public sealed partial class ApplicationWorkflow
             );
             """;
         command.ExecuteNonQuery();
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('synchronization') WHERE name='snapshot_format';";
+        if (Convert.ToInt32(command.ExecuteScalar()) == 0)
+        {
+            command.CommandText = "ALTER TABLE synchronization ADD COLUMN snapshot_format INTEGER NOT NULL DEFAULT 1;";
+            command.ExecuteNonQuery();
+        }
+        ReadLocalSnapshotFormat(command);
+    }
+
+    private static int ReadLocalSnapshotFormat(SqliteCommand command)
+    {
+        command.Parameters.Clear();
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('synchronization') WHERE name='snapshot_format';";
+        if (Convert.ToInt32(command.ExecuteScalar()) == 0) return 1;
+        command.CommandText = "SELECT snapshot_format FROM synchronization WHERE singleton=1;";
+        var version = Convert.ToInt32(command.ExecuteScalar());
+        return version is 1 or 2 ? version : throw new UnsupportedWorkspaceVersion("Snapshot publication", version);
     }
 
     private string AdvanceLocalRevision(SqliteCommand command, int version, string? nextRevision = null)
@@ -103,6 +122,7 @@ public sealed partial class ApplicationWorkflow
         var next = nextRevision ?? Guid.NewGuid().ToString("D");
         command.CommandText = """
             UPDATE workspace SET format_version=$version, revision=$revision WHERE singleton=1;
+            UPDATE synchronization SET snapshot_format=2 WHERE singleton=1;
             INSERT INTO revision_ancestry(revision) VALUES($revision);
             """;
         command.Parameters.AddWithValue("$version", version);
@@ -115,6 +135,7 @@ public sealed partial class ApplicationWorkflow
     {
         revision = next;
         localAncestry = [.. localAncestry, Guid.Parse(next)];
+        localSnapshotFormat = 2;
         synchronization = synchronization with { LocalRevision = Guid.Parse(next) };
     }
 
@@ -126,10 +147,12 @@ public sealed partial class ApplicationWorkflow
         {
             localAncestry = [committedRevision];
             localResolvedRevisions = [];
+            localSnapshotFormat = 1;
             joiningWorkspace = false;
             synchronization = new(true, WorkspaceId: identity, LocalRevision: committedRevision);
             return;
         }
+        localSnapshotFormat = ReadLocalSnapshotFormat(command);
         command.CommandText = "SELECT revision FROM revision_ancestry ORDER BY sequence;";
         var ancestry = new List<Guid>();
         using (var reader = command.ExecuteReader())
@@ -406,12 +429,21 @@ public sealed partial class ApplicationWorkflow
         var bytes = File.ReadAllBytes(path);
         var envelope = JsonSerializer.Deserialize<SnapshotEnvelope>(bytes, SnapshotJson)
             ?? throw new FormatException("Snapshot envelope is empty.");
-        if (envelope.Format != SnapshotFormat || envelope.Version != 1)
+        if (envelope.Format != SnapshotFormat || envelope.Version is not (1 or 2))
             throw new FormatException("Incompatible Workspace snapshot format. No partial adoption or migration is performed.");
         if (envelope.Content is null || envelope.Sha256 != Convert.ToHexString(SHA256.HashData(envelope.Content)))
             throw new FormatException("Snapshot completeness/integrity validation failed.");
+        if (envelope.Version == 1)
+        {
+            using var legacy = JsonDocument.Parse(envelope.Content);
+            if (legacy.RootElement.ValueKind != JsonValueKind.Object || legacy.RootElement.TryGetProperty("favoriteOrder", out _))
+                throw new FormatException("Legacy unordered snapshots cannot supply Favorites ordering state.");
+        }
         var data = JsonSerializer.Deserialize<LogicalSnapshot>(envelope.Content, SnapshotJson)
             ?? throw new FormatException("Logical snapshot is empty.");
+        if (envelope.Version == 2 && data.FavoriteOrder is null ||
+            envelope.Version == 1 && data.FavoriteOrder is not null)
+            throw new FormatException("Snapshot Favorites order is missing or incompatible with its interchange version.");
         if (data.WorkspaceFormat != 3 || data.WorkspaceId == Guid.Empty || data.Revision == Guid.Empty ||
             data.Ancestry is null || data.People is null || data.History is null || data.AcceptedImports is null ||
             data.Notes is null || data.TeamContexts is null || data.HistoricalContexts is null || data.Photos is null)
@@ -454,6 +486,10 @@ public sealed partial class ApplicationWorkflow
         using (var reader = command.ExecuteReader())
             while (reader.Read()) ancestry.Add(ParseSnapshotId(reader.GetString(0)));
         var peopleRows = Rows("people", "email", "profile");
+        if (ReadLocalSnapshotFormat(command) != 2)
+            throw new FormatException("Reopen the local Workspace to initialize ordered snapshot publication before synchronizing.");
+        var order = ReadLocalFavoriteOrder(command, ReadSnapshotPeople(peopleRows))
+            ?? throw new FormatException("Saved Favorites order is required for complete snapshot publication.");
         var historyRows = Rows("profile_history", "email", "history");
         var accepted = Rows("accepted_batches", "id", "batch");
         var contexts = Rows("team_context", "email", "revision");
@@ -479,7 +515,7 @@ public sealed partial class ApplicationWorkflow
             if (items.Count != 0) resolved = items.ToArray();
         }
         return new(3, identity, commit, ancestry.ToArray(), peopleRows, historyRows, accepted,
-            notes.ToArray(), contexts, historical, resources.ToArray(), resolved);
+            notes.ToArray(), contexts, historical, resources.ToArray(), resolved, order.ToArray());
 
         SnapshotRow[] Rows(string table, string key, string value)
         {
@@ -549,7 +585,8 @@ public sealed partial class ApplicationWorkflow
     {
         var content = JsonSerializer.SerializeToUtf8Bytes(snapshot, SnapshotJson);
         var hash = Convert.ToHexString(SHA256.HashData(content));
-        return new(snapshot, hash, JsonSerializer.SerializeToUtf8Bytes(new SnapshotEnvelope(SnapshotFormat, 1, hash, content), SnapshotJson));
+        return new(snapshot, hash, JsonSerializer.SerializeToUtf8Bytes(
+            new SnapshotEnvelope(SnapshotFormat, snapshot.FavoriteOrder is null ? 1 : 2, hash, content), SnapshotJson));
     }
 
     private sealed class ValidatedSnapshot(ApplicationWorkflow workflow, string directory) : IDisposable
@@ -598,20 +635,11 @@ public sealed partial class ApplicationWorkflow
             """;
         command.ExecuteNonQuery();
         Put("people", data.People);
-        // Interchange-1 has membership, not custom order. Initialize its local projection
-        // inside the same adoption transaction without creating another revision.
-        var incomingPeople = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in data.People)
-        {
-            if (System.Text.Json.Nodes.JsonNode.Parse(row.Value) is not System.Text.Json.Nodes.JsonObject json)
-                throw new FormatException("Invalid snapshot Person record.");
-            json.Add("schemaVersion", 2);
-            var person = ReadPersonRecord(JsonSerializer.SerializeToElement(json));
-            if (!row.Key.Equals(person.Email, StringComparison.OrdinalIgnoreCase) || !incomingPeople.TryAdd(person.Email, person))
-                throw new FormatException("Unknown or duplicate snapshot Person identity.");
-        }
-        WriteLocalFavoriteOrder(command, Array.AsReadOnly(incomingPeople.Values.Where(person => person.IsFavorite)
-            .OrderBy(person => person.Heading).Select(person => person.Email).ToArray()));
+        var incomingPeople = ReadSnapshotPeople(data.People);
+        var order = data.FavoriteOrder ?? incomingPeople.Values.Where(person => person.IsFavorite)
+            .OrderBy(person => person.Heading).Select(person => person.Email).ToArray();
+        ValidateFavoriteOrder(order, incomingPeople);
+        WriteLocalFavoriteOrder(command, Array.AsReadOnly(order));
         Put("profile_history", data.History);
         Put("accepted_batches", data.AcceptedImports);
         foreach (var note in data.Notes)
@@ -622,6 +650,8 @@ public sealed partial class ApplicationWorkflow
         Insert("UPDATE workspace SET format_version=3, identity=$a, revision=$b WHERE singleton=1;",
             data.WorkspaceId.ToString("D"), data.Revision.ToString("D"));
         EnsureLocalSynchronization(command);
+        command.CommandText = "UPDATE synchronization SET snapshot_format=2 WHERE singleton=1;";
+        command.ExecuteNonQuery();
         command.CommandText = "DELETE FROM revision_ancestry;";
         command.ExecuteNonQuery();
         foreach (var ancestor in data.Ancestry) Insert("INSERT INTO revision_ancestry(revision) VALUES($a);", ancestor.ToString("D"));
@@ -645,6 +675,21 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
+    private static Dictionary<string, PersonProfile> ReadSnapshotPeople(SnapshotRow[] rows)
+    {
+        var incomingPeople = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(row.Value) is not System.Text.Json.Nodes.JsonObject json)
+                throw new FormatException("Invalid snapshot Person record.");
+            json.Add("schemaVersion", 2);
+            var person = ReadPersonRecord(JsonSerializer.SerializeToElement(json));
+            if (!row.Key.Equals(person.Email, StringComparison.OrdinalIgnoreCase) || !incomingPeople.TryAdd(person.Email, person))
+                throw new FormatException("Unknown or duplicate snapshot Person identity.");
+        }
+        return incomingPeople;
+    }
+
     private void EnsureSnapshotAdoptionAllowed(bool explicitChoice = false)
     {
         if (LocalSave.HasUnresolvedOutcome || !CanSafelyClose || pending is not null ||
@@ -658,6 +703,18 @@ public sealed partial class ApplicationWorkflow
     private void AdoptSnapshot(ValidatedSnapshot candidate, DeliveredSnapshot incoming, bool explicitChoice = false)
     {
         EnsureSnapshotAdoptionAllowed(explicitChoice);
+        var publishedRevision = explicitChoice ? (Guid?)null : incoming.Data.Revision;
+        if (!explicitChoice && incoming.Data.FavoriteOrder is null)
+        {
+            // Initialization adds portable state, so publish a continuation rather than
+            // changing the bytes of the immutable unordered revision.
+            var next = Guid.NewGuid();
+            incoming = EncodeSnapshot(incoming.Data with
+            {
+                Revision = next, Ancestry = [.. incoming.Data.Ancestry, next],
+                FavoriteOrder = candidate.Workflow.favoriteOrder.ToArray()
+            });
+        }
         try
         {
             var expected = revision;
@@ -674,7 +731,7 @@ public sealed partial class ApplicationWorkflow
                         'Complete version selected; arrival validation must finish before editing resumes.'
                         ELSE divergence END WHERE singleton=1;
                 """;
-            command.Parameters.AddWithValue("$revision", explicitChoice ? DBNull.Value : incoming.Data.Revision.ToString("D"));
+            command.Parameters.AddWithValue("$revision", publishedRevision is { } published ? published.ToString("D") : DBNull.Value);
             command.Parameters.AddWithValue("$choice", explicitChoice ? 1 : 0);
             command.ExecuteNonQuery();
             // Seal clean adoption before commit, without holding the draft/navigation gate
@@ -702,11 +759,12 @@ public sealed partial class ApplicationWorkflow
                 revision = incoming.Data.Revision.ToString("D");
                 localAncestry = incoming.Data.Ancestry;
                 localResolvedRevisions = incoming.Data.ResolvedRevisions ?? [];
+                localSnapshotFormat = 2;
                 joiningWorkspace = false;
                 synchronization = Synchronization with
                 {
                     WorkspaceId = incoming.Data.WorkspaceId, LocalRevision = incoming.Data.Revision,
-                    PublishedRevision = explicitChoice ? null : incoming.Data.Revision, Error = null
+                    PublishedRevision = publishedRevision, Error = null
                 };
                 compatibility = accepted.compatibility with
                 {

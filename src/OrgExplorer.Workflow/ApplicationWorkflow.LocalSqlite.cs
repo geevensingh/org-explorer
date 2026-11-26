@@ -99,6 +99,7 @@ public sealed partial class ApplicationWorkflow
             CreateLocalNoteSchema(command);
             CreateLocalProfileSchema(command);
             WriteLocalFavoriteOrder(command, []);
+            EnsureLocalSynchronization(command);
             transaction.Commit();
         }
         if (!File.Exists(Path.Combine(workspace!, SqliteDiscriminator)) ||
@@ -288,6 +289,28 @@ public sealed partial class ApplicationWorkflow
             loadedFavorites = Array.AsReadOnly(loaded.Values.Where(person => person.IsFavorite)
                 .OrderBy(person => person.Heading).Select(person => person.Email).ToArray());
             committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision);
+        }
+        else if (localSnapshotFormat == 1 && walReady && localWalFault is null && localSaveFault is null)
+        {
+            revision = committedRevision;
+            if (ReconcileLocalWriteEvidence())
+            {
+                if (loaded.Count == 0 && accepted.Count == 0 && localAncestry.Length == 1 &&
+                    Synchronization.Folder is null && Synchronization.PublishedRevision is null)
+                {
+                    using var connection = OpenLocalConnection();
+                    using var transaction = connection.BeginTransaction();
+                    using var command = connection.CreateCommand();
+                    command.Transaction = transaction;
+                    EnsureSynchronizationHead(command, Synchronization.WorkspaceId, committedRevision);
+                    EnsureLocalSynchronization(command);
+                    command.CommandText = "UPDATE synchronization SET snapshot_format=2 WHERE singleton=1;";
+                    command.ExecuteNonQuery();
+                    transaction.Commit();
+                    localSnapshotFormat = 2;
+                }
+                else committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision, loaded);
+            }
         }
         people = loaded;
         batches = accepted;

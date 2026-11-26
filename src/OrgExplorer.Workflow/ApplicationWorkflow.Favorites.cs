@@ -78,6 +78,7 @@ public sealed partial class ApplicationWorkflow
     {
         try
         {
+            ReadLocalSnapshotFormat(command);
             var stored = ReadLocalFavoriteOrder(command, people)
                 ?? throw new FormatException("Saved Favorites order is missing. Reopen to reconcile; nothing saved.");
             if (!stored.SequenceEqual(favoriteOrder, StringComparer.OrdinalIgnoreCase))
@@ -90,7 +91,8 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private string InitializeLocalFavoriteOrder(IReadOnlyList<string> order, string expectedRevision)
+    private string InitializeLocalFavoriteOrder(IReadOnlyList<string> order, string expectedRevision,
+        Dictionary<string, PersonProfile>? initializedPopulation = null)
     {
         try
         {
@@ -103,6 +105,12 @@ public sealed partial class ApplicationWorkflow
             {
                 if (!reader.Read() || reader.GetInt32(0) != 3 || reader.GetString(1) != expectedRevision)
                     throw new IOException("Workspace changed before Favorites initialization. Reopen to reconcile; nothing saved.");
+            }
+            if (initializedPopulation is not null)
+            {
+                var stored = ReadLocalFavoriteOrder(command, initializedPopulation);
+                if (stored is null || !stored.SequenceEqual(order, StringComparer.OrdinalIgnoreCase))
+                    throw new IOException("Saved Favorites changed before snapshot initialization. Reopen to reconcile; nothing saved.");
             }
             revision = expectedRevision;
             using var evidence = BeginLocalWrite();

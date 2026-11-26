@@ -123,6 +123,7 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
     [InlineData("UPDATE favorite_order SET sequence='[\"unknown@example.com\"]';")]
     [InlineData("UPDATE favorite_order SET sequence='[\"avery@example.com\"]';")]
     [InlineData("UPDATE favorite_order SET format_version=2;")]
+    [InlineData("UPDATE synchronization SET snapshot_format=999;")]
     public void Malformed_or_unsupported_order_is_rejected_and_retains_the_last_valid_Favorites(string corruption)
     {
         var app = Seed();
@@ -156,6 +157,20 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         Assert.Equal(["alex@example.com"], app.FavoritePeople.Select(person => person.Email));
         Assert.Equal(revision, app.LocalSave.CommittedRevision);
         Assert.Contains("Favorites order", app.LocalSaveError);
+        foreach (var (path, expected) in bytes) Assert.Equal(expected, File.ReadAllBytes(Path.Combine(folder, path)));
+    }
+
+    [Fact]
+    public void A_save_cannot_downgrade_future_snapshot_publication_metadata_after_the_last_validated_read()
+    {
+        var app = Seed();
+        var revision = app.LocalSave.CommittedRevision;
+        ChangeStoredFixture("UPDATE synchronization SET snapshot_format=999;");
+        var bytes = WorkspaceFixtures.Bytes(folder);
+        Assert.False(app.EditFavorite("avery@example.com", true));
+        Assert.Equal(["alex@example.com"], app.FavoritePeople.Select(person => person.Email));
+        Assert.Equal(revision, app.LocalSave.CommittedRevision);
+        Assert.False(app.Compatibility.SupportsOrdinaryEdits);
         foreach (var (path, expected) in bytes) Assert.Equal(expected, File.ReadAllBytes(Path.Combine(folder, path)));
     }
 

@@ -25,6 +25,272 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         """;
 
     [Fact]
+    public void Saved_Favorites_arrangement_publishes_adopts_and_reopens_without_sorting_or_navigation()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Deliver("outgoing", "incoming");
+        using var second = Create("second");
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Status);
+        Assert.True(second.SyncNow(), second.Status);
+        Assert.Empty(second.FavoritePeople);
+        Assert.Equal(first.Synchronization.LocalRevision, second.Synchronization.LocalRevision);
+        Assert.True(first.EditFavorite("manager@example.com", true), first.Status);
+        Assert.True(first.EditFavorite("report@example.com", true), first.Status);
+        Assert.True(first.ReorderFavorite("report@example.com", "manager@example.com"), first.Status);
+        var note = first.CreatePersonNote("report@example.com", "Private", "Exact private writing")!;
+        Assert.True(first.BeginProfileEdit("manager@example.com"), first.Status);
+        Assert.True(first.StageProfileTeamName("Private platform"), first.Status);
+        Assert.True(first.SaveProfileEdit(), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Deliver("outgoing", "incoming");
+        Assert.True(second.SyncNow(), second.Status);
+        Assert.Equal(["report@example.com", "manager@example.com"], second.FavoritePeople.Select(person => person.Email));
+        Assert.Equal(first.Synchronization.LocalRevision, second.Synchronization.LocalRevision);
+        Assert.Equal(["manager@example.com", "report@example.com"], second.People.Select(person => person.Email));
+        Assert.Equal("Exact private writing", second.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+        Assert.Equal("Private platform", second.GetRelationships("manager@example.com")!.Person.TeamName);
+        Assert.True(second.NavigatePerson("report@example.com"), second.Status);
+        var navigation = second.PeopleNavigation;
+        Assert.True(first.ReorderFavorite("report@example.com", null), first.Status);
+        var revision = first.Synchronization.LocalRevision;
+        Assert.True(first.SyncNow(), first.Status);
+        Deliver("outgoing", "incoming");
+        Assert.True(second.SyncNow(), second.Status);
+        Assert.Equal(["manager@example.com", "report@example.com"], second.FavoritePeople.Select(person => person.Email));
+        Assert.Equal(navigation, second.PeopleNavigation);
+        Assert.Equal(revision, second.Synchronization.LocalRevision);
+        Assert.True(second.SyncNow(), second.Status);
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(revision, reopened.Synchronization.LocalRevision);
+        Assert.Equal(["manager@example.com", "report@example.com"], reopened.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Exact private writing", reopened.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+        Assert.True(reopened.EditFavorite("manager@example.com", false), reopened.Status);
+        Assert.True(reopened.EditFavorite("manager@example.com", true), reopened.Status);
+        Assert.Equal(["report@example.com", "manager@example.com"], reopened.FavoritePeople.Select(person => person.Email));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Legacy_Favorites_initialize_once_in_the_adoption_transaction_without_rewriting_immutable_delivery(bool empty)
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        var additions = first.PreviewImport("""
+            {"schemaVersion":1,"batchId":"96000000-0000-4000-8000-000000000014",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"z-tie@example.com","displayName":"Directory Z","preferredName":"Alpha","managerEmail":null},
+             {"email":"a-tie@example.com","displayName":"Alpha","managerEmail":null}]}
+            """);
+        Assert.True(first.ApplyImport(additions.Id), first.Status);
+        if (!empty)
+            foreach (var email in new[] { "manager@example.com", "report@example.com", "z-tie@example.com", "a-tie@example.com" })
+                Assert.True(first.EditFavorite(email, true), first.Status);
+        Assert.True(first.EditPersonText("report@example.com", PersonTextField.DirectoryName, null), first.Status);
+        var note = first.CreatePersonNote("report@example.com", "Private", "Legacy private Markdown")!;
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Deliver("outgoing", "incoming");
+        var artifact = Assert.Single(Directory.GetFiles(Local("incoming"), "*.oesnapshot"));
+        RewriteSnapshot(artifact, data =>
+        {
+            data.Remove("favoriteOrder");
+            var rows = data["people"]!.AsArray();
+            var z = rows.Single(row => row!["key"]!.GetValue<string>() == "z-tie@example.com")!;
+            rows.Remove(z);
+            rows.Insert(0, z);
+        });
+        var envelope = JsonNode.Parse(File.ReadAllBytes(artifact))!.AsObject();
+        envelope["version"] = 1;
+        File.WriteAllText(artifact, envelope.ToJsonString());
+        var legacyBytes = File.ReadAllBytes(artifact);
+        var legacyRevision = first.Synchronization.LocalRevision;
+        using var second = Create("second");
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Status);
+        Assert.True(second.SyncNow(), second.Status);
+        var expected = empty ? Array.Empty<string>() :
+            ["z-tie@example.com", "a-tie@example.com", "manager@example.com", "report@example.com"];
+        Assert.Equal(expected, second.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Legacy private Markdown", second.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+        Assert.Equal(first.Synchronization.WorkspaceId, second.Synchronization.WorkspaceId);
+        Assert.NotEqual(legacyRevision, second.Synchronization.LocalRevision);
+        Assert.Equal(legacyBytes, File.ReadAllBytes(artifact));
+        var initialized = second.Synchronization.LocalRevision;
+        Assert.True(second.SyncNow(), second.Status);
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(initialized, reopened.Synchronization.LocalRevision);
+        Assert.Equal(expected, reopened.FavoritePeople.Select(person => person.Email));
+        Assert.True(reopened.EditFavorite("report@example.com", true), reopened.Status);
+        Assert.True(reopened.EditFavorite("manager@example.com", true), reopened.Status);
+        Assert.True(reopened.ReorderFavorite("manager@example.com", null), reopened.Status);
+        Assert.True(reopened.SyncNow(), reopened.Status);
+        using var receiver = Create("receiver");
+        Assert.True(receiver.ConfigureSynchronizationFolder(Local("incoming"), true), receiver.Status);
+        Assert.True(receiver.SyncNow(), receiver.Status);
+        Assert.Equal(empty ? ["report@example.com", "manager@example.com"] :
+            ["z-tie@example.com", "a-tie@example.com", "report@example.com", "manager@example.com"],
+            receiver.FavoritePeople.Select(person => person.Email));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Existing_local_Favorites_gain_a_single_ordered_continuation_without_replacing_a_published_legacy_revision(
+        bool published, bool unresolvedReceipt)
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.EditFavorite("report@example.com", true), first.Status);
+        Assert.True(first.EditFavorite("manager@example.com", true), first.Status);
+        var note = first.CreatePersonNote("report@example.com", "Private", "Pre-transport private writing")!;
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        byte[]? legacyBytes = null;
+        string? legacyArtifact = null;
+        if (published)
+        {
+            Assert.True(first.SyncNow(), first.Status);
+            legacyArtifact = Assert.Single(Directory.GetFiles(Local("outgoing"), "*.oesnapshot"));
+            RewriteSnapshot(legacyArtifact, data => data.Remove("favoriteOrder"));
+            var envelope = JsonNode.Parse(File.ReadAllBytes(legacyArtifact))!.AsObject();
+            envelope["version"] = 1;
+            File.WriteAllText(legacyArtifact, envelope.ToJsonString());
+            legacyBytes = File.ReadAllBytes(legacyArtifact);
+        }
+        var original = first.Synchronization.LocalRevision;
+        var timeline = first.GetProfileTimeline("report@example.com")!;
+        first.Dispose();
+        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(Local("first"), "workspace.sqlite"), Pooling = false
+        }.ToString()))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                ALTER TABLE synchronization RENAME TO old_sync;
+                CREATE TABLE synchronization (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton=1), folder TEXT,
+                    published_revision TEXT, joining INTEGER NOT NULL DEFAULT 0, divergence TEXT
+                );
+                INSERT INTO synchronization SELECT singleton,folder,published_revision,joining,divergence FROM old_sync;
+                DROP TABLE old_sync;
+                """;
+            command.ExecuteNonQuery();
+            if (published)
+            {
+                command.CommandText = "UPDATE snapshot_inventory SET hash=$hash;";
+                command.Parameters.AddWithValue("$hash", JsonNode.Parse(legacyBytes!)!["sha256"]!.GetValue<string>());
+                command.ExecuteNonQuery();
+            }
+        }
+        var receipt = Path.Combine(Local("first"), $"local-write-{Guid.NewGuid():N}.json");
+        if (unresolvedReceipt) File.WriteAllText(receipt, "Unresolved original transaction");
+        using var upgraded = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(upgraded.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), upgraded.Status);
+        if (unresolvedReceipt)
+        {
+            Assert.Equal(original, upgraded.Synchronization.LocalRevision);
+            Assert.Equal(["report@example.com", "manager@example.com"], upgraded.FavoritePeople.Select(person => person.Email));
+            Assert.Equal("Pre-transport private writing", upgraded.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+            Assert.True(upgraded.LocalSave.HasUnresolvedOutcome);
+            Assert.False(upgraded.ReorderFavorite("manager@example.com", "report@example.com"));
+            Assert.Equal("Unresolved original transaction", File.ReadAllText(receipt));
+            File.Delete(receipt);
+            Assert.True(upgraded.ReconcileLocalSaves(), upgraded.Status);
+            Assert.True(upgraded.RefreshWorkspace(), upgraded.Status);
+        }
+        var current = upgraded.Synchronization.LocalRevision;
+        Assert.NotEqual(original, current);
+        Assert.Equal(["report@example.com", "manager@example.com"], upgraded.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Pre-transport private writing", upgraded.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+        Assert.Equal(JsonSerializer.Serialize(timeline), JsonSerializer.Serialize(upgraded.GetProfileTimeline("report@example.com")));
+        Assert.True(upgraded.SyncNow(), upgraded.Status);
+        if (published) Assert.Equal(legacyBytes, File.ReadAllBytes(legacyArtifact!));
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(current, reopened.Synchronization.LocalRevision);
+        Deliver("outgoing", "incoming");
+        using var receiver = Create("receiver");
+        Assert.True(receiver.ConfigureSynchronizationFolder(Local("incoming"), true), receiver.Status);
+        Assert.True(receiver.SyncNow(), receiver.Status);
+        Assert.Equal(current, receiver.Synchronization.LocalRevision);
+        Assert.Equal(["report@example.com", "manager@example.com"], receiver.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Pre-transport private writing", receiver.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+    }
+
+    [Fact]
+    public void Pristine_legacy_local_Workspace_can_still_join_an_ordered_complete_snapshot()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.EditFavorite("report@example.com", true), first.Status);
+        Assert.True(first.EditFavorite("manager@example.com", true), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Deliver("outgoing", "incoming");
+        using (var seed = Create("second")) { }
+        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(Local("second"), "workspace.sqlite"), Pooling = false
+        }.ToString()))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE synchronization SET snapshot_format=1;";
+            command.ExecuteNonQuery();
+        }
+        using var second = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), second.Status);
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Status);
+        Assert.True(second.SyncNow(), second.Status);
+        Assert.Equal(first.Synchronization.WorkspaceId, second.Synchronization.WorkspaceId);
+        Assert.Equal(first.Synchronization.LocalRevision, second.Synchronization.LocalRevision);
+        Assert.Equal(["report@example.com", "manager@example.com"], second.FavoritePeople.Select(person => person.Email));
+    }
+
+    [Fact]
+    public void Changed_order_for_an_accepted_immutable_revision_is_refused_without_replacing_local_or_provider_content()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.EditFavorite("report@example.com", true), first.Status);
+        Assert.True(first.EditFavorite("manager@example.com", true), first.Status);
+        var note = first.CreatePersonNote("report@example.com", "Private", "Exact immutable-version writing")!;
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Deliver("outgoing", "incoming");
+        using var second = Create("second");
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Status);
+        Assert.True(second.SyncNow(), second.Status);
+        var revision = second.Synchronization.LocalRevision;
+        var artifact = Assert.Single(Directory.GetFiles(Local("incoming"), "*.oesnapshot"));
+        var original = File.ReadAllBytes(artifact);
+        RewriteSnapshot(artifact, data => data["favoriteOrder"] = new JsonArray("manager@example.com", "report@example.com"));
+        var changed = File.ReadAllBytes(artifact);
+        Assert.False(second.SyncNow());
+        Assert.NotNull(second.Synchronization.Error);
+        Assert.Null(second.LocalSaveError);
+        Assert.Equal(revision, second.Synchronization.LocalRevision);
+        Assert.Equal(["report@example.com", "manager@example.com"], second.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Exact immutable-version writing", second.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+        Assert.Equal(changed, File.ReadAllBytes(artifact));
+        Assert.Null(second.GetWorkspaceVersionReview());
+        File.WriteAllBytes(artifact, original);
+        Assert.True(second.SyncNow(), second.Status);
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(revision, reopened.Synchronization.LocalRevision);
+        Assert.Equal(["report@example.com", "manager@example.com"], reopened.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Exact immutable-version writing", reopened.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+    }
+
+    [Fact]
     public void New_publication_reuses_complete_content_validation_for_retention_and_rechecks_later_delivery()
     {
         var observer = new ExitPublicationObserver();
@@ -1136,6 +1402,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.EditFavorite("report@example.com", true), first.Status);
+        Assert.True(first.EditFavorite("manager@example.com", true), first.Status);
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
@@ -1145,6 +1413,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(second.NavigatePerson("report@example.com"), second.Status);
         second.ChangePeopleQuery("Report");
         var navigation = second.PeopleNavigation;
+        Assert.True(first.ReorderFavorite("report@example.com", null), first.Status);
         const string manager = "manager@example.com", report = "report@example.com";
         var image = Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
@@ -1189,9 +1458,11 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.Empty(second.GetHistoricalTeamContexts(report));
         Assert.Null(second.GetPhoto(report));
         Assert.Equal(navigation, second.PeopleNavigation);
+        Assert.Equal(["report@example.com", "manager@example.com"], second.FavoritePeople.Select(person => person.Email));
         File.WriteAllBytes(latest, original);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.Equal(navigation, second.PeopleNavigation);
+        Assert.Equal(["manager@example.com", "report@example.com"], second.FavoritePeople.Select(person => person.Email));
         Assert.Equal("Private platform", second.GetRelationships(manager)!.Person.TeamName);
         Assert.Empty(second.GetTeamNames(manager));
         Assert.Null(second.GetPhoto(manager));
@@ -1230,6 +1501,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.Equal(image, reopened.GetPhoto(report)!.Bytes.ToArray());
         Assert.Equal(expected.TeamNotes, reopened.GetHistoricalTeamContexts(report)[0].TeamNotes);
         Assert.Equal(first.GetTeamNotes(manager), reopened.GetTeamNotes(manager));
+        Assert.Equal(["manager@example.com", "report@example.com"], reopened.FavoritePeople.Select(person => person.Email));
     }
 
     [Theory]
@@ -1241,10 +1513,24 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     [InlineData("accepted-evidence")]
     [InlineData("missing-person-field")]
     [InlineData("null-record")]
+    [InlineData("missing-order")]
+    [InlineData("null-order")]
+    [InlineData("object-order")]
+    [InlineData("missing-favorite")]
+    [InlineData("duplicate-favorite")]
+    [InlineData("unknown-favorite")]
+    [InlineData("non-favorite")]
+    [InlineData("null-favorite")]
+    [InlineData("non-string-favorite")]
+    [InlineData("legacy-ordered")]
+    [InlineData("legacy-null-order")]
     public void Invalid_delivery_keeps_the_last_valid_Workspace_and_explicit_error(string damage)
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.EditFavorite("report@example.com", true), first.Status);
+        Assert.True(first.EditFavorite("manager@example.com", true), first.Status);
+        var note = first.CreatePersonNote("report@example.com", "Private", "Retain private writing")!;
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
@@ -1252,6 +1538,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         var originalRevision = second.Synchronization.LocalRevision;
+        Assert.True(first.EditFavorite("manager@example.com", false), first.Status);
         Assert.True(first.EditPreferredName("report@example.com", "New delivered name"), first.Status);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
@@ -1285,20 +1572,48 @@ public sealed class WorkspaceSnapshotTests : IDisposable
                         row["value"] = person.ToJsonString();
                     }
                     if (damage == "null-record") data["people"]![0] = null;
+                    if (damage == "missing-order") data.Remove("favoriteOrder");
+                    if (damage is "null-order" or "legacy-null-order") data["favoriteOrder"] = null;
+                    if (damage == "object-order") data["favoriteOrder"] = new JsonObject();
+                    if (damage == "missing-favorite") data["favoriteOrder"] = new JsonArray();
+                    if (damage == "duplicate-favorite")
+                        data["favoriteOrder"] = new JsonArray("report@example.com", "REPORT@example.com");
+                    if (damage == "unknown-favorite") data["favoriteOrder"] = new JsonArray("unknown@example.com");
+                    if (damage == "non-favorite") data["favoriteOrder"] = new JsonArray("report@example.com", "manager@example.com");
+                    if (damage == "null-favorite") data["favoriteOrder"] = new JsonArray((JsonNode?)null);
+                    if (damage == "non-string-favorite") data["favoriteOrder"] = new JsonArray(42);
                 });
+                if (damage is "legacy-ordered" or "legacy-null-order")
+                {
+                    var legacy = JsonNode.Parse(File.ReadAllBytes(latest))!.AsObject();
+                    legacy["version"] = 1;
+                    File.WriteAllText(latest, legacy.ToJsonString());
+                }
                 break;
         }
+        var deliveredBytes = Directory.GetFiles(Local("incoming"), "*.oesnapshot").ToDictionary(file => file, File.ReadAllBytes);
         Assert.False(second.SyncNow());
         Assert.NotNull(second.Synchronization.Error);
         Assert.True(second.IsWorkspaceCurrent);
         Assert.Null(second.LocalSaveError);
         Assert.Equal(originalRevision, second.Synchronization.LocalRevision);
         Assert.Null(second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.Equal(["report@example.com", "manager@example.com"], second.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Retain private writing", second.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+        foreach (var (path, bytes) in deliveredBytes) Assert.Equal(bytes, File.ReadAllBytes(path));
+        using (var retained = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked()))
+        {
+            Assert.True(retained.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), retained.Status);
+            Assert.Equal(originalRevision, retained.Synchronization.LocalRevision);
+            Assert.Equal(["report@example.com", "manager@example.com"], retained.FavoritePeople.Select(person => person.Email));
+            Assert.Equal("Retain private writing", retained.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+        }
         File.WriteAllBytes(latest, original);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.Equal("New delivered name", second.GetRelationships("report@example.com")!.Person.PreferredName);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.Equal(first.Synchronization.LocalRevision, second.Synchronization.LocalRevision);
+        Assert.Equal(["report@example.com"], second.FavoritePeople.Select(person => person.Email));
     }
 
     [Theory]
@@ -1342,6 +1657,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.EditFavorite("report@example.com", true), first.Status);
+        Assert.True(first.EditFavorite("manager@example.com", true), first.Status);
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
@@ -1349,6 +1666,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         var originalRevision = second.Synchronization.LocalRevision;
+        Assert.True(first.ReorderFavorite("report@example.com", null), first.Status);
         Assert.True(first.EditPreferredName("report@example.com", "Incoming"), first.Status);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
@@ -1380,6 +1698,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         finally { heldWriter.Commit(); }
         Assert.False(await synchronizing.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.Equal(originalRevision, second.Synchronization.LocalRevision);
+        Assert.Equal(["report@example.com", "manager@example.com"], second.FavoritePeople.Select(person => person.Email));
         Assert.Null(second.GetRelationships("report@example.com")!.Person.PreferredName);
         Assert.False(second.CanSafelyClose);
         Assert.True(second.NavigatePerson("manager@example.com"), second.Status);
@@ -1520,6 +1839,13 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport("""
+            {"schemaVersion":1,"batchId":"96000000-0000-4000-8000-000000000015",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"other@example.com","displayName":"Other","managerEmail":null}]}
+            """).Id), first.Status);
+        foreach (var email in new[] { "report@example.com", "manager@example.com", "other@example.com" })
+            Assert.True(first.EditFavorite(email, true), first.Status);
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
@@ -1532,6 +1858,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         {
             Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
             Assert.True(second.SyncNow(), second.Synchronization.Error);
+            Assert.True(second.ReorderFavorite("manager@example.com", "report@example.com"), second.Status);
             Assert.True(second.EditPreferredName("report@example.com", "Second complete version"), second.Status);
             Assert.NotNull(second.CreatePersonNote("report@example.com", "Local only", "Preserve all local writing"));
             Assert.True(second.EditPhoto("manager@example.com", Local("conflict-photo.png")), second.Status);
@@ -1539,18 +1866,24 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             Assert.True(second.EditPersonManager("report@example.com", null), second.Status);
             localCapture = Assert.Single(second.GetHistoricalTeamContexts("report@example.com"));
             localVersion = second.Synchronization.LocalRevision!.Value;
+            Assert.True(first.ReorderFavorite("other@example.com", "report@example.com"), first.Status);
             Assert.True(first.EditPreferredName("report@example.com", "First complete version"), first.Status);
             Assert.NotNull(first.CreateTeamNote("manager@example.com", "Incoming only", "Preserve all incoming writing"));
             incomingVersion = first.Synchronization.LocalRevision!.Value;
             Assert.True(first.SyncNow(), first.Synchronization.Error);
             Deliver("outgoing", "incoming");
             Assert.False(second.SyncNow());
+            Assert.Equal(["manager@example.com", "report@example.com", "other@example.com"],
+                second.FavoritePeople.Select(person => person.Email));
+            Assert.False(second.ReorderFavorite("other@example.com", null));
             var review = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
             Assert.Equal(2, review.Versions.Count);
             Assert.True(second.NavigatePerson("manager@example.com"), second.Status);
             var navigation = second.PeopleNavigation;
             Assert.True(second.ChooseWorkspaceVersion(review.Id, incomingVersion), second.Synchronization.Error);
             Assert.Equal(navigation, second.PeopleNavigation);
+            Assert.Equal(["other@example.com", "report@example.com", "manager@example.com"],
+                second.FavoritePeople.Select(person => person.Email));
             Assert.False(second.Synchronization.Diverged);
             Assert.True(second.CanEditLocalWorkspace);
             Assert.Equal("First complete version", second.GetRelationships("report@example.com")!.Person.PreferredName);
@@ -1567,10 +1900,14 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         }
         using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(["other@example.com", "report@example.com", "manager@example.com"],
+            reopened.FavoritePeople.Select(person => person.Email));
         var recovery = Assert.IsType<WorkspaceVersionReview>(reopened.GetWorkspaceVersionReview());
         Assert.Contains(recovery.Versions, item => item.Revision == localVersion && item.Retained);
         Assert.Contains(recovery.Versions, item => item.Revision == incomingVersion && item.Retained);
         Assert.True(reopened.ChooseWorkspaceVersion(recovery.Id, localVersion), reopened.Synchronization.Error);
+        Assert.Equal(["manager@example.com", "report@example.com", "other@example.com"],
+            reopened.FavoritePeople.Select(person => person.Email));
         Assert.Equal("Second complete version", reopened.GetRelationships("report@example.com")!.Person.PreferredName);
         Assert.Equal("Preserve all local writing", Assert.Single(reopened.GetPersonNotes("report@example.com")).Markdown);
         Assert.Equal("Frozen unchosen writing", Assert.Single(reopened.GetTeamNotes("manager@example.com")).Markdown);
@@ -1582,6 +1919,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(reopened.SyncNow(), reopened.Synchronization.Error);
         Deliver("incoming", "outgoing");
         Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Assert.Equal(["manager@example.com", "report@example.com", "other@example.com"],
+            first.FavoritePeople.Select(person => person.Email));
         Assert.Equal("Second complete version", first.GetRelationships("report@example.com")!.Person.PreferredName);
         Assert.Equal("Preserve all local writing", Assert.Single(first.GetPersonNotes("report@example.com")).Markdown);
         Assert.Equal(image, first.GetPhoto("manager@example.com")!.Bytes.ToArray());
@@ -2290,12 +2629,15 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     {
         using var app = Create("first");
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        Assert.True(app.EditFavorite("report@example.com", true), app.Status);
+        Assert.True(app.EditFavorite("manager@example.com", true), app.Status);
         Assert.True(app.ConfigureSynchronizationFolder(Local("outgoing")), app.Synchronization.Error);
         Assert.True(app.SyncNow(), app.Synchronization.Error);
         Directory.Move(Local("outgoing"), Local("provider-unavailable"));
         Assert.False(app.SyncNow());
         Assert.NotNull(app.Synchronization.Error);
         Assert.Equal(WorkspaceSynchronizationPhase.Idle, app.Synchronization.Phase);
+        Assert.True(app.ReorderFavorite("manager@example.com", "report@example.com"), app.Status);
         var basis = app.GetRelationships("report@example.com")!.Person;
         app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, "Durable while provider is unavailable");
         Assert.NotNull(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Durable while provider is unavailable"));
@@ -2308,6 +2650,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         using (var reading = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(reading.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reading.Status);
+            Assert.Equal(["manager@example.com", "report@example.com"], reading.FavoritePeople.Select(person => person.Email));
             Assert.Equal("Durable while provider is unavailable", reading.GetRelationships("report@example.com")!.Person.PreferredName);
             Assert.Equal(note, Assert.Single(reading.GetPersonNotes("report@example.com")));
             Assert.True(reading.Synchronization.HasUnpublishedChanges);
@@ -2742,6 +3085,9 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.EditFavorite("report@example.com", true), first.Status);
+        Assert.True(first.EditFavorite("manager@example.com", true), first.Status);
+        var note = first.CreatePersonNote("report@example.com", "Private", "Retain through adoption failure")!;
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
@@ -2750,6 +3096,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         var oldRevision = second.Synchronization.LocalRevision;
+        Assert.True(first.ReorderFavorite("report@example.com", null), first.Status);
         Assert.True(first.EditPreferredName("report@example.com", "Complete incoming local transaction"), first.Status);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
@@ -2758,6 +3105,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(observer.ActualCommitFailed);
         Assert.Contains("SqliteException", second.LocalSave.Error);
         Assert.Equal(oldRevision, second.Synchronization.LocalRevision);
+        Assert.Equal(["report@example.com", "manager@example.com"], second.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Retain through adoption failure", second.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
         Assert.Null(second.GetRelationships("report@example.com")!.Person.PreferredName);
         Assert.True(second.IsWorkspaceCurrent);
         Assert.True(second.LocalSave.EditsPaused);
@@ -2767,6 +3116,11 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.False(second.LocalSave.HasUnresolvedOutcome);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.Equal("Complete incoming local transaction", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.Equal(["manager@example.com", "report@example.com"], second.FavoritePeople.Select(person => person.Email));
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(["manager@example.com", "report@example.com"], reopened.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Retain through adoption failure", reopened.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
         Assert.Equal(second.Synchronization.LocalRevision!.Value.ToString("D"), second.LocalSave.CommittedRevision);
     }
 

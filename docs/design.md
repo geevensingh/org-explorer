@@ -187,12 +187,13 @@ breakdown, followed by `Known current reports, all levels`. Preserve readable
 wrapping without a separate card, chart, large-number tiles, or individual
 category rows. See [Person profile and navigation](ui-design.md#person-profile-and-navigation).
 
-### Favorites ordering (approved design; delivery incomplete)
+### Favorites ordering
 
-The local slice (#142) implements saved ordering, membership/Import reconciliation
-and the dedicated handle. Exact-order complete-snapshot transport remains pending
-in #143. The full design below must reach `main` with both slices; local checks
-and compilation do not establish hosted drag acceptance.
+Saved ordering, membership/Import reconciliation and the dedicated handle (#142)
+and exact-order complete-snapshot publication/adoption (#143) are implemented.
+Both slices and their documentation must reach `main` together. Joint delivery
+still requires review and fresh hosted evidence for the exact integration
+candidate; local checks and compilation do not establish hosted drag acceptance.
 
 Favorite retains its existing meaning: the profile star marks a Person for quick
 access. This change adds a saved order to the existing single Favorites list,
