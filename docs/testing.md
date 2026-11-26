@@ -123,6 +123,17 @@ unrelated real-time stall. Both scopes also run with a continuation delayed past
 three wall-clock seconds; the six-second admission wait and all discard
 assertions stay intact. Production clocks and separate exact three-second
 queue/stall/unknown-outcome regressions remain unchanged.
+The inherited-secondary-Team-note navigation contract uses the same test-only
+request-clock control while a real in-memory workflow's Person-note writer is
+held. Its delayed-continuation case crosses three wall-clock seconds without
+advancing that request clock, retaining the exact captured base, writing, owners,
+secondary-note destination and Team-note nonmutation assertions. The held save
+remains Pending with an unknown outcome until released and actually completed;
+the five-second admission wait and final successful flush stay unchanged.
+Without this fixture control, the delayed case reproduces the genuine
+three-second stall at the flush while the backend is still Ready. This identifies
+the fixture interaction, not the historical hosted scheduler delay or feature
+causality. Production deadlines and separate stall/recovery cases are unchanged.
 Preferred-name Save/Enter submits the displayed field's immutable Person base
 through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
