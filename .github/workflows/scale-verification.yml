@@ -16,6 +16,11 @@ on:
     - cron: '23 10 * * *'
   workflow_dispatch:
     inputs:
+      cleanup_signing_probe:
+        description: One signing-only provenance probe; no workload or baseline authority
+        required: false
+        default: false
+        type: boolean
       prefix_only_diagnostic:
         description: One prefix-only 900s observation, 30m watchdog; nonaccepting and baseline-ineligible
         required: false
@@ -54,8 +59,55 @@ permissions:
   contents: read
 
 jobs:
+  cleanup-signing-probe:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.cleanup_signing_probe }}
+    name: Signing-only cleanup provenance
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Start original signing-only watchdog before checkout
+        run: '"CLEANUP_PROBE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: probe-controller
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          path: probe-candidate
+          persist-credentials: false
+      - name: Prepare fresh no-workload manifest from immutable candidate A
+        id: prepare
+        env:
+          TARGET_REVISION: ${{ inputs.revision }}
+          GH_TOKEN: ${{ github.token }}
+        run: .\probe-controller\eng\Test-CleanupSigning.ps1 -Stage Prepare -ExpectedRevision $env:TARGET_REVISION -CandidateDirectory .\probe-candidate -ResultsDirectory .ci-results\cleanup-signing-probe
+      - uses: actions/attest@v4
+        id: signing
+        with:
+          subject-path: ${{ steps.prepare.outputs.subject }}
+      - name: Verify actual standard-root certificate and replay/context refusals
+        env:
+          TARGET_REVISION: ${{ inputs.revision }}
+          BUNDLE: ${{ steps.signing.outputs.bundle-path }}
+          GH_TOKEN: ${{ github.token }}
+        run: .\probe-controller\eng\Test-CleanupSigning.ps1 -Stage Verify -ExpectedRevision $env:TARGET_REVISION -CandidateDirectory .\probe-candidate -ResultsDirectory .ci-results\cleanup-signing-probe -AttestationBundle $env:BUNDLE
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: cleanup-signing-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: .ci-results/cleanup-signing-probe/*.json
+
   non-ui-cohort-pilot:
-    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prefix_only_diagnostic && (inputs.non_ui_cohort_pilot || inputs.rich_cohort_pilot) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.cleanup_signing_probe && !inputs.prefix_only_diagnostic && (inputs.non_ui_cohort_pilot || inputs.rich_cohort_pilot) }}
     permissions:
       contents: read
       actions: read
@@ -70,7 +122,7 @@ jobs:
       rich_scale: ${{ inputs.rich_cohort_pilot || false }}
 
   non-ui-performance:
-    if: ${{ !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
+    if: ${{ !inputs.cleanup_signing_probe && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
     name: Thorough non-UI performance
     runs-on: windows-latest
     timeout-minutes: 13
@@ -135,7 +187,7 @@ jobs:
             !.ci-results/performance/**/build/**
 
   ui-scale-prefix:
-    if: ${{ inputs.prefix_only_diagnostic || (!inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot) }}
+    if: ${{ !inputs.cleanup_signing_probe && (inputs.prefix_only_diagnostic || (!inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot)) }}
     name: Rich combined normal and held-export saves
     runs-on: windows-latest
     timeout-minutes: 30
@@ -206,7 +258,7 @@ jobs:
             !.ci-results/ui-scale-prefix/**/build/**
 
   ui-scale-tail:
-    if: ${{ !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
+    if: ${{ !inputs.cleanup_signing_probe && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
     name: Rich logical Join, delivery, reopen and navigation
     needs: ui-scale-prefix
     runs-on: windows-latest
@@ -279,7 +331,7 @@ jobs:
   ui-scale:
     name: Complete scale acceptance union
     needs: [non-ui-performance, ui-scale-prefix, ui-scale-tail]
-    if: ${{ always() && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
+    if: ${{ always() && !inputs.cleanup_signing_probe && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
     runs-on: windows-latest
     timeout-minutes: 13
     permissions:

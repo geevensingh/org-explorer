@@ -127,6 +127,20 @@ union selection exclude only the allocated compiled build subtree while keeping
 raw metrics/TRX/phases, snapshots, PNGs and cleanup/provenance diagnostics.
 Normal disposable-VM teardown remains the only deferred cleanup.
 
+The default-off `cleanup_signing_probe` input on Scale verification is a
+signing-only integration check, not workload or canonical evidence. It skips
+every performance, native, pilot/cohort and union job. Its single Windows worker
+has a five-minute watchdog, read-only contents/actions and narrowly scoped
+id-token/attestation signing permissions. An immutable controller B prepares a
+fresh nonce/component-hash manifest for immutable candidate A and invokes A's
+unchanged shared signature verifier. It retains the real standard-root bundle,
+verified hosted certificate/timestamps, exact negative-context/hash refusals
+and honest setup/execution timing. It never waits in the worker for certificate
+expiry; later read-only verification uses the original trusted witnessed time.
+The public `tests\CleanupSigning.Tests.ps1` fixture exercises that harness with
+controlled external certificate/TSA/GitHub adapters and the actual CLI verifier;
+controlled trust roots are confined to the external test adapter.
+
 | Category | Observes | Examples and limits |
 |---|---|---|
 | Workflow / view model | The real shared `IApplicationWorkflow` and observable `WorkspaceViewModel`, primarily in memory | Identity, every textual field, import omission/null/false, whole graphs, inheritance, frozen context, dates, query permutations, favorite state and safe-close errors. In-memory success is not durability or WPF evidence. |
