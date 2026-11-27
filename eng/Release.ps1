@@ -37,9 +37,35 @@ function Test-ProductImpact([string[]]$Paths, [string[]]$ShippedResources) {
 }
 
 function Invoke-ReleaseGit([string]$Root, [string[]]$Arguments) {
-    $result = & git -C $Root @Arguments
-    if ($LASTEXITCODE -ne 0) { throw 'Cannot establish release source history. Fetch full history and tags; do not guess a comparison baseline.' }
-    return $result
+    $start = [Diagnostics.ProcessStartInfo]::new((Get-Command git -CommandType Application | Select-Object -First 1).Source)
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false, $true)
+    $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false, $true)
+    foreach ($argument in @('-C', $Root) + $Arguments) { $start.ArgumentList.Add($argument) }
+    $process = [Diagnostics.Process]::Start($start)
+    $output = $process.StandardOutput.ReadToEndAsync()
+    $errors = $process.StandardError.ReadToEndAsync()
+    try {
+        $process.WaitForExit()
+        $global:LASTEXITCODE = $process.ExitCode
+        $result = $output.GetAwaiter().GetResult()
+        $errorOutput = $errors.GetAwaiter().GetResult()
+        if ($errorOutput) { [Console]::Error.Write($errorOutput) }
+        if ($process.ExitCode -ne 0) {
+            throw 'Cannot establish release source history. Fetch full history and tags; do not guess a comparison baseline.'
+        }
+        if ($result.Length) {
+            $lines = @($result -split '\r\n|\n|\r')
+            if ($lines[-1] -ceq '') { return $lines[0..($lines.Count - 2)] }
+            return $lines
+        }
+    } finally {
+        if (!$process.HasExited) { $process.Kill($true); $process.WaitForExit() }
+        $process.Dispose()
+    }
 }
 
 function Get-ShippedResources([string]$Root, [string]$Revision) {

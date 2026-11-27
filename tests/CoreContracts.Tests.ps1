@@ -1,3 +1,4 @@
+param([ValidateRange(0, 60000)][int]$HolderStartupDelayMilliseconds = 10000)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -31,6 +32,7 @@ function Invoke-ControlledCore([string]$Mode = 'overlap', [int]$BudgetUsed = 0,
         'GITHUB_STEP_SUMMARY', 'CORE_CONTRACT_ISOLATION')) { $null = $start.Environment.Remove($key) }
     $start.Environment['CORE_CONTRACT_MODE'] = $Mode
     $start.Environment['DOTNET_PROCESSOR_COUNT'] = [string]$ProcessorCount
+    $start.Environment['CORE_CONTRACT_HOLDER_STARTUP_DELAY_MS'] = [string]$HolderStartupDelayMilliseconds
     if ($BudgetUsed) { $start.Environment['LANE_STARTED_AT'] = [DateTimeOffset]::UtcNow.AddSeconds(-$BudgetUsed).ToString('O') }
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
@@ -70,6 +72,9 @@ try {
     'public class ControlledWorkload { [Xunit.Fact] public void CompilationCompleted() { if (System.Environment.GetEnvironmentVariable("CORE_CONTRACT_MODE") == "compiled-failure") throw new System.InvalidOperationException("Controlled compiled failure."); } }' |
         Set-Content -LiteralPath (Join-Path $fixture 'tests\OrgExplorer.Core.Tests\ControlledWorkload.cs')
     @'
+if ($env:CORE_CONTRACT_HOLDER_STARTUP_DELAY_MS) {
+    Start-Sleep -Milliseconds ([int]$env:CORE_CONTRACT_HOLDER_STARTUP_DELAY_MS)
+}
 $PID | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'owned-holder.pid')
 Write-Output 'OWNED-HOLDER-STARTED'
 Start-Sleep -Seconds 60
@@ -96,7 +101,7 @@ if ($env:CORE_CONTRACT_MODE -ceq 'timeout') {
         $start.CreateNoWindow = $true
         foreach ($argument in @('-NoProfile', '-File', (Join-Path $root 'held-child.ps1'))) { $start.ArgumentList.Add($argument) }
         $child = [Diagnostics.Process]::Start($start)
-        Write-Output "OWNED-DESCENDANT $($child.Id)"
+        Write-Output "OWNED-DESCENDANT $($child.Id) $($child.StartTime.ToUniversalTime().ToString('O'))"
         $child.Dispose()
         exit 0
     }
@@ -210,14 +215,26 @@ if ($env:CORE_CONTRACT_MODE -ceq 'failure' -and $name -ceq 'FilesystemHealth.Tes
     $unrelatedStart.CreateNoWindow = $true
     foreach ($argument in @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60')) { $unrelatedStart.ArgumentList.Add($argument) }
     $unrelated = [Diagnostics.Process]::Start($unrelatedStart)
+    $ownedId = $null
+    $ownedStarted = $null
     try {
         $timeout = Invoke-ControlledCore timeout 292 20000
         Assert ($timeout.exitCode -ne 0 -and !$timeout.execution.complete -and $timeout.execution.outcome -ceq 'timed_out') 'An exhausted core budget did not retain its failed incomplete execution.'
         Assert (($timeout.execution.steps.name -join "`n") -ceq ((@('restore', 'test') + $names) -join "`n")) 'Cancellation omitted ordered unfinished receipts.'
         Assert (@($timeout.execution.steps | Where-Object { $_.outcome -ceq 'not_started' }).Count -gt 0) 'A bounded queue launched work after deadline.'
         Assert (!$unrelated.HasExited) 'Cancellation terminated an unrelated process.'
-        $ownedId = [int](Get-Content -LiteralPath (Join-Path $fixture 'owned-holder.pid'))
-        Assert ($null -eq (Get-Process -Id $ownedId -ErrorAction SilentlyContinue)) 'Cancellation left an owned descendant alive after its parent exited.'
+        $launches = [regex]::Matches($timeout.output,
+            '(?m)^OWNED-DESCENDANT (?<pid>[1-9][0-9]*) (?<started>[^\r\n]+)\r?$')
+        Assert ($launches.Count -eq 1) "Deadline fixture did not retain an actual owned descendant launch before expiry: $($timeout.output)`n$($timeout.errors)"
+        $ownedId = [int]$launches[0].Groups['pid'].Value
+        $ownedStarted = [DateTimeOffset]::Parse($launches[0].Groups['started'].Value).UtcDateTime
+        Assert ($timeout.execution.steps[2].exitCode -eq 0) 'The owned descendant parent did not exit before deadline cleanup.'
+        if ($HolderStartupDelayMilliseconds -ge 10000) {
+            Assert (!(Test-Path -LiteralPath (Join-Path $fixture 'owned-holder.pid'))) 'The delayed-start case did not exercise cancellation before the holder readiness file existed.'
+        }
+        $ownedProcess = Get-Process -Id $ownedId -ErrorAction SilentlyContinue
+        Assert (!$ownedProcess -or $ownedProcess.HasExited -or
+            $ownedProcess.StartTime.ToUniversalTime() -ne $ownedStarted) 'Cancellation left an owned descendant alive after its parent exited.'
         $projection = Export-LocalCoreHealth (Join-Path $fixture '.ci-results\core') (Join-Path $fixture 'timeout projection') $timeout.exitCode
         Assert ($projection.validation -cne 'success' -and !$projection.runnerComplete -and
             $projection.runnerOutcome -ceq 'timed_out') 'Incomplete deadline evidence acquired successful local validation.'
@@ -225,10 +242,12 @@ if ($env:CORE_CONTRACT_MODE -ceq 'failure' -and $name -ceq 'FilesystemHealth.Tes
     } finally {
         if (!$unrelated.HasExited) { $unrelated.Kill($true); $unrelated.WaitForExit() }
         $unrelated.Dispose()
-        $holder = Join-Path $fixture 'owned-holder.pid'
-        if (Test-Path -LiteralPath $holder) {
-            $ownedId = [int](Get-Content -LiteralPath $holder)
-            if (Get-Process -Id $ownedId -ErrorAction SilentlyContinue) { Stop-Process -Id $ownedId -Force }
+        if ($ownedId -and $ownedStarted) {
+            $ownedProcess = Get-Process -Id $ownedId -ErrorAction SilentlyContinue
+            if ($ownedProcess -and !$ownedProcess.HasExited -and
+                $ownedProcess.StartTime.ToUniversalTime() -eq $ownedStarted) {
+                Stop-Process -Id $ownedId -Force
+            }
         }
     }
 } finally {

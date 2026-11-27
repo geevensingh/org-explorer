@@ -166,6 +166,9 @@ reference and signing explanation. Subjects come from local Git at these exact
 sources, never the checkout's HEAD, full commit bodies or fetched PR descriptions.
 Padded inline code spans keep every subject's Unicode and Markdown-significant
 punctuation literal, including embedded backticks, mentions and emoji syntax.
+Git's UTF-8 history output is decoded explicitly, independently of the caller's
+console code page; console replacement characters or mojibake are not valid
+substitutes for the original subject.
 
 Missing or shallow history, a non-ancestor/off-first-parent app baseline, an
 empty range, or any empty/control-character subject stops publication explicitly

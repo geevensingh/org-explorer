@@ -1994,13 +1994,23 @@ the public local result projection. It checks bounded overlap, ordered complete
 receipts, caller paths with spaces, named assembly arguments, environment/
 function/directory isolation, compiled and companion failure, mandatory cleanup
 selection, and deadline termination of an exited parent's descendant while an
-unrelated holder survives. The overlap child explicitly resolves four CPUs;
+unrelated holder survives. Owned descendant identity comes from the actual
+parent `Process.Start` receipt (PID and native creation time), not a readiness
+file that may never be written before expiry. The default controlled holder
+delays its own readiness beyond the remaining fixture deadline; the parent must
+have launched and exited, and that exact descendant must be gone. Missing launch
+receipts still fail explicitly; no startup or execution budget is extended.
+Creation-time matching prevents cleanup of an unrelated process reusing a PID.
+The overlap child explicitly resolves four CPUs;
 a separate one-CPU child must complete all 21 companions serially, without
 overlapping receipts. Both cases run even when the caller resolves only one CPU;
 inherited `DOTNET_PROCESSOR_COUNT` cannot make the mandatory fixture demand
 impossible overlap. Production scheduling remains capped by its actual resolved
 processor count. Its small compiled workload is an isolated contract
 fixture, not a replacement for the full core selection or hosted acceptance.
+The publication contract also checks complete literal Unicode mainline subjects
+under a Windows-1252 console. Git history is decoded as UTF-8 independently of
+the caller's console encoding, with real Git and only GitHub effects replaced.
 Lane-health contracts retain immutable history and distinguish serial versus
 different resolved parallelism series. No desktop automation or hosted dispatch
 is part of these focused commands.
