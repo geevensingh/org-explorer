@@ -267,6 +267,9 @@ function ConvertTo-HealthCanonicalValue($Value) {
 }
 
 function Get-HealthSeriesKey($Execution) {
+    if ($Execution.configuration -isnot [Collections.IDictionary]) {
+        throw 'Comparison configuration unavailable: resolved configuration'
+    }
     foreach ($name in @('workload', 'testTree', 'fixtureTree', 'sdk', 'os', 'architecture', 'image', 'imageVersion', 'powershell', 'setup')) {
         if (!$Execution.configuration.ContainsKey($name) -or
             $Execution.configuration[$name] -isnot [string] -or
@@ -282,6 +285,43 @@ function Get-HealthSeriesKey($Execution) {
         $Execution.configuration.runtimes -isnot [Collections.IList] -or !$Execution.configuration.runtimes.Count -or
         @($Execution.configuration.runtimes | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) }).Count) {
         throw 'Comparison requires resolved runtime/processor configuration.'
+    }
+    if ($Execution.selector -clike '--ui-scale-*') {
+        $display = $Execution.configuration['display']
+        if ($display -isnot [Collections.IDictionary] -or
+            ($display['schemaVersion'] -isnot [int] -and $display['schemaVersion'] -isnot [long]) -or
+            $display['schemaVersion'] -ne 1 -or $display['command'] -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($display['command']) -or
+            $display['state'] -isnot [Collections.IDictionary]) {
+            throw "Comparison configuration unavailable: $($Execution.selector) actual display state"
+        }
+        $state = $display['state']
+        $mode = $state['Mode']
+        if ($mode -isnot [Collections.IDictionary] -or $state['Device'] -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($state['Device'])) {
+            throw "Comparison configuration unavailable: $($Execution.selector) actual display state"
+        }
+        foreach ($field in @('MonitorWidth', 'MonitorHeight', 'WorkWidth', 'WorkHeight', 'Dpi',
+            'MaximumTrackWidth', 'MaximumTrackHeight', 'Width', 'Height', 'BitsPerPixel', 'Frequency')) {
+            $value = if ($field -cin @('Width', 'Height', 'BitsPerPixel', 'Frequency')) {
+                $mode[$field]
+            } else { $state[$field] }
+            if (($value -isnot [int] -and $value -isnot [long]) -or $value -le 0) {
+                throw "Comparison configuration unavailable: $($Execution.selector) display.$field"
+            }
+        }
+        $native = $Execution.configuration['native']
+        if ($native -isnot [Collections.IDictionary]) {
+            throw "Comparison configuration unavailable: $($Execution.selector) loaded native identity"
+        }
+        foreach ($field in @('version', 'sourceId', 'loadedSha256')) {
+            if ($native[$field] -isnot [string] -or [string]::IsNullOrWhiteSpace($native[$field])) {
+                throw "Comparison configuration unavailable: $($Execution.selector) native.$field"
+            }
+        }
+        if ($native.loadedSha256 -cnotmatch '^[0-9a-fA-F]{64}$') {
+            throw "Comparison configuration unavailable: $($Execution.selector) native.loadedSha256"
+        }
     }
     $ordered = [ordered]@{ policy = $Execution.policyVersion; selector = $Execution.selector }
     foreach ($key in @($Execution.configuration.Keys | Sort-Object -CaseSensitive)) {

@@ -1,10 +1,13 @@
-param([switch]$PlanOnly, [switch]$SmokeOnly, [string]$GateSnapshotDirectory,
+param([switch]$PlanOnly, [switch]$SmokeOnly, [switch]$RichIdentityOnly, [string]$GateSnapshotDirectory,
     [string]$EventVersionMetadata, [string]$EventVersionCase,
     [ValidateSet('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')][string]$GatePolicyVersion = 'ci-timing-v2')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 $fixture = Join-Path $root ('.test-workspaces\baselines-' + [guid]::NewGuid().ToString('N'))
+if ($RichIdentityOnly) {
+    $fixture = Join-Path $root ('.test-workspaces\ri-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+}
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
 $checks = 0
 $cleanupRoots = @{}
@@ -116,7 +119,8 @@ function Select-BaselineFixture([string]$Revision, [int]$CiId, [int]$CohortRun) 
     }
 }
 function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Seconds, [double]$Latency,
-    [string]$ImageVersion = '20261116', [string]$TimingPolicyVersion = 'ci-timing-v2') {
+    [string]$ImageVersion = '20261116', [string]$TimingPolicyVersion = 'ci-timing-v2',
+    [switch]$SuccessfulCleanup) {
     . "$PSScriptRoot\UiScaleUnionFixture.ps1"
     . "$root\eng\NonUiCohort.ps1"
     $runId = [string]$global:BaselineFixture.cohortRun
@@ -140,6 +144,12 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
             processors = 4; image = 'win25'; imageVersion = $ImageVersion; powershell = '7.6'
             setup = 'locked-restore;isolated-build;setup-and-cleanup-included' }
     }
+    if ($TimingPolicyVersion -ceq 'ci-timing-v4' -and $SuccessfulCleanup) {
+        $report.policyVersion = $TimingPolicyVersion
+        $report.acceptancePolicyVersion = $TimingPolicyVersion
+        $report.verificationOutcome = 'success'
+        $report.cleanup = @{ outcome = 'success'; warning = $false; phase = 'build-housekeeping' }
+    }
     $report | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $nonUi 'result.json')
     Copy-Item -LiteralPath (Join-Path $nonUi 'result.json') -Destination (Join-Path $nonUi "$runName\result.json")
     @"
@@ -159,7 +169,9 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
         })
     }
     $log | Set-Content (Join-Path $nonUi "$runName\scale-measurements.log")
-    if ($TimingPolicyVersion -ceq 'ci-timing-v4') { Add-SignedCleanupFixture $nonUi $global:BaselineFixture.controller $cleanupRoots }
+    if ($TimingPolicyVersion -ceq 'ci-timing-v4' -and !$SuccessfulCleanup) {
+        Add-SignedCleanupFixture $nonUi $global:BaselineFixture.controller $cleanupRoots
+    }
     $rich = New-RichCohortSampleFixture (Join-Path $directory 'rich') $Revision $Number $runId '1' $TimingPolicyVersion
     foreach ($worker in @('prefix', 'tail')) {
         $path = Join-Path $rich[$worker] 'result.json'
@@ -188,7 +200,7 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
             }
         }
     }
-    if ($TimingPolicyVersion -ceq 'ci-timing-v4') {
+    if ($TimingPolicyVersion -ceq 'ci-timing-v4' -and !$SuccessfulCleanup) {
         foreach ($worker in @('prefix', 'tail')) { Add-SignedCleanupFixture $rich[$worker] $global:BaselineFixture.controller $cleanupRoots }
     }
     & "$root\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $rich.prefix -TailDirectory $rich.tail `
@@ -205,6 +217,18 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
         $global:BaselineFixture.artifacts += @{ id = $id + 2000; name = $name; expired = $false
             expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('d' * 64)
             workflow_run = @{ id = [long]$runId; head_sha = $global:BaselineFixture.controller } }
+    }
+}
+function Set-RichBaselineConfiguration([int]$Number, [string]$Worker, [scriptblock]$Change) {
+    $cohortId = "$($global:BaselineFixture.ci.head_sha)-$($global:BaselineFixture.cohortRun)-1"
+    $directory = $global:BaselineFixture.evidence["rich-cohort-$cohortId-sample-$Number-$Worker"]
+    $union = $global:BaselineFixture.evidence["rich-cohort-$cohortId-sample-$Number-union"]
+    $unionReport = Get-Content (Join-Path $union 'result.json') -Raw | ConvertFrom-Json
+    foreach ($copy in @($directory, (Join-Path $union "$($unionReport.runDirectory)\$Worker"))) {
+        $report = Get-Content (Join-Path $copy 'result.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 30
+        & $Change $report.configuration
+        $report | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $copy 'result.json')
+        $report | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $copy "$($report.runDirectory)\result.json")
     }
 }
 try {
@@ -324,6 +348,142 @@ try {
     })
     $global:BaselineFixture = @{ ci = $ci; ciJobs = $ciJobs; controller = $second; cohortRun = 99; status = 'in_progress'
         outcome = $null; jobs = @(); artifacts = @(); evidence = @{}; sourceRemote = $remote }
+    if ($RichIdentityOnly) {
+        '{"version":"ci-timing-v4"}' | Set-Content (Join-Path $source 'eng\timing-policy.json')
+        $null = Invoke-FixtureGit $source @('add', 'eng/timing-policy.json')
+        $identityRevision = Add-MainFixtureRevision 'Complete rich identity public fixture'
+        Select-BaselineFixture $identityRevision 42 99
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $identityRevision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'identity-plan') `
+            -RichScale -PublishPlan -InitializeBootstrap -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v4
+        for ($number = 1; $number -le 3; $number++) {
+            New-CompleteBaselineSample $number $identityRevision 150 500 -TimingPolicyVersion ci-timing-v4 -SuccessfulCleanup
+            foreach ($worker in @('prefix', 'tail')) {
+                $name = "rich-cohort-$identityRevision-99-1-sample-$number-$worker"
+                $directory = $global:BaselineFixture.evidence[$name]
+                $unionDirectory = $global:BaselineFixture.evidence["rich-cohort-$identityRevision-99-1-sample-$number-union"]
+                $unionReport = Get-Content (Join-Path $unionDirectory 'result.json') -Raw | ConvertFrom-Json
+                foreach ($copy in @($directory, (Join-Path $unionDirectory "$($unionReport.runDirectory)\$worker"))) {
+                    $report = Get-Content (Join-Path $copy 'result.json') -Raw | ConvertFrom-Json -AsHashtable
+                    $report.configuration.display = $null; $report.configuration.native = $null
+                    $report | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $copy 'result.json')
+                    $report | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $copy "$($report.runDirectory)\result.json")
+                }
+            }
+        }
+        $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+        $identityWork = Join-Path $fixture 'identity-comparison'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $identityRevision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $identityWork -RichScale -Publish `
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v4
+        $identity = Get-Content (Join-Path $identityWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($identity.validation -ceq 'success' -and $identity.richScaleAcceptance -ceq 'complete' -and
+            $identity.metrics.Count -eq 64 -and $identity.samples.Count -eq 3) `
+            'Missing comparison identity must preserve the complete successful 64-family workload.'
+        Assert ($identity.eligibility -ceq 'inconclusive' -and $identity.promotion -ceq 'retained' -and
+            $identity.timingHealth -ceq 'inconclusive' -and !$identity.timingEvaluation.blocking -and
+            !$identity.extraSamples.Count -and @($identity.samples | Where-Object { $null -ne $_.rich.seriesKey }).Count -eq 0) `
+            'Complete v4 samples with null rich identity must remain nonblocking, comparison-inconclusive and unable to promote.'
+        . "$root\eng\Release.ps1"
+        $nonUiDirectory = $global:BaselineFixture.evidence["non-ui-cohort-$identityRevision-99-1-sample-1"]
+        $unionDirectory = $global:BaselineFixture.evidence["rich-cohort-$identityRevision-99-1-sample-1-union"]
+        Assert-ReleaseVerification -PerformanceDirectory $nonUiDirectory -UiScaleDirectory $unionDirectory `
+            -Candidate $identityRevision -StartedAt ([DateTimeOffset]'2026-11-25T09:59:59Z') `
+            -ExpectedPolicyVersion ci-timing-v4 -TimingHistoryRemote $remote -AllowLocalFixture
+        $release = Get-Content (Join-Path $unionDirectory 'timing-comparison.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($release.validation -ceq 'success' -and $release.timingEvaluation.health -ceq 'inconclusive' -and
+            $release.timingEvaluation.eligibility -ceq 'inconclusive' -and !$release.timingEvaluation.blocking -and
+            !$release.timingEvaluation.validationBlocking -and $release.comparisonDiagnostics.Count -gt 0) `
+            'Fresh release with unresolved rich identity must pass validation and report nonblocking inconclusive comparison, not an eligible new series.'
+        . "$root\eng\LaneHealth.ps1"
+        $history = Open-HealthHistory (Join-Path $fixture 'identity-reader.git') $remote -AllowLocalFixture `
+            -RecordTypes (Get-LaneHealthRecordTypes)
+        $cached = $identity | ConvertTo-Json -Depth 40 | ConvertFrom-Json -AsHashtable -Depth 40 -DateKind String
+        foreach ($sample in $cached.samples) { $sample.rich.seriesKey = 'f' * 64 }
+        $cached.eligibility = 'eligible'; $cached.promotion = 'eligible-after-comparison'
+        Set-TimingCanonicalComparison $cached $history
+        Assert ($cached.eligibility -ceq 'inconclusive' -and $cached.promotion -ceq 'retained' -and
+            !$cached.extraSamples.Count -and !$cached.timingEvaluation.blocking) `
+            'Cached matching hashes or artifact eligibility flags must not bypass unresolved actual rich identity.'
+        Assert-NonUiCohortRecord $cached (Get-NonUiCohortPath $cached)
+        Assert (@($history.records | Where-Object { $_.recordType -ceq 'timing-reference' }).Count -eq 0) `
+            'Unresolved comparison identity published a canonical reference.'
+        $completeRevision = Add-MainFixtureRevision 'Independent complete identity candidate'
+        Select-BaselineFixture $completeRevision 42 100
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $completeRevision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 100 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'complete-plan') `
+            -RichScale -PublishPlan -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v4
+        for ($number = 1; $number -le 3; $number++) {
+            New-CompleteBaselineSample $number $completeRevision 150 500 -TimingPolicyVersion ci-timing-v4 -SuccessfulCleanup
+        }
+        $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+        $completeWork = Join-Path $fixture 'complete-comparison'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $completeRevision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 100 -CohortRunAttempt 1 -WorkingDirectory $completeWork -RichScale -Publish `
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v4
+        $complete = Get-Content (Join-Path $completeWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 40
+        Assert ($complete.validation -ceq 'success' -and $complete.eligibility -ceq 'eligible' -and
+            $complete.promotion -ceq 'eligible-after-comparison' -and $complete.timingHealth -ceq 'unbaselined' -and
+            $complete.metrics.Count -eq 64 -and !$complete.timingEvaluation.blocking -and
+            @($complete.samples.rich.seriesKey | Select-Object -Unique).Count -eq 1) `
+            'Complete actual display/DPI/native configuration lost eligible new-series bootstrap.'
+        $priorKey = $complete.samples[0].rich.seriesKey
+        $cases = @(
+            @{ name = 'missing-display'; field = 'display'; change = { param($c) $c.Remove('display') } },
+            @{ name = 'null-display'; field = 'display'; change = { param($c) $c.display = $null } },
+            @{ name = 'partial-display'; field = 'display.Dpi'; change = { param($c) $c.display.state.Remove('Dpi') } },
+            @{ name = 'malformed-display'; field = 'display'; change = { param($c) $c.display = '1920x1080' } },
+            @{ name = 'string-dpi'; field = 'display.Dpi'; change = { param($c) $c.display.state.Dpi = '96' } },
+            @{ name = 'zero-dpi'; field = 'display.Dpi'; change = { param($c) $c.display.state.Dpi = 0 } },
+            @{ name = 'fractional-width'; field = 'display.Width'; change = { param($c) $c.display.state.Mode.Width = 1920.5 } },
+            @{ name = 'string-display-schema'; field = 'display'; change = { param($c) $c.display.schemaVersion = '1' } },
+            @{ name = 'missing-native'; field = 'native'; change = { param($c) $c.Remove('native') } },
+            @{ name = 'null-native'; field = 'native'; change = { param($c) $c.native = $null } },
+            @{ name = 'partial-native'; field = 'native.sourceId'; change = { param($c) $c.native.Remove('sourceId') } },
+            @{ name = 'malformed-native'; field = 'native'; change = { param($c) $c.native = 'synthetic-native' } },
+            @{ name = 'empty-native-version'; field = 'native.version'; change = { param($c) $c.native.version = '' } },
+            @{ name = 'malformed-native-hash'; field = 'native.loadedSha256'; change = { param($c) $c.native.loadedSha256 = 'unresolved' } }
+        )
+        $runId = 100
+        foreach ($worker in @('prefix', 'tail')) {
+            foreach ($case in $cases) {
+                $runId++
+                $revision = Add-MainFixtureRevision "$worker $($case.name) public fixture"
+                Select-BaselineFixture $revision 42 $runId
+                & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+                    -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture "p-$runId") `
+                    -RichScale -PublishPlan -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v4
+                for ($number = 1; $number -le 3; $number++) {
+                    New-CompleteBaselineSample $number $revision 150 500 -TimingPolicyVersion ci-timing-v4 -SuccessfulCleanup
+                }
+                $affectedSample = 1 + ($runId % 3)
+                Set-RichBaselineConfiguration $affectedSample $worker $case.change
+                $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+                $caseWork = Join-Path $fixture "s-$runId"
+                & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+                    -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory $caseWork -RichScale -Publish `
+                    -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v4
+                $record = Get-Content (Join-Path $caseWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 40
+                Assert ($record.validation -ceq 'success' -and $record.richScaleAcceptance -ceq 'complete' -and
+                    $record.metrics.Count -eq 64 -and $record.eligibility -ceq 'inconclusive' -and
+                    $record.timingHealth -ceq 'inconclusive' -and $record.promotion -ceq 'retained' -and
+                    !$record.timingEvaluation.blocking -and !$record.timingEvaluation.validationBlocking -and
+                    !$record.extraSamples.Count -and $null -eq $record.samples[$affectedSample - 1].rich.seriesKey -and
+                    @($record.samples[$affectedSample - 1].diagnostics | Where-Object {
+                        $_ -clike "*--ui-scale-$worker*$($case.field)*"
+                    }).Count -gt 0) "Missing/malformed $worker $($case.name) did not retain intact workload and precise comparison uncertainty."
+                $read = Open-HealthHistory (Join-Path $fixture "r-$runId.git") $remote -AllowLocalFixture `
+                    -RecordTypes (Get-LaneHealthRecordTypes)
+                $prior = Get-TimingCanonicalReference $read $priorKey $revision
+                Assert ($prior.revision -ceq $completeRevision -and
+                    @($read.records | Where-Object { $_.recordType -ceq 'timing-reference' }).Count -eq 1 -and
+                    @($read.records | Where-Object { $_.recordType -ceq 'performance-cohort' }).Count -eq $runId - 98) `
+                    'Unresolved identity replaced the prior immutable reference or lost an original attempt.'
+            }
+        }
+        Write-Host "PASS: $checks public rich comparison identity checks."
+        return
+    }
     $work = Join-Path $fixture 'plan'
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $second -CiRunId 42 -CiRunAttempt 1 `
         -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $work -RichScale -CheckHistory `

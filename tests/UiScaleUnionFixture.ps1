@@ -49,7 +49,12 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
             configuration = @{ workload = 'OrgExplorer.Desktop.Smoke'; testTree = 'c' * 40; fixtureTree = 'd' * 40
                 sdk = '10.0.100'; runtimes = @('Microsoft.NETCore.App 10.0.0'); os = 'Windows'; architecture = 'X64'
                 processors = 4; image = 'win25'; imageVersion = '20261116'; powershell = '7.6'
-                setup = 'locked-restore;isolated-build;setup-and-cleanup-included'; display = @{ width = 1920; height = 1080 }
+                setup = 'locked-restore;isolated-build;setup-and-cleanup-included'
+                display = @{ schemaVersion = 1; command = '--verify-high-resolution'
+                    state = @{ Device = '\\.\DISPLAY1'
+                        Mode = @{ Width = 1920; Height = 1080; BitsPerPixel = 32; Frequency = 60 }
+                        MonitorWidth = 1920; MonitorHeight = 1080; WorkWidth = 1920; WorkHeight = 1040
+                        Dpi = 96; MaximumTrackWidth = 1936; MaximumTrackHeight = 1096 } }
                 native = @{ version = 'synthetic-native'; sourceId = 'synthetic-source'; loadedSha256 = 'D' * 64 } }
             ceilingSeconds = if ($TimingPolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4') -and $worker -ceq 'prefix') { 900 } else { 660 }
             observationSeconds = if ($TimingPolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4') -and $worker -ceq 'prefix') { 900 } else { 660 }

@@ -252,6 +252,14 @@ function Get-TimingPinnedReference($Record, $History) {
 }
 
 function Set-TimingCanonicalComparison($Record, $History) {
+    foreach ($sample in $Record.samples) {
+        $sample.rich.seriesKey = $null
+        try { $sample.rich.seriesKey = Get-RichCohortSeriesKey $sample $Record.effectivePolicyVersion }
+        catch {
+            $diagnostic = "Complete cohort comparison unavailable: $($_.Exception.Message)"
+            if ($sample.diagnostics -cnotcontains $diagnostic) { $sample.diagnostics += $diagnostic }
+        }
+    }
     $reference = Get-TimingPinnedReference $Record $History
     $key = Get-TimingCohortKey $Record
     if ($reference) {

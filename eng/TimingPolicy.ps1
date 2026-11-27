@@ -102,6 +102,7 @@ function New-TimingExecutionRecord([string]$PerformanceDirectory, [string]$Prefi
 
 function Set-TimingExecutionComparison($Record, $History) {
     $sample = $Record.samples[0]
+    $sample.rich.seriesKey = $null
     if ($null -eq $sample.configuration) { throw 'Resolved non-UI comparison configuration is unavailable.' }
     $sample.rich.seriesKey = Get-RichCohortSeriesKey $sample $Record.policyVersion
     $reference = $null
@@ -403,7 +404,8 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
         elseif ($evaluation.validationBlocking) { 'inconclusive' }
         elseif (!$evaluation.metrics.Count -or @($evaluation.metrics.Values | Where-Object { $_.health -cne 'green' }).Count) { 'unbaselined' } else { 'green' }
     $evaluation.blocking = $evaluation.validationBlocking -or $red
-    $configurationUncertain = $Record.recordType -ceq 'performance-cohort' -and !(Get-TimingCohortKey $Record)
+    $configurationUncertain = $Record.recordType -cin @('performance-cohort', 'verification-execution') -and
+        !(Get-TimingCohortKey $Record)
     if ($configurationUncertain -and $evaluation.health -cnotin @('red', 'yellow')) {
         $evaluation.health = 'inconclusive'
     }
