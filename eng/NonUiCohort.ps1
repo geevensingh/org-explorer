@@ -256,6 +256,10 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
                 $seen[$key] = $true
             } elseif ($sample.validation -ceq 'success') { throw "Complete execution lacks independent $field." }
         }
+        if ($effectivePolicy -ceq 'ci-timing-v4' -and $sample.validation -ceq 'success' -and
+            (!$sample.Contains('runnerReport') -or !$sample.runnerReport)) {
+            throw 'Accepted v4 sample lacks its retained verification/cleanup report.'
+        }
         if ($rich) { Assert-RichCohortSample $sample $Record $seen $effectivePolicy }
         if ($sample.Contains('runnerReport')) {
             if ($sample.runnerReport.revision -cne $Record.revision -or

@@ -114,6 +114,10 @@ The supervisor retains actual script exit failure separately from saved results.
 reader's mandatory v4 cleanup metadata and rejects artifact-supplied collection
 verification modes on worker records. Union collectors validate housekeeping
 through their independently selected prefix and tail workers.
+Accepted v4 history also requires the original non-UI verification/cleanup
+report; deleting or nulling it cannot discard the signed warning proof.
+`CleanupHistory.Tests.ps1 -TimingFixtureMetadata <v4-export>\metadata.json`
+checks the actual publisher-produced history and preserves legacy v2 behavior.
 
 The focused signed-history/release/lane flow uses new isolated publisher output:
 
