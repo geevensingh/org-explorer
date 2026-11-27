@@ -251,12 +251,10 @@ Wrap walCheckpoint 'pWal,db,eMode,xBusy,pBusyArg,sync_flags,zBuf' `
     (Event OE_CHECKPOINT_BEGIN pWal OE_WAL eMode 'pWal->hdr.mxFrame' 'pWal->hdr.nPage') `
     (Event OE_CHECKPOINT_END pWal OE_WAL eMode 'pWal->hdr.mxFrame' 'pWal->hdr.nPage' oe_rc oe_error)
 Wrap sqlite3WalClose 'pWal,db,sync_flags,nBuf,zBuf' @'
-  uint64_t oe_token = oe_stage2_token(pWal,OE_WAL);
   uint64_t oe_frame = pWal ? pWal->hdr.mxFrame : 0;
-  oe_stage2_event(OE_WAL_CLOSE_BEGIN,pWal,OE_WAL,oe_frame,sync_flags,nBuf,0,0,0);
+  uint64_t oe_token = oe_stage2_wal_close_begin(pWal,oe_frame,sync_flags,nBuf);
 '@ @'
-  oe_stage2_event_token(OE_WAL_CLOSE_END,oe_token,oe_frame,sync_flags,nBuf,oe_rc,oe_error,0);
-  oe_stage2_retire(oe_token);
+  oe_stage2_wal_close_end(pWal,oe_token,oe_frame,sync_flags,nBuf,oe_rc,oe_error);
 '@
 Edit oe_native_sqlite3WalClose '    walIndexClose(pWal, isDelete);' @'
     oe_stage2_event(OE_WAL_DELETE,pWal,OE_WAL,isDelete,pWal->hdr.mxFrame,0,rc,0,0);
@@ -295,9 +293,9 @@ Edit sqlite3PagerOpen '  *ppPager = pPager;' @'
 '@
 Edit sqlite3BtreeOpen '  *ppBtree = p;' @'
   *ppBtree = p;
-  if(pBt && pBt->pPager && isOpen(pBt->pPager->fd)){
-    oe_stage2_link(db,OE_DB,pBt->pPager->fd,OE_FILE);
-    oe_stage2_event(OE_DB_BIND,db,OE_DB,0,0,0,0,0,0);
+  if(pBt && pBt->pPager){
+    oe_stage2_btree_binding(db,pBt->pPager,pBt->pPager->fd,
+                           isOpen(pBt->pPager->fd),isMemdb || isTempDb);
   }
 '@
 Wrap sqlite3Close 'db,forceZombie' @'
@@ -373,6 +371,7 @@ $schema = [ordered]@{
         pageSource = 'arg0=page; arg1=original selected WAL frame (0=physical DB); arg2=page size'
         fileHandle = 'arg0=related native object token; arg1=parent object token; volume/fileId identify already-owned hFile'
         nodeChoice = 'arg0=1 reused existing process-global node, 0 new'
+        pagerBind = 'arg0=0 open known DB file, 1 internal memory/lazy-temp Btree pager associated only via an already-scoped sqlite3 connection; no new file path admitted'
     }
     limitations = @(
         'No payload, raw path, pointer, extra SQLite reader, probe lock, repair or checkpoint.'
@@ -383,6 +382,7 @@ $schema = [ordered]@{
         'Missing association, native metadata errors, overflow, unpublished reservation or expiry mean Incomplete.'
         'Fixed 512 object lifetimes per producer; no reuse of token slots.'
         'Phase6 first equality publishes then closes native emission; only the explicit phase7 terminal marker remains allowed.'
+        'sqlite3WalClose(NULL) is an original no-object no-op, not a missing WAL binding; unknown non-NULL WAL objects still increment unbound.'
     )
 }
 [IO.File]::WriteAllText($SchemaFile, ($schema | ConvertTo-Json -Depth 9), [Text.UTF8Encoding]::new($false))

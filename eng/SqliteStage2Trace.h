@@ -46,6 +46,10 @@ uint64_t oe_stage2_token(const void *, unsigned);
 void oe_stage2_retire(uint64_t);
 void oe_stage2_event_token(unsigned, uint64_t, uint64_t, uint64_t, uint64_t,
                           int, DWORD, uint64_t);
+void oe_stage2_btree_binding(const void *, const void *, const void *, int, int);
+uint64_t oe_stage2_wal_close_begin(const void *, uint64_t, uint64_t, uint64_t);
+void oe_stage2_wal_close_end(const void *, uint64_t, uint64_t, uint64_t, uint64_t,
+                            int, DWORD);
 void oe_stage2_event(unsigned, const void *, unsigned,
                     uint64_t, uint64_t, uint64_t, int, DWORD, uint64_t);
 

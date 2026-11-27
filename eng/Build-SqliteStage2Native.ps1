@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)][Alias('OutputDirectory')][string]$ArtifactsDirectory,
     [string]$OriginalNativePath,
     [string]$ExpectedRevision,
-    [string]$VisualStudioPath
+    [string]$VisualStudioPath,
+    [switch]$RecorderOnly
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -173,7 +174,8 @@ int wmain(int argc,wchar_t **argv){
   }else{
     HANDLE map; uint8_t *view; wchar_t name[128];
     HANDLE threads[4]; unsigned i, role=1, pid=GetCurrentProcessId(), parent=pid;
-    int core=wcscmp(argv[1],L"core")==0;
+    int lifecycle=wcscmp(argv[1],L"memory-lifecycle")==0;
+    int core=wcscmp(argv[1],L"core")==0 || lifecycle;
     bind_fn bind=core ? oe_stage2_bind : (bind_fn)GetProcAddress(module,"oe_stage2_bind");
     LONG64 reserved, committed, overflow, dropped;
     unsigned long dos;
@@ -207,6 +209,47 @@ int wmain(int argc,wchar_t **argv){
       oe_stage2_file(utf8,&key,owned,0,0,0);
       _get_doserrno(&dos);
       if(GetLastError()!=0x5A17 || errno!=ERANGE || dos!=4321) return 22;
+      if(lifecycle){
+        int connection=0, mainPager=0, memoryPager[2]={0,0}, unknown=0;
+        LONG64 count;
+        oe_stage2_btree_binding(&connection,&mainPager,&key,1,0);
+        for(i=0;i<2;i++){
+          uint64_t pagerToken,walToken;
+          oe_stage2_btree_binding(&connection,&memoryPager[i],0,0,1);
+          pagerToken=oe_stage2_token(&memoryPager[i],OE_PAGER);
+          oe_stage2_event(OE_PAGER_CLOSE_BEGIN,&memoryPager[i],OE_PAGER,0,0,0,0,0,0);
+          walToken=oe_stage2_wal_close_begin(0,0,0,4096);
+          oe_stage2_wal_close_end(0,walToken,0,0,4096,0,0);
+          oe_stage2_event_token(OE_PAGER_CLOSE_END,pagerToken,0,0,0,0,0,0);
+          oe_stage2_retire(pagerToken);
+        }
+        count=*(LONG64*)(view+64);
+        printf("MEMORY_LIFECYCLE unbound=%lld expected=0 memory_pagers=2\n",count);
+        if(count!=0){
+          CloseHandle(owned); DeleteFileW(db);
+          return 34;
+        }
+        count=*(LONG64*)(view+32);
+        if(count!=8 || *(LONG64*)(view+40)!=8) return 35;
+        for(i=0;i<8;i++){
+          uint8_t *r=view+128+i*256;
+          unsigned code=*(uint32_t*)(r+24);
+          if(*(uint64_t*)r!=i+1 || code==OE_WAL_CLOSE_BEGIN || code==OE_WAL_CLOSE_END) return 36;
+          if(code==OE_PAGER_CLOSE_BEGIN || code==OE_PAGER_CLOSE_END){
+            if(*(uint64_t*)(r+40)!=oe_stage2_token(&key,OE_FILE)) return 37;
+          }
+        }
+        /* Truly unknown NON-NULL objects still refuse pre-reservation. */
+        oe_stage2_btree_binding(&unknown,&unknown,0,0,1);
+        oe_stage2_event(OE_PAGER_CLOSE_BEGIN,&unknown,OE_PAGER,11,22,33,0,0,0);
+        oldToken=oe_stage2_wal_close_begin(&unknown,11,22,33);
+        oe_stage2_wal_close_end(&unknown,oldToken,11,22,33,0,0);
+        if(*(LONG64*)(view+64)!=4 || *(LONG64*)(view+32)!=count) return 38;
+        CloseHandle(owned); DeleteFileW(db);
+        printf("RECORDER_MEMORY_LIFECYCLE_OK scoped_memory_unbound=0 null_wal_events=0 negative_unknown=4\n");
+        UnmapViewOfFile(view); CloseHandle(map); FreeLibrary(module);
+        return 0;
+      }
       oldToken=oe_stage2_token(&key,OE_FILE);
       handleToken=oe_stage2_token(owned,OE_HANDLE);
       oe_stage2_retire(oldToken); oe_stage2_retire(handleToken);
@@ -271,6 +314,19 @@ int wmain(int argc,wchar_t **argv){
     $trace = Join-Path $nativeSources 'SqliteStage2Trace.c'
     Build-Native harness @($harnessSource,$trace) @('/std:c11','/O2','/MD',
         '/D_CRT_SECURE_NO_WARNINGS',"/I$nativeSources") $harness
+    $lifecycleOutput = @(& $harness memory-lifecycle $OriginalNativePath $artifacts)
+    $lifecycleExit = $LASTEXITCODE
+    $lifecycleResult = [ordered]@{
+        diagnosticOnly=$true;candidate=$revision;sqliteReaderStarted=$false
+        test='Known-DB memory Btree -> PagerClose -> NULL WalClose -> PagerClose exit'
+        actualStdout=$lifecycleOutput;exitCode=$lifecycleExit
+        traceSourceSha256=(Get-FileHash $trace -Algorithm SHA256).Hash
+    }
+    Write-Utf8 (Join-Path $artifacts 'memory-lifecycle-check.json') ($lifecycleResult | ConvertTo-Json -Depth 4)
+    if ($lifecycleExit -ne 0) {
+        throw "Non-SQLite memory-pager lifecycle binding RED (exit $lifecycleExit): $($lifecycleOutput -join ' ')"
+    }
+    if ($RecorderOnly) { return $lifecycleResult }
 
     function Inspect([string]$Path, [string]$Name) {
         $output = @(& $harness inspect $Path)
@@ -311,6 +367,7 @@ int wmain(int argc,wchar_t **argv){
         throw 'Matched control and diagnostic compile options differ.'
     }
     $checks = [Collections.Generic.List[object]]::new()
+    $checks.Add([ordered]@{variant='same-source-recorder';mode='memory-lifecycle';result=$lifecycleOutput -join "`n"})
     $coreOutput = @(& $harness core $diagnosticDll $artifacts)
     if ($LASTEXITCODE -ne 0) { throw "Non-SQLite recorder core/lifetime/cutoff check failed (exit $LASTEXITCODE)." }
     $checks.Add([ordered]@{variant='same-source-recorder';mode='core';result=$coreOutput -join "`n"})

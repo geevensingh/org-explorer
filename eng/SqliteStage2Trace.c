@@ -290,6 +290,43 @@ static int oe_mapping_name(const wchar_t *name, unsigned role){
   return wcscmp(name+n+32,suffix)==0;
 }
 
+void oe_stage2_btree_binding(const void *db, const void *pager, const void *file,
+                             int fileOpen, int memory){
+  if( fileOpen ){
+    oe_stage2_link(db,OE_DB,file,OE_FILE);
+    oe_stage2_event(OE_DB_BIND,db,OE_DB,0,0,0,0,0,0);
+  }else if( memory ){
+    OE_GUARD_BEGIN
+      if( oe_active() ){
+        oe_object *owner=oe_find(db,OE_DB);
+        if( owner ){
+          /* SQLite's internal memory/lazy-temp pager belongs to this already-scoped connection. */
+          oe_object *o=oe_new(pager,OE_PAGER,owner->fileRole,(uint64_t)owner->dbToken);
+          oe_emit(OE_PAGER_BIND,o,1,0,0,0,0,0);
+        }else{
+          InterlockedIncrement64(&oe_map->unbound);
+        }
+      }
+    OE_GUARD_END;
+  }
+}
+
+uint64_t oe_stage2_wal_close_begin(const void *wal, uint64_t frame,
+                                  uint64_t syncFlags, uint64_t bufferSize){
+  if( !wal ) return 0;
+  uint64_t token=oe_stage2_token(wal,OE_WAL);
+  oe_stage2_event(OE_WAL_CLOSE_BEGIN,wal,OE_WAL,frame,syncFlags,bufferSize,0,0,0);
+  return token;
+}
+
+void oe_stage2_wal_close_end(const void *wal, uint64_t token, uint64_t frame,
+                            uint64_t syncFlags, uint64_t bufferSize,
+                            int rc, DWORD error){
+  if( !wal ) return;
+  oe_stage2_event_token(OE_WAL_CLOSE_END,token,frame,syncFlags,bufferSize,rc,error,0);
+  oe_stage2_retire(token);
+}
+
 __declspec(dllexport) int __cdecl oe_stage2_bind(
     int role, unsigned parentPid, unsigned selfPid, const wchar_t *db,
     const wchar_t *wal, const wchar_t *shm, const wchar_t *mappingName){
