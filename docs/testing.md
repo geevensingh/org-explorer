@@ -158,7 +158,7 @@ controlled trust roots are confined to the external test adapter.
 | High-resolution smoke | Normal WPF executable on a separate disposable hosted 1920 x 1080 desktop | Required responsive geometry/type/width/divider/overlay/search/rejection and Team/history matrices; ordinary fixtures, not the 10,000-Person UI-scale suite. |
 | Non-UI performance | Complete real-file 10,000-Person operations | Load/reopen, search, durable mutations, reviewed imports, refresh and full rich semantic assertions. Targeted large-graph correctness remains in ordinary workflow coverage. |
 | UI scale | Real WPF at the full rich population | Tree realization/scrolling, large-population search/navigation, actual photo/Markdown rendering and responsive Settings while real load/mutation is pending. Neither smaller fixtures nor view-model substitutes prove these risks. |
-| Runner / CI contract | Observable execution and saved result contracts | Named results, sequential isolation, failure diagnostics, required selection, deadlines, required-lane failure matrix and product-output isolation. |
+| Runner / CI contract | Observable execution and saved result contracts | Named results, process isolation and bounded core overlap, failure diagnostics, required selection, deadlines, required-lane failure matrix and product-output isolation. |
 
 `OrgExplorer.Core.Tests` is **not synonymous with isolated unit tests**. Its two
 file-backed `WorkspaceCompatibilityTests` carry `Category=Filesystem` and still
@@ -1925,6 +1925,28 @@ scoped idle discard preserving independent unsubmitted input. Filesystem cases
 remain responsible for SQLite durability and actual effect barriers.
 
 Each runner isolates build artifacts. They may run in independent processes.
+After the complete unfiltered compiled core selection passes, the core worker
+runs all 21 existing mandatory companions exactly once through the shared
+`eng\CoreContracts.ps1` manifest. The queue owns at most four companion processes,
+capped by the resolved processor count, on the same worker. Separate no-profile
+PowerShell processes isolate environment, fake external bindings and current
+directories. Draft-discard receives its existing named `-Assembly` parameter
+with the already-built core DLL; the default icon contract remains invisible
+and read-only. Optional executable icon verification still belongs to desktop.
+
+Each companion is admitted to its own Windows job before its script can execute.
+Closing the owned job terminates descendants even if their original parent has
+exited; unrelated processes are not selected by name or terminated. Output drains
+remain deadline-bound. Receipts retain manifest order, including native-cleanup
+conformance, while actual start/finish clocks may overlap or finish out of order.
+Stdout/stderr logs, exit codes, failed assertions and unfinished/not-started
+receipts remain visible. A failed companion does not discard other completed
+receipts or turn the original execution into success.
+Scheduling, resolved parallelism and ownership configuration join the existing
+source-bound fixture identity in timing-series compatibility. The original
+setup-inclusive 300-second limit and six-worker/four-lane topology are unchanged.
+This capacity repair does not establish hosted speed or relabel prior results.
+
 The filesystem runner excludes only `Category=Performance`; ordinary persistence,
 delivery, recovery and watcher coverage remains required. The core runner also
 checks the CI gate, separate-suite selection/results and named desktop-result
@@ -1946,6 +1968,7 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 ```powershell
 .\tests\CiGate.Tests.ps1
 .\tests\CiRunner.Tests.ps1
+.\tests\CoreContracts.Tests.ps1
 .\tests\FilesystemHealth.Tests.ps1
 .\tests\LaneHealth.Tests.ps1
 .\tests\MixedHealth.Tests.ps1
@@ -1960,6 +1983,18 @@ dotnet build src\OrgExplorer.Desktop -c Release
 dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- `
   src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --verify-xaml
 ```
+
+`CoreContracts.Tests.ps1`, also called by the existing CiRunner companion,
+uses real controlled process workloads, actual compiled test/TRX output and
+the public local result projection. It checks bounded overlap, ordered complete
+receipts, caller paths with spaces, named assembly arguments, environment/
+function/directory isolation, compiled and companion failure, mandatory cleanup
+selection, and deadline termination of an exited parent's descendant while an
+unrelated holder survives. Its small compiled workload is an isolated contract
+fixture, not a replacement for the full core selection or hosted acceptance.
+Lane-health contracts retain immutable history and distinguish serial versus
+different resolved parallelism series. No desktop automation or hosted dispatch
+is part of these focused commands.
 
 `ImplementationBaseline.Tests.ps1` runs in the core lane and invokes the real
 preflight in child PowerShell processes against isolated local Git repositories

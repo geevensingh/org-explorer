@@ -260,7 +260,7 @@ try {
     $core = Join-Path $evidence 'core-attempt-1'
     New-Item -ItemType Directory -Path $core | Out-Null
     $companions = @('CiGate', 'CiRunner', 'FilesystemHealth', 'LaneHealth', 'MixedHealth', 'ImplementationBaseline',
-        'DocumentationHandoff', 'DraftDiscard', 'Performance', 'NonUiCohort', 'DesktopResults', 'UiScale', 'Release',
+        'DocumentationHandoff', 'DraftDiscard', 'Performance', 'HostedCleanup', 'NonUiCohort', 'DesktopResults', 'UiScale', 'Release',
         'Release.Gates', 'Release.Publication', 'Release.Renewal', 'Release.Workflow', 'Release.Payload',
         'Update.TrustLifetime', 'ApplicationIcon')
     $execution = @{
@@ -292,6 +292,21 @@ try {
         $saved.measurements.steps[2].name -ceq 'CiGate.Tests.ps1') 'Core lost complete runner/companion evidence.'
     Assert ($saved.timingHealth -ceq 'unbaselined' -and $null -eq $saved.reference -and
         $observed.summary.Contains('Core and view models') -and $observed.summary.Contains('observation only')) 'Core invented comparative health.'
+    $execution.configuration.coreContracts = @{
+        scheduling = 'bounded-process-queue-v1'; maxParallelism = 2
+        manifest = 'core-contracts-v1'; process = 'pwsh-no-profile'; ownership = 'windows-job-admission-v1'
+    }
+    $execution | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $core 'execution.json')
+    $twoProcesses = (Observe).records[0]
+    Assert ($twoProcesses.seriesKey -cne $saved.seriesKey -and $twoProcesses.validation -ceq 'success') 'Process scheduling silently reused a legacy serial timing series.'
+    $execution.configuration.coreContracts.maxParallelism = 4
+    $execution | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $core 'execution.json')
+    $fourProcesses = (Observe).records[0]
+    Assert ($fourProcesses.seriesKey -cne $twoProcesses.seriesKey -and
+        $fourProcesses.configuration.coreContracts.maxParallelism -eq 4 -and
+        [int](git --git-dir=$remote rev-list --count refs/heads/ci-health-data) -eq $publicationCount) 'Resolved parallelism was omitted from comparison identity or rewrote historical evidence.'
+    $execution.configuration.Remove('coreContracts')
+    $execution | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $core 'execution.json')
     $lanePreview = Observe -TimingPolicyPreview
     Assert ($lanePreview.records[0].policyPreview.currentValidation -ceq 'success' -and
         $lanePreview.records[0].policyPreview.metrics.executionSeconds.health -ceq 'unbaselined' -and
@@ -711,7 +726,7 @@ try {
     try {
         $probe = Join-Path $fixture 'core-probe'
         New-Item -ItemType Directory -Path (Join-Path $probe 'eng'), (Join-Path $probe 'tests') -Force | Out-Null
-        foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1')) {
+        foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1', 'CoreContracts.ps1')) {
             Copy-Item "$root\eng\$name" (Join-Path $probe "eng\$name")
         }
         foreach ($name in @('DesktopScenarios.json', 'DesktopPartitions.json')) {

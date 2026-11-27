@@ -28,7 +28,8 @@ foreach ($case in @(
     . ([scriptblock]::Create($contractsAssignment.Extent.Text))
     if ($runDesktopContracts -ne $case.expected) { throw 'A required desktop companion command was dropped or duplicated.' }
 }
-$source = Get-Content (Join-Path $root 'eng\Run-CiLane.ps1') -Raw
+$source = (Get-Content (Join-Path $root 'eng\Run-CiLane.ps1') -Raw) +
+    (Get-Content (Join-Path $root 'eng\CoreContracts.ps1') -Raw)
 foreach ($required in @("'high-resolution'", "'--prepare-high-resolution'", "'--verify-standard-display'",
     "'--high-resolution'", 'HighResolutionScenarios.json', "'--verify-update-yield'", 'ImplementationBaseline.Tests.ps1')) {
     if (!$source.Contains($required)) { throw "Required CI execution is missing $required" }
@@ -146,7 +147,7 @@ try {
     }
     $fixture = Join-Path $results 'partition-fixture'
     New-Item -ItemType Directory -Path (Join-Path $fixture 'eng'), (Join-Path $fixture 'tests') -Force | Out-Null
-    foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1')) {
+    foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1', 'CoreContracts.ps1')) {
         Copy-Item -LiteralPath (Join-Path $root "eng\$name") -Destination (Join-Path $fixture "eng\$name")
     }
     foreach ($name in @('DesktopScenarios.json', 'DesktopPartitions.json',
@@ -181,6 +182,7 @@ try {
         $env:SCALE_TIMING_FILE = $previousTiming
     }
     Write-Host 'PASS: failed command metadata stays failed and desktop partitioning cannot alter another lane.'
+    & "$PSScriptRoot\CoreContracts.Tests.ps1"
 } finally {
     Remove-Item -LiteralPath $results -Recurse -Force
 }

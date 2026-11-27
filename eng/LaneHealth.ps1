@@ -3,14 +3,10 @@
 . "$PSScriptRoot\PerformanceSuite.ps1"
 . "$PSScriptRoot\UiScaleResults.ps1"
 . "$PSScriptRoot\NonUiCohort.ps1"
+. "$PSScriptRoot\CoreContracts.ps1"
 
 function Get-CoreHealthSteps {
-    return @('restore', 'test', 'CiGate.Tests.ps1', 'CiRunner.Tests.ps1', 'FilesystemHealth.Tests.ps1',
-        'LaneHealth.Tests.ps1', 'MixedHealth.Tests.ps1', 'ImplementationBaseline.Tests.ps1', 'DocumentationHandoff.Tests.ps1',
-        'DraftDiscard.Tests.ps1', 'Performance.Tests.ps1', 'NonUiCohort.Tests.ps1', 'DesktopResults.Tests.ps1', 'UiScale.Tests.ps1',
-        'Release.Tests.ps1', 'Release.Gates.Tests.ps1', 'Release.Publication.Tests.ps1',
-        'Release.Renewal.Tests.ps1', 'Release.Workflow.Tests.ps1', 'Release.Payload.Tests.ps1',
-        'Update.TrustLifetime.Tests.ps1', 'ApplicationIcon.Tests.ps1')
+    return @('restore', 'test') + @((Get-CoreContractManifest $PSScriptRoot).name)
 }
 
 function Get-LaneHealthJobs($Run, $Jobs) {

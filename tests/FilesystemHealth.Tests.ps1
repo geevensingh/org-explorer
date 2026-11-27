@@ -272,7 +272,7 @@ rm -- "`$PWD/hooks/pre-receive"
     Assert ($staleRecord.validation -ceq 'incomplete' -and $null -eq $staleRecord.measurements -and
         $staleRecord.evidence.state -ceq 'rejected') 'An earlier attempt was substituted for missing current evidence.'
     New-Item -ItemType Directory -Path (Join-Path $source 'eng'), (Join-Path $source 'tests') -Force | Out-Null
-    foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1')) {
+    foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1', 'CoreContracts.ps1')) {
         Copy-Item -LiteralPath (Join-Path $root "eng\$name") -Destination (Join-Path $source "eng\$name")
     }
     foreach ($name in @('DesktopScenarios.json', 'DesktopPartitions.json')) {

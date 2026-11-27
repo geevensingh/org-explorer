@@ -12,6 +12,7 @@ if ($HighResolutionPartition -and $Lane -ne 'high-resolution') {
     throw 'Only high-resolution desktop execution supports high-resolution partitions.'
 }
 . "$root\eng\DesktopResults.ps1"
+. "$root\eng\CoreContracts.ps1"
 $partition = if ($HighResolutionPartition) { $HighResolutionPartition } else { $DesktopPartition }
 $partitions = Get-DesktopPartitions -HighResolution:([bool]$HighResolutionPartition)
 $runDesktopContracts = $Lane -eq 'desktop' -and $DesktopPartition -ne 'people'
@@ -68,6 +69,7 @@ function Invoke-BudgetedDotnet([string] $Name, [string[]] $Arguments) {
     $start.CreateNoWindow = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
+    $start.WorkingDirectory = $root
     foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
     $process = [Diagnostics.Process]::Start($start)
     $output = $process.StandardOutput.ReadToEndAsync()
@@ -106,27 +108,7 @@ try {
             Invoke-BudgetedDotnet restore @('restore', 'tests\OrgExplorer.Core.Tests', '--locked-mode')
             Invoke-BudgetedDotnet test @('test', 'tests\OrgExplorer.Core.Tests', '-c', 'Release', '--no-restore', '--logger', 'trx',
                 '--results-directory', '.ci-results\core')
-            Invoke-CiCompanion 'CiGate.Tests.ps1' { & "$root\tests\CiGate.Tests.ps1" }
-            Invoke-CiCompanion 'CiRunner.Tests.ps1' { & "$root\tests\CiRunner.Tests.ps1" }
-            Invoke-CiCompanion 'FilesystemHealth.Tests.ps1' { & "$root\tests\FilesystemHealth.Tests.ps1" }
-            Invoke-CiCompanion 'LaneHealth.Tests.ps1' { & "$root\tests\LaneHealth.Tests.ps1" }
-            Invoke-CiCompanion 'MixedHealth.Tests.ps1' { & "$root\tests\MixedHealth.Tests.ps1" }
-            Invoke-CiCompanion 'ImplementationBaseline.Tests.ps1' { & "$root\tests\ImplementationBaseline.Tests.ps1" }
-            Invoke-CiCompanion 'DocumentationHandoff.Tests.ps1' { & "$root\tests\DocumentationHandoff.Tests.ps1" }
-            Invoke-CiCompanion 'DraftDiscard.Tests.ps1' { & "$root\tests\DraftDiscard.Tests.ps1" -Assembly (Join-Path $artifactBuild 'bin\OrgExplorer.Core.Tests\release\OrgExplorer.Core.Tests.dll') }
-            Invoke-CiCompanion 'Performance.Tests.ps1' { & "$root\tests\Performance.Tests.ps1" }
-            Invoke-CiCompanion 'HostedCleanup.Tests.ps1' { & "$root\tests\HostedCleanup.Tests.ps1" }
-            Invoke-CiCompanion 'NonUiCohort.Tests.ps1' { & "$root\tests\NonUiCohort.Tests.ps1" }
-            Invoke-CiCompanion 'DesktopResults.Tests.ps1' { & "$root\tests\DesktopResults.Tests.ps1" }
-            Invoke-CiCompanion 'UiScale.Tests.ps1' { & "$root\tests\UiScale.Tests.ps1" }
-            Invoke-CiCompanion 'Release.Tests.ps1' { & "$root\tests\Release.Tests.ps1" }
-            Invoke-CiCompanion 'Release.Gates.Tests.ps1' { & "$root\tests\Release.Gates.Tests.ps1" }
-            Invoke-CiCompanion 'Release.Publication.Tests.ps1' { & "$root\tests\Release.Publication.Tests.ps1" }
-            Invoke-CiCompanion 'Release.Renewal.Tests.ps1' { & "$root\tests\Release.Renewal.Tests.ps1" }
-            Invoke-CiCompanion 'Release.Workflow.Tests.ps1' { & "$root\tests\Release.Workflow.Tests.ps1" }
-            Invoke-CiCompanion 'Release.Payload.Tests.ps1' { & "$root\tests\Release.Payload.Tests.ps1" }
-            Invoke-CiCompanion 'Update.TrustLifetime.Tests.ps1' { & "$root\tests\Update.TrustLifetime.Tests.ps1" }
-            Invoke-CiCompanion 'ApplicationIcon.Tests.ps1' { & "$root\tests\ApplicationIcon.Tests.ps1" }
+            Invoke-CoreContracts $root $results $artifactBuild $started $ceilingSeconds $steps
         }
         filesystem {
             Invoke-BudgetedDotnet restore @('restore', 'tests\OrgExplorer.Persistence.Tests', '--locked-mode')
@@ -250,6 +232,7 @@ try {
             powershell = $PSVersionTable.PSVersion.ToString()
             setup = 'locked-restore;isolated-build;setup-and-cleanup-included'
         }
+        if ($Lane -eq 'core') { $configuration.coreContracts = Get-CoreContractConfiguration }
         if ($Lane -ne 'core') {
             $display = Join-Path $results 'display.json'
             $configuration.display = $null

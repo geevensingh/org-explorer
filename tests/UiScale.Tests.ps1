@@ -192,7 +192,8 @@ public static class $typeName {
         throw 'Extended observation must stay explicit, non-verifying and separate from the unchanged pass/fail budget.'
     }
     $ciRunner = Get-Content "$root\eng\Run-CiLane.ps1" -Raw
-    if (!$ciRunner.Contains('& "$root\tests\UiScale.Tests.ps1"')) {
+    $coreContracts = Get-Content "$root\eng\CoreContracts.ps1" -Raw
+    if (!$ciRunner.Contains('Invoke-CoreContracts') -or !$coreContracts.Contains("'UiScale.Tests.ps1'")) {
         throw 'Required core execution must verify the UI-scale command contract without launching UI.'
     }
     $ci = Get-Content "$root\.github\workflows\ci.yml" -Raw
