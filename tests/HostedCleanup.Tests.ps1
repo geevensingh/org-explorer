@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+& "$PSScriptRoot\CleanupRecord.Tests.ps1"
 $fixture = Join-Path $root ('.ci-results\hosted-cleanup-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixture | Out-Null
 $startProcess = Get-Command Start-Process -CommandType Cmdlet

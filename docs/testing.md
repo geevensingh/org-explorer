@@ -106,10 +106,15 @@ hosting effects; the actual CLI signature verifier and result validators run.
 No desktop opens. Source A/controller B, complete raw counts, failed work,
 scope/host/proof forgery, original budgets and legacy refusal remain covered.
 The supervisor retains actual script exit failure separately from saved results.
+`CleanupRecord.Tests.ps1`, also run by that suite, covers the public sample
+reader's mandatory v4 cleanup metadata and rejects artifact-supplied collection
+verification modes on worker records. Union collectors validate housekeeping
+through their independently selected prefix and tail workers.
 
 The focused signed-history/release/lane flow uses new isolated publisher output:
 
 ```powershell
+.\tests\CleanupRecord.Tests.ps1
 .\tests\HostedCleanup.Tests.ps1
 .\tests\AutomaticBaselines.Tests.ps1 -GatePolicyVersion ci-timing-v4 -GateSnapshotDirectory .ci-results\cleanup-gates
 .\tests\Release.Gates.Tests.ps1 -TimingFixtureMetadata .ci-results\cleanup-gates\metadata.json

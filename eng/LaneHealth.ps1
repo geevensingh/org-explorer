@@ -515,7 +515,9 @@ function Get-ScaleHealthMeasurement($Descriptor, $Evidence, $Run, [string]$Expec
     }
     $owned = Join-Path $directory $report.runDirectory
     if ((Get-Content (Join-Path $owned 'result.json') -Raw) -cne $reportText) { throw 'Scale root/owned report disagreement.' }
-    Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $directory
+    if ($Descriptor.kind -cne 'ui-scale') {
+        Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $directory
+    }
     $steps = @()
     $metrics = @()
     $diagnostics = @()

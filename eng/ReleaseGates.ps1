@@ -14,7 +14,6 @@ function Assert-ReleaseVerification(
         $rootReport = Join-Path $directory 'result.json'
         $reportText = Get-Content -LiteralPath $rootReport -Raw
         $report = $reportText | ConvertFrom-Json
-        Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $directory
         if ($suite -eq 'ui-scale') {
             if ($report.suite -cne 'ui-scale' -or $report.outcome -cne 'success' -or
                 $report.verificationMode -cne 'isolated-workers' -or $report.revision -cne $Candidate -or
@@ -37,6 +36,7 @@ function Assert-ReleaseVerification(
             }
             continue
         }
+        Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $directory
         if ($report.suite -cne $suite -or $report.outcome -cne 'success' -or
             $report.revision -cne $Candidate -or $report.expectedRevision -cne $Candidate -or
             $report.trackedChanges -ne $false -or $report.untrackedChanges -ne $false -or

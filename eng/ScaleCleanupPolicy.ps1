@@ -96,8 +96,10 @@ function Assert-ScaleCleanupDisposition($Report, [string]$ExpectedPolicyVersion,
     if ($report.ContainsKey('acceptancePolicyVersion') -and $report.acceptancePolicyVersion -cne $ExpectedPolicyVersion) {
         throw 'Cleanup acceptance policy differs from the independently expected source.'
     }
+    if ($report.ContainsKey('verificationMode')) {
+        throw 'Worker cleanup validation cannot use a collection verification mode.'
+    }
     if ($ExpectedPolicyVersion -ceq 'ci-timing-v4' -and $report.suite -cin @('non-ui-performance', 'ui-scale') -and
-        !$report.ContainsKey('verificationMode') -and
         ($report.acceptancePolicyVersion -cne 'ci-timing-v4' -or !$report.ContainsKey('cleanup') -or
             $report.cleanup.warning -isnot [bool] -or
             ($report.outcome -ceq 'success' -and ($report.verificationOutcome -cne 'success' -or

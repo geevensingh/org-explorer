@@ -71,9 +71,9 @@ function Read-NonUiCohortSample($Sample, [string]$Directory, [string]$Revision, 
     $Sample.runnerOutcome = $report.outcome
     $Sample.runnerFailure = if ($report.ContainsKey('failure')) { $report.failure } else { $null }
     $Sample.configuration = $report.configuration
+    Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $Directory
     if ($report.ContainsKey('cleanup')) {
         $Sample.runnerReport = $report
-        Assert-ScaleCleanupDisposition $report $ExpectedPolicyVersion $Directory
     }
     $Sample.measurements = [ordered]@{ executionSeconds = $report.executionSeconds; phasesMs = @{}; profile = $null
         steps = $report.steps; headroomSeconds = 660 - $report.executionSeconds
