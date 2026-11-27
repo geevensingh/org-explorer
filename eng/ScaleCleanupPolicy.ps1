@@ -190,7 +190,33 @@ function Assert-ScaleCleanupDisposition($Report, [string]$ExpectedPolicyVersion,
             }
         }
     }
-    $context = Read-ScaleCleanupRunContext $report.runId $report.runAttempt
+    $witnessEnd = if ($DuringExecution) { [DateTimeOffset]$proof.acceptanceDeadlineAt }
+        else { [DateTimeOffset]$report.completedAt }
+    $verificationEnd = if ($DuringExecution) { [DateTimeOffset]$proof.acceptanceDeadlineAt }
+        else { [DateTimeOffset]::UtcNow.AddSeconds(120) }
+    $null = Read-VerifiedScaleSignature -ProofText $proofText -BundleText $bundleText `
+        -Revision $report.revision -RunId $report.runId -RunAttempt $report.runAttempt -ExpectedNonce $proof.nonce `
+        -WitnessNotBefore ([DateTimeOffset]$proof.cleanup.observedAt) -WitnessNotAfter $witnessEnd `
+        -VerificationDeadline $verificationEnd
+}
+
+function Read-VerifiedScaleSignature(
+    [string]$ProofText, [string]$BundleText,
+    [ValidatePattern('^[0-9a-f]{40}$')][string]$Revision,
+    [ValidatePattern('^[1-9][0-9]*$')][string]$RunId,
+    [ValidatePattern('^[1-9][0-9]*$')][string]$RunAttempt,
+    [ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedNonce,
+    [DateTimeOffset]$WitnessNotBefore, [DateTimeOffset]$WitnessNotAfter,
+    [DateTimeOffset]$VerificationDeadline = [DateTimeOffset]::UtcNow.AddSeconds(120)
+) {
+    $proof = $ProofText | ConvertFrom-Json -AsHashtable -Depth 40 -DateKind String
+    if ($proof.repository -cne 'geevensingh/org-explorer' -or $proof.revision -cne $Revision -or
+        $proof.runId -cne $RunId -or $proof.runAttempt -cne $RunAttempt -or $proof.nonce -cne $ExpectedNonce -or
+        $WitnessNotAfter -lt $WitnessNotBefore -or
+        (Get-SourceTimingPolicyVersion $Revision -Hosted) -cne 'ci-timing-v4') {
+        throw 'Signed proof differs from independent expected source/run/nonce context.'
+    }
+    $context = Read-ScaleCleanupRunContext $RunId $RunAttempt
     $temporary = Join-Path ([IO.Path]::GetTempPath()) ('org-explorer-cleanup-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $temporary | Out-Null
     $process = $null
@@ -205,9 +231,7 @@ function Assert-ScaleCleanupDisposition($Report, [string]$ExpectedPolicyVersion,
             '--source-digest', $context.head_sha, '--cert-identity-regex',
             '^https://github\.com/geevensingh/org-explorer/\.github/workflows/(scale-verification|rich-cohort-sample|non-ui-cohort-execution)\.yml@',
             '--format', 'json')
-        $seconds = if ($DuringExecution) {
-            ([DateTimeOffset]$proof.acceptanceDeadlineAt - [DateTimeOffset]::UtcNow).TotalSeconds
-        } else { 120 }
+        $seconds = ($VerificationDeadline - [DateTimeOffset]::UtcNow).TotalSeconds
         if ($seconds -le 0) { throw 'Cleanup authentication exhausted the original execution budget.' }
         $output = Join-Path $temporary 'verified.json'
         $errors = Join-Path $temporary 'verification-errors.log'
@@ -238,20 +262,20 @@ function Assert-ScaleCleanupDisposition($Report, [string]$ExpectedPolicyVersion,
             $certificate.sourceRepositoryIdentifier -cne '1448772658' -or
             $certificate.sourceRepositoryOwnerIdentifier -cne '11344767' -or
             $certificate.sourceRepositoryDigest -cne $context.head_sha -or
-            $certificate.runInvocationURI -cne "https://github.com/geevensingh/org-explorer/actions/runs/$($report.runId)/attempts/$($report.runAttempt)" -or
+            $certificate.runInvocationURI -cne "https://github.com/geevensingh/org-explorer/actions/runs/$RunId/attempts/$RunAttempt" -or
             $expectedSignerSha -cnotmatch '^[0-9a-f]{40}$' -or $certificate.buildSignerDigest -cne $expectedSignerSha -or
             (Get-SourceTimingPolicyVersion $expectedSignerSha -Hosted) -cne 'ci-timing-v4') {
             throw 'Verified signing certificate is not the expected disposable worker/source/run context.'
         }
         $timestamps = @($verified[0].verificationResult.verifiedTimestamps)
         if (!$timestamps.Count -or !@($timestamps | Where-Object {
-            [DateTimeOffset]$_.timestamp -ge [DateTimeOffset]$proof.cleanup.observedAt -and
-            [DateTimeOffset]$_.timestamp -le [DateTimeOffset]$proof.acceptanceDeadlineAt -and
-            ($DuringExecution -or [DateTimeOffset]$_.timestamp -le [DateTimeOffset]$report.completedAt)
+            [DateTimeOffset]$_.timestamp -ge $WitnessNotBefore -and
+            [DateTimeOffset]$_.timestamp -le $WitnessNotAfter
         }).Count) { throw 'Cleanup signature was not witnessed within the unchanged original budget.' }
-        if ($DuringExecution -and [DateTimeOffset]::UtcNow -ge [DateTimeOffset]$proof.acceptanceDeadlineAt) {
+        if ([DateTimeOffset]::UtcNow -ge $VerificationDeadline) {
             throw 'Cleanup signature verification exhausted the original execution budget.'
         }
+        return $verified[0].verificationResult
     } finally {
         if ($process) {
             if (!$process.HasExited) {
