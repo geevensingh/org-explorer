@@ -16,8 +16,9 @@ The actual cleanup outcome stays **failed**, with exact error, HRESULT, path,
 phase and remaining-build metadata. The holder is unknown; this is policy,
 not a causal repair or a claim that deletion succeeded.
 
-The existing runner produces a fresh nonce-bound raw proof and waits once for
-the standard `actions/attest@v4` signing handoff. A supervised process receipt
+The runner produces a fresh nonce-bound raw proof and exits without accepting
+verification before the standard `actions/attest@v4` signing handoff. Completion
+verifies that proof within the original budget. A supervised process receipt
 preserves execution errors even if terminal result writing preceded a later
 exception. `gh attestation verify` checks the real signature and witnessed time;
 positive `signature.certificate.runnerEnvironment=github-hosted`, repository

@@ -155,6 +155,15 @@ extended-length syntax only at the Windows loader boundary. Recorded cleanup
 paths and signed evidence remain unchanged. A holder/setup failure is reported
 separately from a failed assertion about legacy policy preservation.
 The supervisor retains actual script exit failure separately from saved results.
+For signing between workflow steps, verification prepares a non-accepting proof
+and exits first. Start waits for the actual process exit and retains both its
+native exit status and the worker's matching receipt before returning. Complete
+requires those original records and the verified attestation within the unchanged
+deadline before finalizing acceptance; a live process is never expected to
+survive the workflow step boundary. Missing receipts, failed work, unsigned proof
+and expired authentication still fail. `ScaleWorkerStep.Tests.ps1` exercises
+separate controllers with explicitly non-accepting data; HostedCleanup invokes
+that contract and tests real signed preparation/completion separately.
 `CleanupRecord.Tests.ps1`, also run by that suite, covers the public sample
 reader's mandatory v4 cleanup metadata and rejects artifact-supplied collection
 verification modes on worker records. Union collectors validate housekeeping
@@ -177,7 +186,7 @@ The focused signed-history/release/lane flow uses new isolated publisher output:
 These fixtures preserve failed housekeeping in immutable records and exercise
 qualified-main eligibility without making cleanup warnings a reason for more
 samples. They do not establish a real hosted cohort. `actions/attest@v4` signs
-only a fresh post-verification proof; the existing runner waits once, counting
+only a fresh post-verification proof; preparation and completion count
 signing/verification in its original budget. Positive verified certificate
 hosting, authenticated run/workflow source and intact raw hashes are required;
 environment or artifact fields alone cannot authorize acceptance. Upload and

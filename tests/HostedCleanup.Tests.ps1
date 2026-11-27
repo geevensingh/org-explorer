@@ -223,6 +223,69 @@ try {
     $holder.Dispose(); $holder = $null
     if (!$signer.WaitForExit(5000)) { throw 'Controlled signing fixture did not exit.' }
     $signer.Dispose(); $signer = $null
+    $originalHostedReport = $report
+    $case = 'hosted'
+    $results = Join-Path $source '.results\prepared'
+    $ready = Join-Path $fixture 'prepared-ready'
+    $release = Join-Path $fixture 'prepared-release'
+    New-Item -ItemType Directory -Path $results | Out-Null
+    $signer = & $startProcess pwsh -ArgumentList @('-NoProfile', '-File', "`"$signing`"",
+        "`"$results\cleanup-proof.json`"", "`"$trust`"", "`"$root\tests\CleanupProvenanceFixture.cs`"", $controllerRevision) -PassThru -NoNewWindow
+    try {
+        Invoke-ScaleSuite -Suite non-ui-performance -Label 'Prepared cleanup contract' `
+            -ResultsDirectory $results -ExpectedRevision $revision -ExpectedPolicyVersion ci-timing-v4 `
+            -PrepareCleanupAuthentication -Selection $selection -Verify $verify
+        $prepared = Get-Content -LiteralPath (Join-Path $results 'result.json') -Raw |
+            ConvertFrom-Json -AsHashtable -Depth 40 -DateKind String
+        if ($prepared.outcome -cne 'running' -or $prepared.phase -cne 'cleanup-authentication' -or
+            $prepared.cleanup.warning -or $prepared.verificationOutcome -cne 'success') {
+            throw 'Prepared proof invented accepted verification before authentication.'
+        }
+        $pending = @{ number = 1; diagnostics = @(); validation = 'incomplete' }
+        Read-NonUiCohortSample $pending $results $revision "$revision-321-1" '321' '1' `
+            -RequirePairedReport -ExpectedPolicyVersion ci-timing-v4
+        if ($pending.validation -ceq 'success') { throw 'Unsigned prepared evidence passed the public result reader.' }
+        if (!$signer.WaitForExit(10000) -or $signer.ExitCode -ne 0) { throw 'The actual controlled signer did not finish.' }
+        $preparedText = $prepared | ConvertTo-Json -Depth 40
+        $bundlePath = Join-Path $results "$($prepared.runDirectory)\cleanup-attestation.json"
+        $bundleText = Get-Content -LiteralPath $bundlePath -Raw
+        foreach ($invalid in @('signature', 'deadline')) {
+            $invalidReport = $preparedText | ConvertFrom-Json -AsHashtable -Depth 40 -DateKind String
+            if ($invalid -ceq 'signature') { [IO.File]::WriteAllText($bundlePath, '{}') }
+            else { $invalidReport.acceptanceDeadlineAt = [DateTimeOffset]::UtcNow.AddSeconds(-1).ToString('O') }
+            $refused = $null
+            try { Complete-ScalePreparedCleanup $invalidReport $results } catch { $refused = $_ }
+            if (!$refused -or $invalidReport.outcome -ceq 'success' -or $invalidReport.cleanup.warning) {
+                throw "Prepared cleanup accepted invalid $invalid."
+            }
+            if ($invalid -ceq 'deadline' -and $invalidReport.outcome -cne 'timed_out') {
+                throw 'Prepared signing escaped the original deadline.'
+            }
+            [IO.File]::WriteAllText($bundlePath, $bundleText)
+            foreach ($path in @((Join-Path $results 'result.json'), (Join-Path $results "$($prepared.runDirectory)\result.json"))) {
+                [IO.File]::WriteAllText($path, $preparedText)
+            }
+        }
+        Complete-ScalePreparedCleanup $prepared $results
+        $accepted = @{ number = 1; diagnostics = @(); validation = 'incomplete' }
+        Read-NonUiCohortSample $accepted $results $revision "$revision-321-1" '321' '1' `
+            -RequirePairedReport -ExpectedPolicyVersion ci-timing-v4
+        if ($accepted.validation -cne 'success' -or !$accepted.runnerReport.cleanup.warning) {
+            throw 'Prepared completion lost real authentication or raw verification.'
+        }
+        Write-Host 'PASS: prepared cleanup is unaccepted until actual signature verification and complete raw validation.'
+    } finally {
+        if ($holder) {
+            [IO.File]::WriteAllText($release, 'release')
+            if (!$holder.WaitForExit(5000)) { throw 'Prepared fixture holder did not release.' }
+            $holder.Dispose(); $holder = $null
+        }
+        if ($signer) {
+            if (!$signer.HasExited) { $signer.Kill($true); $signer.WaitForExit() }
+            $signer.Dispose(); $signer = $null
+        }
+    }
+    $report = $originalHostedReport
     $replay = Join-Path $fixture 'replayed-valid-bundle.json'
     [IO.File]::WriteAllText($replay, $report.cleanup.attestation)
     $previousStarted = $env:SCALE_STARTED_AT
@@ -341,6 +404,11 @@ throw 'Intentional failure after terminal result writing.'
         throw 'Saved success erased the real supervised process failure.'
     }
     Write-Host 'PASS: the public supervisor refuses a real failed process even after terminal success was saved.'
+    $stepResults = Join-Path $fixture 'step-lifetime'
+    & (Get-Process -Id $PID).Path -NoProfile -File "$root\tests\ScaleWorkerStep.Tests.ps1" -Stage Start -EvidenceDirectory $stepResults
+    if ($LASTEXITCODE -ne 0) { throw 'Actual worker exit was not observed before its controller returned.' }
+    & (Get-Process -Id $PID).Path -NoProfile -File "$root\tests\ScaleWorkerStep.Tests.ps1" -Stage Complete -EvidenceDirectory $stepResults
+    if ($LASTEXITCODE -ne 0) { throw 'Separate completion accepted missing exit or unsigned evidence.' }
 } finally {
     if ($previousHosting) { $env:GITHUB_ACTIONS, $env:RUNNER_ENVIRONMENT, $env:RUNNER_OS = $previousHosting }
     if ($holder) {

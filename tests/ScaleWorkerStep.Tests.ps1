@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory)][ValidateSet('Start', 'Complete')][string]$Stage,
-    [string]$EvidenceDirectory = '.ci-results\scale-worker-step'
+    [string]$EvidenceDirectory = '.ci-results\scale-worker-step',
+    [ValidatePattern('^[0-9a-f]{40}$')][string]$SupervisorRevision
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -8,123 +9,94 @@ $evidence = [IO.Path]::GetFullPath($EvidenceDirectory, $root)
 $contextPath = Join-Path $evidence 'context.json'
 
 if ($Stage -ceq 'Start') {
-    if (Test-Path -LiteralPath $contextPath) { throw 'A step-lifetime probe cannot reuse another invocation.' }
-    $source = Join-Path $evidence ('source-' + [guid]::NewGuid().ToString('N'))
+    if (Test-Path -LiteralPath $contextPath) { throw 'A step-lifetime test cannot reuse another invocation.' }
+    $source = Join-Path $evidence 'source'
+    if (Test-Path -LiteralPath $source) { throw 'Select a fresh invocation directory for the step-lifetime test.' }
     New-Item -ItemType Directory -Path "$source\eng" | Out-Null
     Copy-Item -Path "$root\eng\*.ps1" -Destination "$source\eng"
-    @'
-param([string]$Path)
-Add-Type -TypeDefinition @"
-using System;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-public static class WorkerLifetimeObservation {
-    [StructLayout(LayoutKind.Sequential)]
-    struct Limits {
-        public long ProcessTime, JobTime;
-        public uint Flags;
-        public UIntPtr MinimumWorkingSet, MaximumWorkingSet;
-        public uint ActiveProcesses;
-        public UIntPtr Affinity;
-        public uint Priority, Scheduling;
+    if ($SupervisorRevision) {
+        $original = & git -C $root show "${SupervisorRevision}:eng/Invoke-ScaleWorker.ps1"
+        if ($LASTEXITCODE -ne 0) { throw 'Original supervisor source is unavailable.' }
+        $original | Set-Content -LiteralPath "$source\eng\Invoke-ScaleWorker.ps1"
     }
-    [DllImport("kernel32.dll", SetLastError=true)]
-    static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
-    [DllImport("kernel32.dll", SetLastError=true)]
-    static extern bool QueryInformationJobObject(IntPtr job, int kind, out Limits limits, uint length, IntPtr returned);
-    [DllImport("kernel32.dll", SetLastError=true)]
-    static extern uint GetConsoleProcessList(uint[] processes, uint length);
-    public static object Read() {
-        using var process = Process.GetCurrentProcess();
-        bool member;
-        bool queried = IsProcessInJob(process.Handle, IntPtr.Zero, out member);
-        Limits limits;
-        bool limitsRead = QueryInformationJobObject(IntPtr.Zero, 2, out limits, (uint)Marshal.SizeOf<Limits>(), IntPtr.Zero);
-        int limitsError = limitsRead ? 0 : Marshal.GetLastWin32Error();
-        var console = new uint[64];
-        uint count = GetConsoleProcessList(console, (uint)console.Length);
-        Array.Resize(ref console, (int)Math.Min(count, (uint)console.Length));
-        return new { processId=process.Id, jobMembershipRead=queried, inJob=member,
-            jobLimitsRead=limitsRead, jobLimitsError=limitsError, jobLimitFlags=limits.Flags,
-            consoleProcessCount=count, consoleProcessIds=console };
-    }
-}
-"@
-[WorkerLifetimeObservation]::Read() | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $Path
-'@ | Set-Content -LiteralPath "$source\eng\lifetime-observation.ps1"
-    & "$source\eng\lifetime-observation.ps1" -Path (Join-Path $evidence 'controller-environment.json')
     '{"version":"ci-timing-v4"}' | Set-Content -LiteralPath "$source\eng\timing-policy.json"
     '.results/' | Set-Content -LiteralPath "$source\.gitignore"
     @'
-param([string]$ExpectedRevision, [string]$ResultsDirectory)
+param([string]$ExpectedRevision, [string]$ResultsDirectory, [switch]$PrepareCleanupAuthentication)
 $ErrorActionPreference = 'Stop'
 $run = 'run-' + [guid]::NewGuid().ToString('N')
 New-Item -ItemType Directory -Path "$ResultsDirectory\$run" | Out-Null
-& "$PSScriptRoot\lifetime-observation.ps1" -Path "$ResultsDirectory\worker-environment.json"
-@{ revision = $ExpectedRevision; runDirectory = $run; outcome = 'running'; phase = 'cleanup-authentication' } |
-    ConvertTo-Json | Set-Content -LiteralPath "$ResultsDirectory\result.json"
+@{ revision = $ExpectedRevision; runDirectory = $run; outcome = 'running'; phase = 'cleanup-authentication'
+    acceptanceDeadlineAt = ([DateTimeOffset]$env:SCALE_STARTED_AT).AddSeconds(660).ToString('O')
+    diagnosticOnly = $true } | ConvertTo-Json | Set-Content -LiteralPath "$ResultsDirectory\result.json"
 [IO.File]::WriteAllText("$ResultsDirectory\cleanup-proof.json.writing", '{"diagnosticOnly":true}')
 [IO.File]::Move("$ResultsDirectory\cleanup-proof.json.writing", "$ResultsDirectory\cleanup-proof.json")
-$deadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
-while (!(Test-Path -LiteralPath "$ResultsDirectory\diagnostic-release")) {
-    if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Diagnostic release expired.' }
-    Start-Sleep -Milliseconds 20
-}
-Write-Host 'Diagnostic resumed across the workflow step boundary.'
-throw 'Deliberate diagnostic failure; this probe cannot produce policy acceptance.'
+Start-Sleep -Seconds 2
+Write-Host 'Nonaccepting diagnostic finished before its Start controller.'
 '@ | Set-Content -LiteralPath "$source\eng\Run-Performance.ps1"
     & git -C $source init --quiet -b main
     & git -C $source add .
-    & git -C $source -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Nonaccepting cross-step diagnostic'
-    if ($LASTEXITCODE -ne 0) { throw 'Could not prepare the isolated diagnostic source.' }
+    & git -C $source -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Unaccepted prepared-proof fixture'
+    if ($LASTEXITCODE -ne 0) { throw 'Could not prepare the isolated source.' }
     $revision = (& git -C $source rev-parse HEAD).Trim()
     $results = Join-Path $source '.results\diagnostic'
-    & "$source\eng\Invoke-ScaleWorker.ps1" -Stage Start -Worker non-ui-performance `
-        -ExpectedRevision $revision -ResultsDirectory $results
-    $metadata = Get-Content -LiteralPath "$results\worker-process.json" -Raw | ConvertFrom-Json -DateKind String
-    $worker = Get-Process -Id $metadata.processId -ErrorAction Stop
+    $previousStarted = $env:SCALE_STARTED_AT
     try {
-        if ($worker.HasExited -or $worker.StartTime.ToUniversalTime().ToString('O') -cne $metadata.processStartedAt) {
-            throw 'The actual worker was not alive at its proof handoff.'
-        }
-        @{ source = $source; results = $results; revision = $revision; controllerPid = $PID
-            workerPid = $worker.Id; processStartedAt = $metadata.processStartedAt; aliveAtHandoff = $true } |
-            ConvertTo-Json | Set-Content -LiteralPath $contextPath
-    } finally { $worker.Dispose() }
-    Write-Host 'START: actual worker is paused; this workflow controller must exit before Complete.'
+        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.ToString('O')
+        & "$source\eng\Invoke-ScaleWorker.ps1" -Stage Start -Worker non-ui-performance `
+            -ExpectedRevision $revision -ResultsDirectory $results
+    } finally { $env:SCALE_STARTED_AT = $previousStarted }
+    $metadata = Get-Content -LiteralPath "$results\worker-process.json" -Raw | ConvertFrom-Json -DateKind String
+    if ($metadata.observedExitCode -ne 0 -or !(Test-Path -LiteralPath "$results\worker-exit.json")) {
+        throw 'RED: Start returned a proof handoff before observing actual worker exit and its receipt.'
+    }
+    $receipt = Get-Content -LiteralPath "$results\worker-exit.json" -Raw | ConvertFrom-Json -DateKind String
+    if ($receipt.processId -ne $metadata.processId -or $receipt.exitCode -ne 0 -or
+        $receipt.processStartedAt -cne $metadata.processStartedAt) {
+        throw 'Prepared handoff lacks its actual matching exit receipt.'
+    }
+    @{ source = $source; results = $results; revision = $revision; controllerPid = $PID } |
+        ConvertTo-Json | Set-Content -LiteralPath $contextPath
+    Write-Host 'PASS: Start observed real exit before returning unaccepted proof.'
     return
 }
 
 $context = Get-Content -LiteralPath $contextPath -Raw | ConvertFrom-Json -DateKind String
-$worker = Get-Process -Id $context.workerPid -ErrorAction SilentlyContinue
-@{ controllerPid = $PID; originalControllerPid = $context.controllerPid; workerPid = $context.workerPid
-    aliveAfterStep = [bool]$worker; receiptExists = (Test-Path -LiteralPath "$($context.results)\worker-exit.json") } |
-    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'after-step.json')
-if (!$worker) { throw 'RED: the actual paused worker disappeared across the workflow step boundary without its exit receipt.' }
+if ($PID -eq $context.controllerPid) { throw 'Complete requires a separate controller process.' }
+$receiptPath = Join-Path $context.results 'worker-exit.json'
+$receiptText = Get-Content -LiteralPath $receiptPath -Raw
 try {
-    if ($PID -eq $context.controllerPid -or
-        $worker.StartTime.ToUniversalTime().ToString('O') -cne $context.processStartedAt) {
-        throw 'The diagnostic requires a separate controller and the original process identity.'
-    }
-    [IO.File]::WriteAllText("$($context.results)\diagnostic-release", 'release')
-    if (!$worker.WaitForExit(15000)) { throw 'The diagnostic worker did not finish after release.' }
-    $receiptPath = Join-Path $context.results 'worker-exit.json'
-    if (!(Test-Path -LiteralPath $receiptPath)) { throw 'RED: actual worker exit has no supervised receipt.' }
-    $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json -DateKind String
-    if ($receipt.processId -ne $context.workerPid -or $receipt.processStartedAt -cne $context.processStartedAt -or
-        $receipt.revision -cne $context.revision -or $receipt.exitCode -ne 1) {
-        throw 'The diagnostic receipt lost the actual failure or source/process identity.'
-    }
-    $refusal = $null
+    Remove-Item -LiteralPath $receiptPath
+    $missing = $null
     try {
         & "$($context.source)\eng\Invoke-ScaleWorker.ps1" -Stage Complete -Worker non-ui-performance `
             -ExpectedRevision $context.revision -ResultsDirectory $context.results
-    } catch { $refusal = $_ }
-    if (!$refusal -or $refusal.Exception.Message -cnotlike 'Scale worker did not finish successfully:*') {
-        throw 'Complete did not preserve the intentionally failed worker verdict.'
+    } catch { $missing = $_ }
+    if (!$missing -or $missing.Exception.Message -cnotlike '*worker-exit.json*') {
+        throw 'Missing original exit receipt was not refused.'
     }
-    Write-Host 'PASS: a real worker survives separate workflow controllers; actual exit is retained and failure is refused.'
-} finally {
-    if (!$worker.HasExited) { $worker.Kill($true); $worker.WaitForExit() }
-    $worker.Dispose()
+} finally { [IO.File]::WriteAllText($receiptPath, $receiptText) }
+$reportPath = Join-Path $context.results 'result.json'
+$reportText = Get-Content -LiteralPath $reportPath -Raw
+try {
+    $extended = $reportText | ConvertFrom-Json -AsHashtable -DateKind String
+    $extended.acceptanceDeadlineAt = ([DateTimeOffset]$extended.acceptanceDeadlineAt).AddSeconds(60).ToString('O')
+    [IO.File]::WriteAllText($reportPath, ($extended | ConvertTo-Json))
+    $changedDeadline = $null
+    try {
+        & "$($context.source)\eng\Invoke-ScaleWorker.ps1" -Stage Complete -Worker non-ui-performance `
+            -ExpectedRevision $context.revision -ResultsDirectory $context.results
+    } catch { $changedDeadline = $_ }
+    if (!$changedDeadline -or $changedDeadline.Exception.Message -cne 'Worker completion differs from its original supervised deadline.') {
+        throw 'Prepared completion accepted a changed deadline.'
+    }
+} finally { [IO.File]::WriteAllText($reportPath, $reportText) }
+$refusal = $null
+try {
+    & "$($context.source)\eng\Invoke-ScaleWorker.ps1" -Stage Complete -Worker non-ui-performance `
+        -ExpectedRevision $context.revision -ResultsDirectory $context.results
+} catch { $refusal = $_ }
+if (!$refusal -or $refusal.Exception.Message -cne 'Prepared cleanup requires the original attestation before completion.') {
+    throw 'A real worker exit or prepared report bypassed the required signature.'
 }
+Write-Host 'PASS: separate Complete refuses missing exit evidence and unsigned prepared work.'

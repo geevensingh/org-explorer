@@ -24,13 +24,13 @@ if ($Worker -ceq 'non-ui-performance' -and $ExtendedObservation) { throw 'Non-UI
 
 if ($Stage -ceq 'Execute') {
     $entry = if ($Worker -ceq 'non-ui-performance') { 'Run-Performance.ps1' } else { 'Run-UiScale.ps1' }
-    $parameters = @{ ExpectedRevision = $ExpectedRevision; ResultsDirectory = $results }
+    $parameters = @{ ExpectedRevision = $ExpectedRevision; ResultsDirectory = $results; PrepareCleanupAuthentication = $true }
     if ($Worker -cne 'non-ui-performance') { $parameters.Worker = $Worker; $parameters.ExtendedObservation = $ExtendedObservation }
     if ($PrefixResultsDirectory) { $parameters.PrefixResultsDirectory = $PrefixResultsDirectory }
     if ($CohortId) { $parameters.CohortId = $CohortId; $parameters.Sample = $Sample }
     $exitCode = 0
-    try { & (Join-Path $PSScriptRoot $entry) @parameters 1>> $logPath 2>> $errorPath 3>&1 4>&1 5>&1 6>&1 }
-    catch { $exitCode = 1; [IO.File]::AppendAllText($errorPath, $_.ToString() + [Environment]::NewLine) }
+    try { & (Join-Path $PSScriptRoot $entry) @parameters }
+    catch { $exitCode = 1; [Console]::Error.WriteLine($_.ToString()) }
     $runDirectory = $null
     if (Test-Path -LiteralPath $reportPath) { $runDirectory = (Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json).runDirectory }
     $receipt = @{ processId = $PID; processStartedAt = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('O')
@@ -45,37 +45,6 @@ if ($Stage -ceq 'Start') {
     if (Test-Path -LiteralPath (Join-Path $results 'cleanup-proof.json')) {
         throw 'A previous cleanup proof cannot supply a fresh worker invocation; select a new results directory.'
     }
-    Add-Type -TypeDefinition @'
-using System;
-using System.Diagnostics;
-using System.IO;
-using System.Threading;
-public static class ScaleWorkerProgress {
-    public static bool Wait(Process process, string directory, int milliseconds) {
-        using var exited = new ManualResetEvent(false);
-        using var proof = new ManualResetEvent(false);
-        using var watcher = new FileSystemWatcher(directory, "cleanup-proof.json");
-        FileSystemEventHandler created = (_, _) => proof.Set();
-        RenamedEventHandler renamed = (_, _) => proof.Set();
-        EventHandler completed = (_, _) => exited.Set();
-        watcher.Created += created;
-        watcher.Renamed += renamed;
-        process.Exited += completed;
-        try {
-            watcher.EnableRaisingEvents = true;
-            process.EnableRaisingEvents = true;
-            if (File.Exists(Path.Combine(directory, "cleanup-proof.json"))) proof.Set();
-            if (process.HasExited) exited.Set();
-            var index = WaitHandle.WaitAny(new WaitHandle[] { exited, proof }, milliseconds);
-            if (index == WaitHandle.WaitTimeout) throw new TimeoutException("Worker did not finish or request signed proof within its original budget.");
-            return index == 1;
-        } finally {
-            process.Exited -= completed;
-            watcher.EnableRaisingEvents = false;
-        }
-    }
-}
-'@
     . "$PSScriptRoot\TimingPolicy.ps1"
     $policy = Get-ApprovedTimingPolicy (Get-SourceTimingPolicyVersion $ExpectedRevision)
     $ceiling = if ($Worker -ceq 'prefix') { $policy.prefixSafetySeconds } else { $policy.tailSafetySeconds }
@@ -86,35 +55,39 @@ public static class ScaleWorkerProgress {
     if ($PrefixResultsDirectory) { $arguments += @('-PrefixResultsDirectory', $PrefixResultsDirectory) }
     if ($CohortId) { $arguments += @('-CohortId', $CohortId, '-Sample', [string]$Sample) }
     if ($ExtendedObservation) { $arguments += '-ExtendedObservation' }
-    [IO.File]::WriteAllText($logPath, '')
-    [IO.File]::WriteAllText($errorPath, '')
-    $start = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
-    $start.UseShellExecute = $false
-    $start.CreateNoWindow = $true
-    $start.WorkingDirectory = $root
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $start
+    $previousStarted = $env:SCALE_STARTED_AT
     try {
-        if (!$process.Start()) { throw 'The scale worker process did not start.' }
-        @{ processId = $process.Id; processStartedAt = $process.StartTime.ToUniversalTime().ToString('O')
-            worker = $Worker; revision = $ExpectedRevision; deadlineAt = $deadline.ToString('O') } |
-            ConvertTo-Json | Set-Content -LiteralPath $handle
+        $env:SCALE_STARTED_AT = $started.ToString('O')
+        $process = Start-Process (Get-Process -Id $PID).Path -PassThru -NoNewWindow `
+            -ArgumentList @($arguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }) `
+            -RedirectStandardOutput $logPath -RedirectStandardError $errorPath
+    } finally { $env:SCALE_STARTED_AT = $previousStarted }
+    try {
+        $metadata = @{ processId = $process.Id; processStartedAt = $process.StartTime.ToUniversalTime().ToString('O')
+            worker = $Worker; revision = $ExpectedRevision; deadlineAt = $deadline.ToString('O') }
+        $metadata | ConvertTo-Json | Set-Content -LiteralPath $handle
         $remaining = ($deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds
         if ($remaining -le 0) { throw 'Scale setup exhausted its original worker budget.' }
-        $needsSignature = [ScaleWorkerProgress]::Wait($process, $results, [int]$remaining)
-        if (!$needsSignature -and $process.ExitCode -ne 0) {
+        if (!$process.WaitForExit([int]$remaining)) { throw 'Scale worker did not exit within its original budget.' }
+        $metadata.observedExitCode = $process.ExitCode
+        $metadata | ConvertTo-Json | Set-Content -LiteralPath $handle
+        if ($process.ExitCode -ne 0) {
             Get-Content -LiteralPath (Join-Path $results 'worker.log')
             Get-Content -LiteralPath (Join-Path $results 'worker-errors.log')
             throw "Scale worker exited with code $($process.ExitCode)."
         }
+        $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+        $needsSignature = $report.phase -ceq 'cleanup-authentication'
         if ($env:GITHUB_OUTPUT) {
             "needs_cleanup_signature=$($needsSignature.ToString().ToLowerInvariant())" | Add-Content $env:GITHUB_OUTPUT
             if ($needsSignature) {
                 "cleanup_proof=$(Join-Path $results 'cleanup-proof.json')" | Add-Content $env:GITHUB_OUTPUT
             }
         }
-    } finally { $process.Dispose() }
+    } finally {
+        if (!$process.HasExited) { $process.Kill($true); $process.WaitForExit() }
+        $process.Dispose()
+    }
     return
 }
 
@@ -126,11 +99,28 @@ $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
 if ($report.revision -cne $ExpectedRevision -or $report.runDirectory -cnotmatch '^run-[0-9a-f]{32}$') {
     throw 'Worker completion lacks its own exact-source run directory.'
 }
+if (!$report.acceptanceDeadlineAt -or [DateTimeOffset]$report.acceptanceDeadlineAt -ne [DateTimeOffset]$metadata.deadlineAt) {
+    throw 'Worker completion differs from its original supervised deadline.'
+}
+$receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+if (($metadata.observedExitCode -isnot [int] -and $metadata.observedExitCode -isnot [long]) -or $metadata.observedExitCode -ne 0 -or
+    $receipt.processId -ne $metadata.processId -or $receipt.processStartedAt -cne $metadata.processStartedAt -or
+    $receipt.revision -cne $ExpectedRevision -or $receipt.worker -cne $Worker -or
+    $receipt.runDirectory -cne $report.runDirectory -or
+    ($receipt.exitCode -isnot [long] -and $receipt.exitCode -isnot [int]) -or $receipt.exitCode -ne 0) {
+    throw 'Scale worker completion lacks its actual successful supervised exit.'
+}
+if ($report.phase -ceq 'cleanup-authentication' -and !$AttestationBundle) {
+    throw 'Prepared cleanup requires the original attestation before completion.'
+}
 if ($AttestationBundle) {
-    if ($report.phase -cne 'cleanup-authentication') { throw 'Only a live post-verification refusal may receive its signed proof.' }
+    if ($report.phase -cne 'cleanup-authentication') { throw 'Only an original prepared post-verification refusal may receive its signed proof.' }
     $destination = Join-Path $results "$($report.runDirectory)\cleanup-attestation.json"
     [IO.File]::WriteAllText("$destination.writing", (Get-Content -LiteralPath $AttestationBundle -Raw))
     [IO.File]::Move("$destination.writing", $destination, $true)
+    . "$PSScriptRoot\ScaleCleanupPolicy.ps1"
+    $prepared = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json -AsHashtable -Depth 40 -DateKind String
+    Complete-ScalePreparedCleanup $prepared $results
 }
 $process = Get-Process -Id $metadata.processId -ErrorAction SilentlyContinue
 if ($process) {

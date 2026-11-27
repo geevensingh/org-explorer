@@ -202,6 +202,45 @@ function Assert-ScaleCleanupDisposition($Report, [string]$ExpectedPolicyVersion,
         -VerificationDeadline $verificationEnd
 }
 
+function Complete-ScalePreparedCleanup([hashtable]$Report, [string]$Directory) {
+    if ($Report.phase -cne 'cleanup-authentication' -or $Report.outcome -cne 'running' -or
+        $Report.cleanup.warning -or !$Report.cleanup.authenticationStartedAt) {
+        throw 'Cleanup completion requires the original unaccepted prepared record.'
+    }
+    $deadline = [DateTimeOffset]$Report.acceptanceDeadlineAt
+    try {
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Prepared cleanup exhausted its original execution budget.' }
+        $Report.cleanup.attestation = Get-Content -LiteralPath (Join-Path $Directory "$($Report.runDirectory)\cleanup-attestation.json") -Raw
+        Assert-ScaleCleanupDisposition $Report ci-timing-v4 $Directory -DuringExecution
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Cleanup verification exhausted its original execution budget.' }
+        $Report.cleanup.warning = $true
+        $Report.cleanup.authenticationSeconds =
+            ([DateTimeOffset]::UtcNow - [DateTimeOffset]$Report.cleanup.authenticationStartedAt).TotalSeconds
+        $Report.outcome = 'success'
+        Write-Warning "Cleanup FAILED at $($Report.cleanup.path): $($Report.cleanup.error). Signed disposable-worker housekeeping warning; holder unknown."
+    } catch {
+        $Report.cleanup.authenticationFailure = $_.Exception.Message
+        $Report.outcome = if ([DateTimeOffset]::UtcNow -ge $deadline) { 'timed_out' } else { 'failure' }
+        $Report.failure = $_.Exception.Message
+        throw
+    } finally {
+        $Report.phase = 'finished'
+        $Report.completedAt = [DateTimeOffset]::UtcNow.ToString('O')
+        $Report.executionSeconds = ([DateTimeOffset]::UtcNow - [DateTimeOffset]$Report.startedAt).TotalSeconds
+        if ([DateTimeOffset]$Report.completedAt -ge $deadline -and $Report.outcome -ceq 'success') {
+            $Report.outcome = 'timed_out'
+            $Report.cleanup.warning = $false
+            $Report.failure = 'Cleanup completion exhausted its original execution budget.'
+        }
+        $json = $Report | ConvertTo-Json -Depth 12
+        foreach ($path in @((Join-Path $Directory 'result.json'), (Join-Path $Directory "$($Report.runDirectory)\result.json"))) {
+            [IO.File]::WriteAllText("$path.writing", $json)
+            [IO.File]::Move("$path.writing", $path, $true)
+        }
+        if ($Report.outcome -cne 'success') { throw $Report.failure }
+    }
+}
+
 function Read-VerifiedScaleSignature(
     [string]$ProofText, [string]$BundleText,
     [ValidatePattern('^[0-9a-f]{40}$')][string]$Revision,

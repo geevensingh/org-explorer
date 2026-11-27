@@ -5,7 +5,8 @@ function Invoke-ScaleSuite(
     [hashtable] $Selection, [scriptblock] $Verify,
     [ValidateSet(660, 900)][int] $ObservationSeconds = 660,
     [string] $ExpectedPolicyVersion = 'rich-scale-original-v1',
-    [switch] $DiagnosticOnly
+    [switch] $DiagnosticOnly,
+    [switch] $PrepareCleanupAuthentication
 ) {
     $ErrorActionPreference = 'Stop'
     $root = Split-Path $PSScriptRoot -Parent
@@ -37,6 +38,7 @@ function Invoke-ScaleSuite(
         activePhase = $null; lastActivePhase = $null
         configuration = $null; configurationErrors = @()
         sourcePolicy = $ExpectedPolicyVersion; cleanup = $null; ownedCommandsExited = $true
+        cleanupPrepared = $false
     }
 
     function Write-ScaleReport {
@@ -299,6 +301,7 @@ function Invoke-ScaleSuite(
                 $state.cleanup.path = $native.path
                 $state.cleanup.native = $native
                 $authenticationStarted = [DateTimeOffset]::UtcNow
+                $state.cleanup.authenticationStartedAt = $authenticationStarted.ToString('O')
                 if ($state.configurationErrors.Count -or
                     ($Selection.ContainsKey('configurationErrors') -and @($Selection.configurationErrors).Count)) {
                     throw 'Required source/runtime cleanup scope is unavailable.'
@@ -350,21 +353,26 @@ function Invoke-ScaleSuite(
                     $signal = Join-Path $results 'cleanup-proof.json'
                     [IO.File]::WriteAllText("$signal.writing", $proofText)
                     [IO.File]::Move("$signal.writing", $signal, $true)
-                    if (!(Test-Path -LiteralPath $attestation)) {
-                        $event = $watcher.WaitForChanged(
-                            ([IO.WatcherChangeTypes]::Created -bor [IO.WatcherChangeTypes]::Renamed),
-                            [int]((Assert-ScaleRemainingBudget) * 1000))
-                        if ($event.TimedOut) { throw 'Signed cleanup proof did not arrive within the original execution budget.' }
+                    if ($PrepareCleanupAuthentication) {
+                        $state.cleanupPrepared = $true
+                        Write-ScaleReport
+                    } else {
+                        if (!(Test-Path -LiteralPath $attestation)) {
+                            $event = $watcher.WaitForChanged(
+                                ([IO.WatcherChangeTypes]::Created -bor [IO.WatcherChangeTypes]::Renamed),
+                                [int]((Assert-ScaleRemainingBudget) * 1000))
+                            if ($event.TimedOut) { throw 'Signed cleanup proof did not arrive within the original execution budget.' }
+                        }
+                        $state.cleanup.attestation = Get-Content -LiteralPath $attestation -Raw
+                        Write-ScaleReport
+                        $report = Get-Content -LiteralPath (Join-Path $run 'result.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+                        Assert-ScaleCleanupDisposition $report ci-timing-v4 $results -DuringExecution
+                        $state.cleanup.warning = $true
+                        $state.cleanup.authenticationSeconds = ([DateTimeOffset]::UtcNow - $authenticationStarted).TotalSeconds
+                        $null = Assert-ScaleRemainingBudget
+                        Write-Warning "Cleanup FAILED at $($native.path): $($state.cleanup.error). Scoped disposable-worker housekeeping warning; holder unknown. VM teardown only."
+                        Write-Host "::warning title=Owned build cleanup failed::$($state.cleanup.error -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A')"
                     }
-                    $state.cleanup.attestation = Get-Content -LiteralPath $attestation -Raw
-                    Write-ScaleReport
-                    $report = Get-Content -LiteralPath (Join-Path $run 'result.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
-                    Assert-ScaleCleanupDisposition $report ci-timing-v4 $results -DuringExecution
-                    $state.cleanup.warning = $true
-                    $state.cleanup.authenticationSeconds = ([DateTimeOffset]::UtcNow - $authenticationStarted).TotalSeconds
-                    $null = Assert-ScaleRemainingBudget
-                    Write-Warning "Cleanup FAILED at $($native.path): $($state.cleanup.error). Scoped disposable-worker housekeeping warning; holder unknown. VM teardown only."
-                    Write-Host "::warning title=Owned build cleanup failed::$($state.cleanup.error -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A')"
                 } finally { $watcher.Dispose() }
             } catch {
                 $state.cleanup.authenticationFailure = $_.Exception.Message
@@ -379,9 +387,10 @@ function Invoke-ScaleSuite(
             $budgetFailure = "$Label exhausted its unchanged whole-execution budget, including cleanup and authentication."
             $state.failure = if ($state.failure) { $state.failure + "`n" + $budgetFailure } else { $budgetFailure }
         }
-        $state.phase = 'finished'
+        if (!$state.cleanupPrepared -or $state.outcome -cne 'success') { $state.phase = 'finished' }
         Write-ScaleReport
-        $summary = "$Label $($state.outcome) at $($state.revision) in $([Math]::Round($elapsed, 2)) s including setup, restore/build, fixtures, tests and cleanup; ceiling $ceilingSeconds s. No latency SLA."
+        $reportedOutcome = if ($state.phase -ceq 'cleanup-authentication') { 'cleanup proof prepared; verification not yet accepted' } else { $state.outcome }
+        $summary = "$Label $reportedOutcome at $($state.revision) in $([Math]::Round($elapsed, 2)) s including setup, restore/build, fixtures, tests and cleanup; ceiling $ceilingSeconds s. No latency SLA."
         Write-Host $summary
         if ($env:GITHUB_STEP_SUMMARY) {
             "### $Label`: $($state.outcome)`n$summary Queues and publication excluded." | Add-Content $env:GITHUB_STEP_SUMMARY
@@ -391,5 +400,6 @@ function Invoke-ScaleSuite(
             }
         }
     }
+    if ($state.cleanupPrepared -and $state.outcome -ceq 'success') { return }
     if ($state.outcome -ne 'success') { throw "$Label did not succeed: $($state.failure)" }
 }

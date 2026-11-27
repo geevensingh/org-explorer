@@ -7,7 +7,8 @@ param(
     [string] $ResultsDirectory = '.ci-results\ui-scale',
     [ValidatePattern('^[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*$')][string] $CohortId,
     [ValidateRange(1, 5)][int] $Sample,
-    [switch] $ExtendedObservation
+    [switch] $ExtendedObservation,
+    [switch] $PrepareCleanupAuthentication
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -33,6 +34,7 @@ if ($CohortId) {
 Invoke-ScaleSuite -Suite ui-scale -Label 'UI scale' `
     -ResultsDirectory $ResultsDirectory -ExpectedRevision $ExpectedRevision -ObservationSeconds $observation `
     -ExpectedPolicyVersion $policy.version -DiagnosticOnly:$ExtendedObservation `
+    -PrepareCleanupAuthentication:$PrepareCleanupAuthentication `
     -Selection $selection -Verify {
         param($run, $build)
         if (![Environment]::UserInteractive) {

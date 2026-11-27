@@ -4,7 +4,8 @@ param(
     [ValidatePattern('^[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*$')][string]$CohortId,
     [ValidateRange(1, 5)][int]$Sample,
     [string]$RunId = $env:GITHUB_RUN_ID,
-    [string]$RunAttempt = $env:GITHUB_RUN_ATTEMPT
+    [string]$RunAttempt = $env:GITHUB_RUN_ATTEMPT,
+    [switch]$PrepareCleanupAuthentication
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\PerformanceSuite.ps1"
@@ -23,7 +24,7 @@ if ($CohortId) {
 
 Invoke-ScaleSuite -Suite non-ui-performance -Label 'Non-UI performance' `
     -ResultsDirectory $ResultsDirectory -ExpectedRevision $ExpectedRevision `
-    -Selection $selection -Verify {
+    -PrepareCleanupAuthentication:$PrepareCleanupAuthentication -Selection $selection -Verify {
         param($run, $build)
         $previousTiming = $env:SCALE_TIMING_FILE
         try {
