@@ -12,6 +12,47 @@ if ($Stage -ceq 'Start') {
     $source = Join-Path $evidence ('source-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path "$source\eng" | Out-Null
     Copy-Item -Path "$root\eng\*.ps1" -Destination "$source\eng"
+    @'
+param([string]$Path)
+Add-Type -TypeDefinition @"
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+public static class WorkerLifetimeObservation {
+    [StructLayout(LayoutKind.Sequential)]
+    struct Limits {
+        public long ProcessTime, JobTime;
+        public uint Flags;
+        public UIntPtr MinimumWorkingSet, MaximumWorkingSet;
+        public uint ActiveProcesses;
+        public UIntPtr Affinity;
+        public uint Priority, Scheduling;
+    }
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool QueryInformationJobObject(IntPtr job, int kind, out Limits limits, uint length, IntPtr returned);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern uint GetConsoleProcessList(uint[] processes, uint length);
+    public static object Read() {
+        using var process = Process.GetCurrentProcess();
+        bool member;
+        bool queried = IsProcessInJob(process.Handle, IntPtr.Zero, out member);
+        Limits limits;
+        bool limitsRead = QueryInformationJobObject(IntPtr.Zero, 2, out limits, (uint)Marshal.SizeOf<Limits>(), IntPtr.Zero);
+        int limitsError = limitsRead ? 0 : Marshal.GetLastWin32Error();
+        var console = new uint[64];
+        uint count = GetConsoleProcessList(console, (uint)console.Length);
+        Array.Resize(ref console, (int)Math.Min(count, (uint)console.Length));
+        return new { processId=process.Id, jobMembershipRead=queried, inJob=member,
+            jobLimitsRead=limitsRead, jobLimitsError=limitsError, jobLimitFlags=limits.Flags,
+            consoleProcessCount=count, consoleProcessIds=console };
+    }
+}
+"@
+[WorkerLifetimeObservation]::Read() | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $Path
+'@ | Set-Content -LiteralPath "$source\eng\lifetime-observation.ps1"
+    & "$source\eng\lifetime-observation.ps1" -Path (Join-Path $evidence 'controller-environment.json')
     '{"version":"ci-timing-v4"}' | Set-Content -LiteralPath "$source\eng\timing-policy.json"
     '.results/' | Set-Content -LiteralPath "$source\.gitignore"
     @'
@@ -19,6 +60,7 @@ param([string]$ExpectedRevision, [string]$ResultsDirectory)
 $ErrorActionPreference = 'Stop'
 $run = 'run-' + [guid]::NewGuid().ToString('N')
 New-Item -ItemType Directory -Path "$ResultsDirectory\$run" | Out-Null
+& "$PSScriptRoot\lifetime-observation.ps1" -Path "$ResultsDirectory\worker-environment.json"
 @{ revision = $ExpectedRevision; runDirectory = $run; outcome = 'running'; phase = 'cleanup-authentication' } |
     ConvertTo-Json | Set-Content -LiteralPath "$ResultsDirectory\result.json"
 [IO.File]::WriteAllText("$ResultsDirectory\cleanup-proof.json.writing", '{"diagnosticOnly":true}')
