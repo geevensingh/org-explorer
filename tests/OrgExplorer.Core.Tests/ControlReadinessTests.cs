@@ -7,6 +7,57 @@ public sealed class ControlReadinessTests
 {
     [Fact]
     [Trait("Category", "Runner")]
+    public void Capture_evidence_waits_for_discovery_after_one_expansion_request()
+    {
+        var expansions = 0;
+        var observations = 0;
+        var evidence = new object();
+
+        var result = ControlReadiness.AwaitExpandedPattern(
+            () => expansions++,
+            () => ++observations < 3
+                ? throw new InvalidOperationException("Missing actual UI control: HistoricalCaptureEvidence-test")
+                : evidence,
+            AwaitReady);
+
+        Assert.Same(evidence, result);
+        Assert.Equal(1, expansions);
+        Assert.Equal(3, observations);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Permanently_missing_capture_evidence_fails_without_reexpanding()
+    {
+        var expansions = 0;
+        var observations = 0;
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitExpandedPattern<object>(
+            () => expansions++,
+            () =>
+            {
+                observations++;
+                throw new InvalidOperationException("Missing actual UI control: HistoricalCaptureEvidence-test");
+            }, AwaitReady));
+        Assert.Equal(1, expansions);
+        Assert.True(observations > 1);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Capture_expansion_failure_propagates_before_any_evidence_read()
+    {
+        var reads = 0;
+        var failure = new InvalidOperationException("The disclosure provider refused expansion.");
+        var observed = Assert.Throws<InvalidOperationException>(() =>
+            ControlReadiness.AwaitExpandedPattern(
+                () => throw failure, () => { reads++; return new object(); }, AwaitReady));
+
+        Assert.Same(failure, observed);
+        Assert.Equal(0, reads);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Search_result_discovery_waits_for_the_queried_note_instead_of_missing_or_stale_profile_rows()
     {
         var observations = 0;

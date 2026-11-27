@@ -878,8 +878,8 @@ internal static partial class Program
         var expansion = (ExpandCollapsePattern)disclosure.GetCurrentPattern(ExpandCollapsePattern.Pattern);
         if (expansion.Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
             throw new InvalidOperationException("SQLite Capture details must remain collapsed before explicit reading.");
-        expansion.Expand();
-        var capturedEvidence = Find(disclosure, $"HistoricalCaptureEvidence-{frozen.Id}");
+        var capturedEvidence = ControlReadiness.AwaitExpandedPattern(expansion.Expand,
+            () => Find(disclosure, $"HistoricalCaptureEvidence-{frozen.Id}"), Await);
         capturedEvidence.SetFocus();
         Await(() => capturedEvidence.Current.HasKeyboardFocus && !capturedEvidence.Current.IsOffscreen);
         var copyable = ((ValuePattern)capturedEvidence.GetCurrentPattern(ValuePattern.Pattern)).Current.Value;

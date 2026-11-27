@@ -342,6 +342,13 @@ selection and keyboard assertions remain actual provider/desktop observations,
 with the same complete scenario selection, size matrices and execution budgets.
 Responsive editor checks acquire the displayed identity inside the existing
 readiness poll, so a transient post-resize absence cannot bypass that wait.
+Historical Capture evidence likewise requests each disclosure expansion once,
+then discovers its exact child/provider inside the existing 20-second readiness
+wait. A delayed child cannot trigger an unguarded immediate lookup; permanently
+missing evidence and expansion failures remain failures. The full read-only
+capture/batch/version assertions and actual clipboard checks are unchanged.
+Controlled non-UI cases cover delayed discovery, permanent absence and provider
+refusal; they are not substitutes for the hosted native journey.
 File-backed profile-session cases cover complete publication and reopening,
 Cancel nonmutation, real locks and missing photos, Manager/history consistency,
 independent quick changes, same-record/different-field stale saves and retries,
