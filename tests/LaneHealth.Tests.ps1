@@ -1,4 +1,4 @@
-param([switch]$ScopedPolicyOnly, [switch]$NativeIdentityOnly, [string]$TimingFixtureMetadata,
+param([switch]$ScopedPolicyOnly, [switch]$NativeIdentityOnly, [switch]$LegacyNativeOnly, [string]$TimingFixtureMetadata,
     [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$ScopedPolicyVersion = 'ci-timing-v2')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -100,6 +100,133 @@ function gh {
         '/actions/runs/999$' { $global:LaneHealthFixture.controller | ConvertTo-Json -Depth 10 -Compress; return }
         default { throw "Unexpected endpoint: $($arguments[1])" }
     }
+}
+function Test-OriginalNativeRetention {
+    $currentRoot = $root
+    $previousFixture = $global:LaneHealthFixture
+    $sourceRoot = Join-Path $fixture 'source255'
+    $archive = Join-Path $fixture 'source255.zip'
+    git -C $currentRoot archive --format=zip --output $archive 2555cc93300620e4ced45dd1f3e3d88ee647f6b7 `
+        eng tests/UiScaleUnionFixture.ps1 tests/UiScaleScenarios.json tests/UiScaleWorkers.json tests/UiScalePhases.json
+    if ($LASTEXITCODE -ne 0) { throw 'Original 255 source fixture export failed.' }
+    Expand-Archive -LiteralPath $archive -DestinationPath $sourceRoot
+    $remote = Join-Path $fixture 'history255.git'
+    git init --bare --quiet $remote
+    $legacyEvidence = Join-Path $fixture 'evidence255'
+    New-Item -ItemType Directory -Path $legacyEvidence -Force | Out-Null
+    $run = @{ id = 51; run_attempt = 1; head_sha = 'f' * 40; event = 'push'; head_branch = 'main'
+        path = '.github/workflows/scale-verification.yml'; status = 'completed'
+        head_repository = @{ full_name = 'geevensingh/org-explorer' } }
+    $global:LaneHealthFixture = @{ run = $run; jobs = @(); artifacts = @(); evidence = $legacyEvidence
+        activePolicy = $true; policyVersion = 'ci-timing-v4' }
+    try {
+        . "$sourceRoot\tests\UiScaleUnionFixture.ps1"
+        $rich = New-UiScaleUnionFixture (Join-Path $fixture 'raw255') $run.head_sha '51' '1' -TimingPolicyVersion ci-timing-v4
+        foreach ($worker in @('prefix', 'tail')) {
+            $data = Get-Content (Join-Path $rich[$worker] 'result.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 30
+            if ($worker -ceq 'tail') {
+                $data.configuration.native.Remove('sourceId')
+                $data | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $rich[$worker] 'result.json')
+                $data | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $rich[$worker] "$($data.runDirectory)\result.json")
+            }
+            Assert ($data.configuration.display.width -eq 1920 -and $data.configuration.display.height -eq 1080 -and
+                !$data.configuration.display.Contains('state')) 'The actual original255 fixture was replaced by a current display shape.'
+            $name = "ui-scale-$worker-$($run.head_sha)-51-1"
+            Copy-Item -LiteralPath $rich[$worker] -Destination (Join-Path $legacyEvidence $name) -Recurse
+            $global:LaneHealthFixture.jobs += @{ id = 110 + $global:LaneHealthFixture.jobs.Count
+                name = if ($worker -ceq 'prefix') { 'Rich combined normal and held-export saves' }
+                    else { 'Rich logical Join, delivery, reopen and navigation' }
+                status = 'completed'; conclusion = 'success'; steps = @()
+                started_at = '2026-11-25T10:00:00Z'; completed_at = '2026-11-25T10:04:00Z' }
+            $global:LaneHealthFixture.artifacts += @{ id = 210 + $global:LaneHealthFixture.artifacts.Count; name = $name
+                expired = $false; digest = 'sha256:' + ('b' * 64); expires_at = '2099-01-01T00:00:00Z'
+                workflow_run = @{ id = 51; head_sha = $run.head_sha } }
+        }
+        $root = $sourceRoot
+        $original = Observe -Publish
+        $originalTip = git --git-dir=$remote rev-parse refs/heads/ci-health-data
+        foreach ($worker in @('prefix', 'tail')) {
+            $record = @($original.records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            Assert ($record.validation -ceq 'success' -and $record.seriesKey -match '^[0-9a-f]{64}$' -and
+                !$record.Contains('nativeBinding')) 'Original255 did not produce its own accepted legacy native observation/hash.'
+        }
+        $root = $currentRoot
+        . "$currentRoot\eng\LaneHealth.ps1"
+        $readFailure = $null; $retained = $null
+        try {
+            $retained = Open-HealthHistory (Join-Path $fixture 'reader255.git') $remote -AllowLocalFixture `
+                -RecordTypes (Get-LaneHealthRecordTypes)
+        } catch { $readFailure = $_.Exception.Message }
+        if ($LegacyNativeOnly) { Write-Host "PUBLIC ORIGINAL255 RETENTION failure=$readFailure" }
+        Assert ($null -eq $readFailure) "Current public history rejected an original255 successful observation: $readFailure"
+        $observed = Observe -AllowGateFailure
+        Assert ($null -eq $observed.gateFailure) 'Old comparison metadata alone failed the whole current observer.'
+        foreach ($worker in @('prefix', 'tail')) {
+            $old = @($original.records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            $saved = @($retained.records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            $current = @($observed.records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            Assert ($saved.validation -ceq $old.validation -and $saved.seriesKey -ceq $old.seriesKey -and
+                $current.validation -ceq 'success' -and $null -eq $current.seriesKey -and $null -eq $current.reference -and
+                !$current.timingEvaluation.blocking) 'Original255 raw verdict/hash changed or its obsolete comparison shape was upgraded.'
+        }
+        . "$currentRoot\tests\UiScaleUnionFixture.ps1"
+        $run.run_attempt = 2; $run.head_sha = 'e' * 40
+        $currentFixture = New-UiScaleUnionFixture (Join-Path $fixture 'current255') $run.head_sha '51' '2' `
+            -TimingPolicyVersion ci-timing-v4
+        $global:LaneHealthFixture.artifacts = @()
+        foreach ($worker in @('prefix', 'tail')) {
+            $name = "ui-scale-$worker-$($run.head_sha)-51-2"
+            Copy-Item -LiteralPath $currentFixture[$worker] -Destination (Join-Path $legacyEvidence $name) -Recurse
+            $global:LaneHealthFixture.artifacts += @{ id = 230 + $global:LaneHealthFixture.artifacts.Count; name = $name
+                expired = $false; digest = 'sha256:' + ('b' * 64); expires_at = '2099-01-01T00:00:00Z'
+                workflow_run = @{ id = 51; head_sha = $run.head_sha } }
+        }
+        $published = Observe -Publish
+        $newTip = git --git-dir=$remote rev-parse refs/heads/ci-health-data
+        foreach ($worker in @('prefix', 'tail')) {
+            $current = @($published.records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            $oldBlob = git --git-dir=$remote rev-parse "${originalTip}:lanes/51/1/ui-scale-$worker.json"
+            $newBlob = git --git-dir=$remote rev-parse "${newTip}:lanes/51/1/ui-scale-$worker.json"
+            Assert ($current.validation -ceq 'success' -and $current.seriesKey -match '^[0-9a-f]{64}$' -and
+                $null -eq $current.reference -and $current.reliability.attempts -eq 2 -and $oldBlob -ceq $newBlob) `
+                'Current publication rewrote old255 bytes, failed because of old metadata, or upgraded a legacy reference.'
+        }
+        & "$currentRoot\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $currentFixture.prefix -TailDirectory $currentFixture.tail `
+            -ExpectedRevision $run.head_sha -RunId 51 -RunAttempt 2 -ExpectedPolicyVersion ci-timing-v4 `
+            -ResultsDirectory (Join-Path $fixture 'release255-union')
+        . "$currentRoot\eng\Release.ps1"
+        $nonUi = Join-Path $fixture 'release255-non-ui'
+        $prefixReport = Get-Content (Join-Path $currentFixture.prefix 'result.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 30
+        $runDirectory = 'run-' + ('a' * 32)
+        New-Item -ItemType Directory -Path (Join-Path $nonUi $runDirectory) -Force | Out-Null
+        $configuration = @{} + $prefixReport.configuration
+        $configuration.workload = 'OrgExplorer.Persistence.Tests'
+        $configuration.Remove('display'); $configuration.Remove('native')
+        $report = @{ schemaVersion = 1; suite = 'non-ui-performance'; outcome = 'success'; observedOutcome = 'success'
+            phase = 'finished'; diagnosticOnly = $false; observationSeconds = 660
+            revision = $run.head_sha; expectedRevision = $run.head_sha
+            runId = '51'; runAttempt = '2'; trackedChanges = $false; untrackedChanges = $false
+            startedAt = $prefixReport.startedAt; completedAt = $prefixReport.completedAt; executionSeconds = 1; ceilingSeconds = 660
+            runDirectory = $runDirectory; filter = $PerformanceFilter; requiredTests = @($PerformanceTests)
+            steps = @(@{ name = 'restore'; seconds = 0; exitCode = 0 }, @{ name = 'test'; seconds = 0; exitCode = 0 })
+            configuration = $configuration; policyVersion = 'ci-timing-v4'; acceptancePolicyVersion = 'ci-timing-v4'
+            verificationOutcome = 'success'; cleanup = @{ outcome = 'success'; warning = $false; phase = 'build-housekeeping' } }
+        $report | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $nonUi 'result.json')
+        $report | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $nonUi "$runDirectory\result.json")
+        "<TestRun><Results><UnitTestResult testName=`"$($PerformanceTests[0])`" outcome=`"Passed`" /></Results><ResultSummary outcome=`"Completed`"><Counters total=`"1`" executed=`"1`" passed=`"1`" failed=`"0`" notExecuted=`"0`" /></ResultSummary></TestRun>" |
+            Set-Content (Join-Path $nonUi "$runDirectory\result.trx")
+        $profile = @{ samplesMs = @(1) * 21; p95Ms = 1; budgetMs = 1000 }
+        (@($NonUiCohortPhases | ForEach-Object { "SCALE BEGIN $_;"; "SCALE END $_; outcome=Passed; ms=1;" }) +
+            ('SCALE ORDINARY-PROFILE ' + ($profile | ConvertTo-Json -Compress))) |
+            Set-Content (Join-Path $nonUi "$runDirectory\scale-measurements.log")
+        Assert-ReleaseVerification -PerformanceDirectory $nonUi -UiScaleDirectory (Join-Path $fixture 'release255-union') `
+            -Candidate $run.head_sha -StartedAt ([DateTimeOffset]$report.startedAt).AddSeconds(-1) `
+            -ExpectedPolicyVersion ci-timing-v4 -TimingHistoryRemote $remote -AllowLocalFixture
+        $release = Get-Content (Join-Path $fixture 'release255-union\timing-comparison.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 40
+        Assert ($release.validation -ceq 'success' -and !$release.timingEvaluation.blocking -and
+            @($release.comparisonDiagnostics | Where-Object { $_ -clike '*history*' -or $_ -clike '*display state*' }).Count -eq 0) `
+            'An original255 observation alone caused current release history failure or blocking.'
+    } finally { $global:LaneHealthFixture = $previousFixture }
 }
 function Observe([switch]$Publish, [switch]$PublishObservations, [switch]$TimingPolicyPreview,
     [string]$TimingPolicyVersion = 'ci-timing-preview-v1', [switch]$AllowGateFailure) {
@@ -237,6 +364,11 @@ function Test-StandaloneNativeIdentity {
     } finally { $global:LaneHealthFixture = $previousFixture }
 }
 try {
+    if ($LegacyNativeOnly) {
+        Test-OriginalNativeRetention
+        Write-Host "PASS: $checks original-source native retention checks."
+        return
+    }
     if ($NativeIdentityOnly) {
         Test-StandaloneNativeIdentity
         Write-Host "PASS: $checks standalone native identity checks."

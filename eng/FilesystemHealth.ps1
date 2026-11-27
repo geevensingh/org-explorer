@@ -280,7 +280,7 @@ function Assert-HealthNativeBinding($Native, $Binding, [string]$Selector) {
     }
 }
 
-function Get-HealthSeriesKey($Execution) {
+function Get-RetainedHealthSeriesKey($Execution) {
     if ($Execution.configuration -isnot [Collections.IDictionary]) {
         throw 'Comparison configuration unavailable: resolved configuration'
     }
@@ -300,6 +300,16 @@ function Get-HealthSeriesKey($Execution) {
         @($Execution.configuration.runtimes | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) }).Count) {
         throw 'Comparison requires resolved runtime/processor configuration.'
     }
+    $ordered = [ordered]@{ policy = $Execution.policyVersion; selector = $Execution.selector }
+    foreach ($key in @($Execution.configuration.Keys | Sort-Object -CaseSensitive)) {
+        $ordered[$key] = ConvertTo-HealthCanonicalValue $Execution.configuration[$key]
+    }
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($ordered | ConvertTo-Json -Compress -Depth 10))
+    return [Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData($bytes))
+}
+
+function Get-HealthSeriesKey($Execution) {
+    $key = Get-RetainedHealthSeriesKey $Execution
     if ($Execution.selector -clike '--ui-scale-*') {
         $display = $Execution.configuration['display']
         if ($display -isnot [Collections.IDictionary] -or
@@ -337,12 +347,7 @@ function Get-HealthSeriesKey($Execution) {
             throw "Comparison configuration unavailable: $($Execution.selector) native.loadedSha256"
         }
     }
-    $ordered = [ordered]@{ policy = $Execution.policyVersion; selector = $Execution.selector }
-    foreach ($key in @($Execution.configuration.Keys | Sort-Object -CaseSensitive)) {
-        $ordered[$key] = ConvertTo-HealthCanonicalValue $Execution.configuration[$key]
-    }
-    $bytes = [Text.Encoding]::UTF8.GetBytes(($ordered | ConvertTo-Json -Compress -Depth 10))
-    return [Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData($bytes))
+    return $key
 }
 
 function Set-FilesystemComparison($Record, $History) {

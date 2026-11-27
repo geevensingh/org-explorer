@@ -165,7 +165,7 @@ function Assert-LaneHealthRecord($Record, [string]$Path) {
         $legacyNative = $Record.selector -clike '--ui-scale-*' -and
             (!$Record.Contains('nativeBinding') -or $null -eq $Record.nativeBinding)
         $key = if ($legacyNative) {
-            Get-HealthSeriesKey @{ configuration = $Record.configuration; policyVersion = $Record.originalPolicy
+            Get-RetainedHealthSeriesKey @{ configuration = $Record.configuration; policyVersion = $Record.originalPolicy
                 selector = $Record.selector }
         } else { Get-LaneHealthSeriesKey $Record }
         if ($Record.seriesKey -cne $key) { throw 'Lane comparison configuration/hash disagrees.' }

@@ -135,6 +135,13 @@ shared native-tuple matcher serves lane and full-cohort comparison. Lane history
 retains the validated actual binding; older records lacking it keep their
 original verdict/hash and bytes, but are not upgraded into comparable native
 observations through cached keys or source-eligibility flags.
+`-LegacyNativeOnly` exports immutable `2555cc9` source and its original fixture
+catalogs. That source's real public publisher creates successful records with
+the original width/height-only display and a partial native tuple. Current
+read/publication/reference/release consumers must preserve those original
+verdicts, hashes and Git blob bytes without treating the old configuration as
+current comparison evidence. Retention verifies the original generic hash
+contract, separately from current display/native availability checks.
 
 V4 adds scoped failed build-housekeeping warnings, separate from verification
 and timing health. `HostedCleanup.Tests.ps1` holds a real x64 native image in a
