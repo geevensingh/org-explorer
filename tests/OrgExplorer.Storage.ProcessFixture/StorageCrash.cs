@@ -11,12 +11,15 @@ public sealed class StorageCrash : IWorkspaceFileObserver
 
     private static int Main(string[] args)
     {
+        if (args.Length == 5 && args[0] == "stage2-collect")
+            return SqliteStage2Capture.Collect(args[1], args[2], args[3], args[4]);
         if (args.Length == 3 && args[0] == "exit-cancellation")
             return ExitCancellation.Run(args[1], Enum.Parse<NoteScope>(args[2]));
         if (args.Length != 4 || !OperatingSystem.IsWindows()) return 3;
         var path = Path.GetFullPath(args[0]);
         if (!path.Contains(Path.DirectorySeparatorChar + ".test-workspaces" + Path.DirectorySeparatorChar,
             StringComparison.Ordinal)) return 3;
+        SqliteStage2Capture.BindChild(path);
         var observer = new StorageCrash
         {
             ready = EventWaitHandle.OpenExisting(args[1]),

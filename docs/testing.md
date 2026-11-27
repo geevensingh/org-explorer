@@ -1295,11 +1295,31 @@ keep read-only access and share read/write/delete, so observation does not exclu
 held write-capable resources. The stable Commit boundaries, original byte
 comparison, held SHM and complete resource assertions remain; this neither
 authorizes concurrent writing nor identifies the historical hosted holder.
-Temporary raw-WAL/revision/native diagnostics were removed after the bounded
-investigation. The historical shipping committed-next/public-base failure is
-still unexplained; passing rebuilt diagnostic/control cases do not waive it.
-Their retained source, manifests and hosted artifacts are investigation evidence,
-not normal CI acceptance or a production recovery correction.
+Temporary `SQLITE-WAL-REVISION-EVIDENCE` capture reports only a failure of the
+first recovered-revision equality, using the same captured public `LocalSave`
+snapshot as that assertion. The failed test's TRX output retains admitted
+base/next/request GUIDs, revision/phase/outcome, existing receipt/resource/child
+lifetime flags and the original cached DB/WAL hashes with file identities from
+those already-open hash/holder handles. It reads no SQL, reopens no extra file,
+logs no note content and preserves the original equality exception if reporting
+fails. This diagnostic-only commit is not clean acceptance or a recovery fix;
+remove the capture after a proven fix or classification.
+The further capture in the original retained-WAL case adds SHA-bound raw bytes
+from those same hash handles before public Open. A bounded, temporary decoder
+checks WAL headers, salts, cumulative checksums and commit markers, then reads
+the committed page overlay's UTF-8, non-overflow schema/Workspace revision.
+Its coverage/status/faults are explicit: missing captures, changed source bytes,
+invalid headers and unsupported records are not reported as a committed next.
+Four real pre/post-Commit controls retain the original public recovery and
+resource assertions before checking that independent raw result.
+Native-client quiescence and DMS ownership remain `Unknown`. Non-atomic reads
+of the already-held SHM view report only header copies/frame counters/checksums,
+not lock ownership; loaded native version/source identity requires no reader.
+There is no new SQLite client, lock acquisition, process inventory or repair.
+Schema-2 `SQLITE-WAL-REVISION-EVIDENCE` records are bounded to 8,192 characters;
+capture faults are reported even if the original equality passes, without
+changing its outcome. The deliberately live-client negative control remains
+outside ordinary CI and is not attribution of the historical hosted actor.
 The original nine death cases and healthy public WAL-reader controls remain.
 The causal 3.53.4 RED is `SQLITE_IOERR_TRUNCATE` (10/1546) in the first public
 Open; supported native `SQLite` 3.54.1 must turn it GREEN without an Open retry
@@ -3162,6 +3182,33 @@ virtualized row. A timeout identifies the target and last observed geometry,
 viewport offset and selected email; it retains the existing 180-second bound.
 
 ## Nightly and manual execution
+
+The authorized temporary `sqlite_native_trace_stage2` input defaults false
+and excludes every normal/optional lane. It builds
+matched same-source control/diagnostic native variants and selects exactly the
+original retained-`workspace.sqlite-wal` crash case. Vendor recipe/toolchain
+parity remains a declared build-manifest limitation; neither variant is clean
+shipping acceptance. The original revision/hash/receipt/resource/death assertions
+and deadlines remain unchanged. The diagnostic registers only this fixture's
+parent/child and exact original DB/WAL/SHM objects before bounded native records
+are emitted; no kernel collection, extra SQLite reader or lock probe is used.
+Records contain identities/counters/decisions, not page contents. Missing scope,
+overflow, unpublished records, expiration, collector failure or absent first-read
+binding is `Incomplete`, not a causal verdict. Outside actors and content-through-
+read stay `Unknown` until supported by actual evidence. Exact source/native
+hashes, candidate/run/attempt, strict TRX and capture metadata are retained in
+`diagnostic-sqlite-stage2-<sha>-<run>-<attempt>`. A diagnostic pass is explicitly
+not normal CI, while an original assertion failure remains failed.
+The Stage2-only fixture binding also retains the already-captured admission/raw
+truth/resource metadata on passing runs, bounded to 16 KiB. An identity query
+on the existing held SHM file handle binds that original object to native VFS
+observations without reopening a path or reading SQL; this extra metadata call
+occurs after the first returned snapshot and may perturb later scheduling.
+This transport is not proof of unchanged DB/WAL content through the read.
+Local refusal contract: `.\tests\SqliteNativeStage2.Tests.ps1`; shared/local
+collection and native substitution are refused before any fixture execution.
+The Stage2 route, instrumentation and substitution are temporary and must
+be removed from the final normal candidate after classification.
 
 `.github\workflows\scale-verification.yml` owns the independent non-UI job, the
 two isolated rich workers and their strict union collector. Separate invocations

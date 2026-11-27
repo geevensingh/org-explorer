@@ -16,12 +16,24 @@ on:
         required: false
         default: false
         type: boolean
+      sqlite_native_trace_stage2:
+        description: Same-source isolated native diagnostic; strict original case only, NOT CI acceptance
+        required: false
+        default: false
+        type: boolean
+      sqlite_native_stage2_variant:
+        description: Matched same-source native variant, never the clean shipping candidate
+        required: false
+        default: diagnostic
+        type: choice
+        options: [diagnostic, control]
 
 permissions:
   contents: read
 
 jobs:
   core:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.sqlite_native_trace_stage2 }}
     name: Core and view models
     runs-on: windows-latest
     timeout-minutes: 5
@@ -45,6 +57,7 @@ jobs:
             .ci-results/core/*.trx
 
   filesystem:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.sqlite_native_trace_stage2 }}
     name: Real filesystem persistence
     runs-on: windows-latest
     timeout-minutes: 11
@@ -68,6 +81,7 @@ jobs:
             .ci-results/filesystem/*.trx
 
   desktop:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.sqlite_native_trace_stage2 }}
     name: Actual Windows desktop smoke (${{ matrix.partition }})
     runs-on: windows-latest
     timeout-minutes: 15
@@ -95,6 +109,7 @@ jobs:
             .ci-results/desktop-${{ matrix.partition }}/*.png
 
   high-resolution:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.sqlite_native_trace_stage2 }}
     name: High-resolution Windows smoke (${{ matrix.partition }})
     runs-on: windows-latest
     timeout-minutes: 15
@@ -152,17 +167,43 @@ jobs:
 
   scale-verification:
     name: Optional manual scale verification
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification && !inputs.run_release_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification && !inputs.run_release_verification && !inputs.sqlite_native_trace_stage2 }}
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ github.sha }}
 
   release-verification:
     name: Optional product release rehearsal
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification && !inputs.sqlite_native_trace_stage2 }}
     permissions:
       contents: read
       actions: read
     uses: ./.github/workflows/release-verification.yml
     with:
       revision: ${{ github.sha }}
+  sqlite-native-stage2:
+    name: SQLite same-source native diagnostic (NOT CI)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.sqlite_native_trace_stage2 }}
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build matched native variants and run the original strict retained-WAL case once
+        run: .\eng\Run-SqliteNativeStage2.ps1 -BuildNative -NativeManifest .ci-results\sqlite-native-stage2\native\native-build.json -Variant ${{ inputs.sqlite_native_stage2_variant }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: diagnostic-sqlite-stage2-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            .ci-results/sqlite-native-stage2/**/*.json
+            .ci-results/sqlite-native-stage2/*.trx
+            .ci-results/sqlite-native-stage2/*.log
+            .ci-results/sqlite-native-stage2/native/**/*.c
+            .ci-results/sqlite-native-stage2/native/**/*.h
+            .ci-results/sqlite-native-stage2/native/**/*.patch
+            .ci-results/sqlite-native-stage2/native/**/*.dll
+            .ci-results/sqlite-native-stage2/native/**/*.log
