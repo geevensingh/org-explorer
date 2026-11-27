@@ -110,6 +110,7 @@ public partial class MainWindow
         {
             await RunWorkflowAsync(workflow.ReconcileLocalSaves, "Reconciling the original local save outcome...",
                 browseSafeRecovery: true);
+            ShowStatus();
             return;
         }
         if (failedWorkspaceOpen is { } failed)

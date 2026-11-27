@@ -283,6 +283,8 @@ The invisible compiled recovery/Import probe admits one preview from the actual
 ready-control event and pumps a nested dispatcher while that original handler
 is still active. Recovery finishes its refresh before exposing Ready controls,
 without a duplicate caller refresh invalidating the next applicable review.
+Status-only finalization keeps a failed retry visibly failed, retryable and
+read-only with its exact profile draft while the original file remains held.
 Ordinary Preview/Apply refresh remains deferred. The existing twenty-second
 observations, one request and genuinely changed-revision invalidation case remain.
 Real-folder accepted Import and local-refresh cases additionally reopen an

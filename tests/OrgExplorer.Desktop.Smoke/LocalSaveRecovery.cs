@@ -107,6 +107,15 @@ internal static partial class Program
                     Control<TextBox>("Department").Text != "Compiled retained recovery department")
                     throw new InvalidOperationException("Compiled failed browsing lost its exact profile owner/draft or fault.");
                 observeAttention?.Invoke("failed", window, workflow);
+                PumpUntil(() => Control<Button>("NoticeRetryButton").IsEnabled);
+                Control<Button>("NoticeRetryButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpUntil(() => Control<Button>("OpenWorkspaceButton").IsEnabled);
+                if (workflow.LocalSave.Phase != LocalSavePhase.Failed ||
+                    Control<TextBlock>("WorkflowActivity").Text == "Ready" ||
+                    !Control<Button>("NoticeRetryButton").IsEnabled ||
+                    Control<TextBox>("Department").IsEnabled ||
+                    Control<TextBox>("Department").Text != "Compiled retained recovery department")
+                    throw new InvalidOperationException("Failed recovery advertised Ready or lost its retry, fault or exact profile draft.");
             }
             PumpUntil(() => Control<Button>("NoticeRetryButton").IsEnabled);
             Control<Button>("NoticeRetryButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
