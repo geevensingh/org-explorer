@@ -266,6 +266,20 @@ function ConvertTo-HealthCanonicalValue($Value) {
     return $Value
 }
 
+function Assert-HealthNativeBinding($Native, $Binding, [string]$Selector) {
+    if ($Native -isnot [Collections.IDictionary] -or $Binding -isnot [Collections.IDictionary]) {
+        throw "Comparison configuration unavailable: $Selector validated native binding"
+    }
+    $fields = [ordered]@{ version = 'nativeVersion'; sourceId = 'nativeSourceId'; loadedSha256 = 'loadedNativeSha256' }
+    foreach ($field in $fields.Keys) {
+        $actual = $Binding[$fields[$field]]
+        if ($actual -isnot [string] -or [string]::IsNullOrWhiteSpace($actual) -or
+            ($field -ceq 'loadedSha256' -and $actual -cnotmatch '^[0-9A-F]{64}$') -or $Native[$field] -cne $actual) {
+            throw "Comparison configuration unavailable: $Selector native.$field differs from validated handoff/receipt binding"
+        }
+    }
+}
+
 function Get-HealthSeriesKey($Execution) {
     if ($Execution.configuration -isnot [Collections.IDictionary]) {
         throw 'Comparison configuration unavailable: resolved configuration'

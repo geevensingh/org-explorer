@@ -134,6 +134,7 @@ foreach ($descriptor in $descriptors) {
         policyVersion = 'lane-observation-v2'; originalPolicy = if ($measurement) { $measurement.originalPolicy } else { 'unverified' }
         effectivePolicyVersion = $effectivePolicy; sourcePolicyRevision = $sourceRevision
         seriesKey = $seriesKey; configuration = if ($measurement) { $measurement.configuration } else { $null }
+        nativeBinding = if ($measurement -and $measurement.Contains('nativeBinding')) { $measurement.nativeBinding } else { $null }
         selector = if ($measurement) { $measurement.selector } else { $null }
         validation = $validation
         verificationScope = if ($descriptor.kind -ceq 'controller') { 'controller job only' } elseif ($descriptor.kind -ceq 'rehearsal') { 'reported rehearsal only' } else { 'runner' }

@@ -1,4 +1,4 @@
-param([switch]$ScopedPolicyOnly, [string]$TimingFixtureMetadata,
+param([switch]$ScopedPolicyOnly, [switch]$NativeIdentityOnly, [string]$TimingFixtureMetadata,
     [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$ScopedPolicyVersion = 'ci-timing-v2')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -116,7 +116,132 @@ function Observe([switch]$Publish, [switch]$PublishObservations, [switch]$Timing
         gateFailure = $failure
     }
 }
+function Test-StandaloneNativeIdentity {
+    . "$PSScriptRoot\UiScaleUnionFixture.ps1"
+    . "$root\eng\LaneHealth.ps1"
+    $previousFixture = $global:LaneHealthFixture
+    $remote = Join-Path $fixture 'native-history.git'
+    git init --bare --quiet $remote
+    $run = @{ id = 51; run_attempt = 1; head_sha = 'a' * 40; event = 'push'; head_branch = 'main'
+        path = '.github/workflows/scale-verification.yml'; status = 'completed'
+        head_repository = @{ full_name = 'geevensingh/org-explorer' } }
+    $nativeEvidence = Join-Path $fixture 'native-evidence'
+    New-Item -ItemType Directory -Path $nativeEvidence -Force | Out-Null
+    $global:LaneHealthFixture = @{ run = $run; jobs = @(); artifacts = @(); evidence = $nativeEvidence
+        activePolicy = $true; policyVersion = 'ci-timing-v4' }
+    try {
+        $observations = @()
+        for ($attempt = 1; $attempt -le 5; $attempt++) {
+            $run.run_attempt = $attempt
+            $run.head_sha = ([char](96 + $attempt)).ToString() * 40
+            $rich = New-UiScaleUnionFixture (Join-Path $fixture "native-$attempt") $run.head_sha '51' ([string]$attempt) `
+                -TimingPolicyVersion ci-timing-v4
+            $global:LaneHealthFixture.jobs = @(); $global:LaneHealthFixture.artifacts = @()
+            foreach ($worker in @('prefix', 'tail')) {
+                if ($attempt -gt 1 -and $attempt -le 4) {
+                    $report = Get-Content (Join-Path $rich[$worker] 'result.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 30
+                    if ($attempt -le 3) {
+                        $report.configuration.native.version = 'unknown'; $report.configuration.native.sourceId = 'unknown'
+                    } else { $report.configuration.native.sourceId = 'synthetic-source-other' }
+                    $report | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $rich[$worker] 'result.json')
+                    $report | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $rich[$worker] "$($report.runDirectory)\result.json")
+                }
+                $name = "ui-scale-$worker-$($run.head_sha)-51-$attempt"
+                Copy-Item -LiteralPath $rich[$worker] -Destination (Join-Path $nativeEvidence $name) -Recurse
+                $global:LaneHealthFixture.jobs += @{ id = 110 + $global:LaneHealthFixture.jobs.Count
+                    name = if ($worker -ceq 'prefix') { 'Rich combined normal and held-export saves' }
+                        else { 'Rich logical Join, delivery, reopen and navigation' }
+                    status = 'completed'; conclusion = 'success'; steps = @()
+                    started_at = '2026-11-25T10:00:00Z'; completed_at = '2026-11-25T10:04:00Z' }
+                $global:LaneHealthFixture.artifacts += @{ id = 210 + $global:LaneHealthFixture.artifacts.Count; name = $name
+                    expired = $false; digest = 'sha256:' + ('b' * 64); expires_at = '2099-01-01T00:00:00Z'
+                    workflow_run = @{ id = 51; head_sha = $run.head_sha } }
+            }
+            $observations += Observe -Publish
+        }
+        foreach ($worker in @('prefix', 'tail')) {
+            $prior = @($observations[0].records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            $current = @($observations[2].records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            Assert ($prior.validation -ceq 'success' -and $prior.seriesKey -match '^[0-9a-f]{64}$' -and
+                $current.validation -ceq 'success' -and $current.reliability.success -eq 3) `
+                'Standalone native identity controls lost completed worker validation or an original attempt.'
+            if ($NativeIdentityOnly) {
+                Write-Host ("PUBLIC STANDALONE NATIVE " + (@{ worker = $worker; validation = $current.validation
+                    key = $current.seriesKey; reference = $current.reference; health = $current.timingHealth } |
+                    ConvertTo-Json -Depth 5 -Compress))
+            }
+            Assert ($null -eq $current.seriesKey -and $null -eq $current.reference -and
+                $current.timingHealth -ceq 'inconclusive' -and $current.timingEvaluation.health -ceq 'inconclusive' -and
+                $current.timingEvaluation.eligibility -ceq 'inconclusive' -and !$current.timingEvaluation.blocking -and
+                !$current.timingEvaluation.validationBlocking -and !$current.timingEvaluation.additionalSamples.Count -and
+                @($current.diagnostics | Where-Object { $_ -clike '*native*binding*' }).Count -gt 0) `
+                'Standalone unknown native claims became a matching series or selected a retained prior comparison.'
+            $mismatch = @($observations[3].records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            Assert ($mismatch.validation -ceq 'success' -and $null -eq $mismatch.seriesKey -and
+                $null -eq $mismatch.reference -and !$mismatch.timingEvaluation.blocking -and
+                $mismatch.timingEvaluation.health -ceq 'inconclusive' -and
+                $mismatch.nativeBinding.nativeSourceId -ceq 'synthetic-source') `
+                'A well-formed standalone native mismatch overrode the retained validated actual binding.'
+            $matched = @($observations[4].records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            Assert ($matched.validation -ceq 'success' -and $matched.seriesKey -ceq $prior.seriesKey -and
+                $matched.reference.runAttempt -ceq '1' -and $matched.reliability.success -eq 5) `
+                'A complete matching native configuration lost its valid prior reference or erased uncertain attempts.'
+        }
+        $history = Open-HealthHistory (Join-Path $fixture 'native-reader.git') $remote -AllowLocalFixture `
+            -RecordTypes (Get-LaneHealthRecordTypes)
+        $workers = @($history.records | Where-Object { $_.lane -cin @('ui-scale-prefix', 'ui-scale-tail') })
+        Assert ($workers.Count -eq 10 -and @($workers | Where-Object { $_.validation -cne 'success' }).Count -eq 0) `
+            'The public history reader lost original standalone successful attempts.'
+        foreach ($worker in @('prefix', 'tail')) {
+            $current = @($observations[2].records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0] |
+                ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable -Depth 30
+            $known = @($observations[0].records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            $current.seriesKey = $known.seriesKey; $current.comparisonInputEligible = $true
+            Set-LaneHealthComparison $current $history
+            Assert ($current.validation -ceq 'success' -and $null -eq $current.seriesKey -and $null -eq $current.reference) `
+                'A cached lane key or comparison eligibility flag bypassed actual native tuple validation.'
+            $current.selector = 'Category=Performance'
+            Set-LaneHealthComparison $current $history
+            Assert ($current.validation -ceq 'success' -and $null -eq $current.seriesKey -and $null -eq $current.reference) `
+                'An artifact selector bypassed the declared rich lane native comparison requirement.'
+        }
+        $legacyRemote = Join-Path $fixture 'native-legacy.git'
+        git clone --bare --quiet $remote $legacyRemote
+        $writer = Join-Path $fixture 'native-legacy-writer'
+        git clone --quiet --branch ci-health-data $legacyRemote $writer
+        foreach ($worker in @('prefix', 'tail')) {
+            $path = Join-Path $writer "lanes\51\1\ui-scale-$worker.json"
+            $legacy = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable -Depth 30
+            $legacy.Remove('nativeBinding')
+            $legacy | ConvertTo-Json -Depth 30 | Set-Content $path
+        }
+        git -C $writer add .
+        git -C $writer -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Legacy native observations lack retained actual binding'
+        git -C $writer push --quiet origin ci-health-data
+        $legacyHistory = Open-HealthHistory (Join-Path $fixture 'native-legacy-reader.git') $legacyRemote -AllowLocalFixture `
+            -RecordTypes (Get-LaneHealthRecordTypes)
+        $remote = $legacyRemote
+        $legacyObserved = Observe
+        foreach ($worker in @('prefix', 'tail')) {
+            $known = @($observations[0].records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            $legacy = @($legacyHistory.records | Where-Object {
+                $_.lane -ceq "ui-scale-$worker" -and $_.runAttempt -ceq '1'
+            })[0]
+            $current = @($legacyObserved.records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            Assert ($legacy.validation -ceq 'success' -and $legacy.seriesKey -ceq $known.seriesKey -and
+                $current.validation -ceq 'success' -and $current.seriesKey -ceq $known.seriesKey -and
+                $null -eq $current.reference -and $current.reliability.attempts -eq 5 -and
+                @($current.diagnostics | Where-Object { $_ -clike '*Prior comparison unavailable*native*' }).Count -gt 0) `
+                'Legacy raw verdict/hash was rewritten or a missing actual binding was upgraded through a cached reference key.'
+        }
+    } finally { $global:LaneHealthFixture = $previousFixture }
+}
 try {
+    if ($NativeIdentityOnly) {
+        Test-StandaloneNativeIdentity
+        Write-Host "PASS: $checks standalone native identity checks."
+        return
+    }
     if ($TimingFixtureMetadata) {
         $metadata = Get-Content $TimingFixtureMetadata -Raw | ConvertFrom-Json
         if ($metadata.hostedMeasurement -or $metadata.kind -cne 'isolated-non-production-public-contract-fixture') {
@@ -546,6 +671,33 @@ try {
         $activePrefix.timingEvaluation.metrics.'note-durability-background-export'.hardLimit -eq 1500 -and
         $activeObservation.summary.Contains('APPROVED AND ENFORCED')) `
         'Source-bound current runner evidence failed activation or suppressed unbaselined1030ms yellow.'
+    $originalReports = @{}
+    foreach ($worker in @('prefix', 'tail')) {
+        $directory = Join-Path $evidence "ui-scale-$worker-$($run.head_sha)-51-1"
+        $path = Join-Path $directory 'result.json'
+        $text = Get-Content $path -Raw
+        $data = $text | ConvertFrom-Json -AsHashtable -Depth 30
+        $originalReports[$directory] = @{ text = $text; runDirectory = $data.runDirectory }
+        $data.configuration.native.version = 'unknown'; $data.configuration.native.sourceId = 'unknown'
+        $data | ConvertTo-Json -Depth 30 | Set-Content $path
+        $data | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $directory "$($data.runDirectory)\result.json")
+    }
+    try {
+        $unknownNative = Observe
+        foreach ($worker in @('prefix', 'tail')) {
+            $record = @($unknownNative.records | Where-Object { $_.lane -ceq "ui-scale-$worker" })[0]
+            Assert ($record.validation -ceq 'success' -and $null -eq $record.seriesKey -and $null -eq $record.reference -and
+                !$record.timingEvaluation.blocking -and $record.timingEvaluation.eligibility -ceq 'inconclusive' -and
+                @($record.diagnostics | Where-Object { $_ -clike '*native*binding*' }).Count -gt 0) `
+                'Required standalone lane reporting treated unknown native identity as comparable or failed intact work.'
+        }
+    } finally {
+        foreach ($directory in $originalReports.Keys) {
+            $original = $originalReports[$directory]
+            $original.text | Set-Content (Join-Path $directory 'result.json')
+            $original.text | Set-Content (Join-Path $directory "$($original.runDirectory)\result.json")
+        }
+    }
     $global:LaneHealthFixture.sourceUnavailable = $true
     $unverified = Observe
     $unverifiedPrefix = @($unverified.records | Where-Object { $_.lane -ceq 'ui-scale-prefix' })[0]

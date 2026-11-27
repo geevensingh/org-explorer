@@ -161,9 +161,22 @@ function Assert-LaneHealthRecord($Record, [string]$Path) {
     Assert-HealthDate $Record.observedAt 'observedAt'
     if ($null -ne $Record.writerRevision -and $Record.writerRevision -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid writer revision.' }
     if ($Record.seriesKey -ne $null) {
-        $measurement = @{ configuration = $Record.configuration; originalPolicy = $Record.originalPolicy
-            selector = $Record.selector; measuredAt = $Record.measuredAt }
-        if ($Record.seriesKey -cne (Get-LaneHealthSeriesKey $measurement)) { throw 'Lane comparison configuration/hash disagrees.' }
+        if ($null -eq $Record.measuredAt) { throw 'Resolved configuration or measurement clock unavailable.' }
+        $legacyNative = $Record.selector -clike '--ui-scale-*' -and
+            (!$Record.Contains('nativeBinding') -or $null -eq $Record.nativeBinding)
+        $key = if ($legacyNative) {
+            Get-HealthSeriesKey @{ configuration = $Record.configuration; policyVersion = $Record.originalPolicy
+                selector = $Record.selector }
+        } else { Get-LaneHealthSeriesKey $Record }
+        if ($Record.seriesKey -cne $key) { throw 'Lane comparison configuration/hash disagrees.' }
+    }
+    if ($Record.Contains('nativeBinding') -and $null -ne $Record.nativeBinding) {
+        if ($Record.nativeBinding -isnot [Collections.IDictionary] -or
+            $Record.nativeBinding.revision -cne $Record.revision -or
+            $Record.nativeBinding.runId -cne $Record.runId -or
+            $Record.nativeBinding.runAttempt -cne $Record.runAttempt) {
+            throw 'Retained actual native binding belongs to another source/run/attempt.'
+        }
     }
     if ($null -ne $Record.measuredAt) {
         Assert-HealthDate $Record.measuredAt 'measuredAt'
@@ -627,12 +640,21 @@ function Get-ScaleHealthMeasurement($Descriptor, $Evidence, $Run, [string]$Expec
             headroomSeconds = if ($null -ne $ceiling) { $ceiling - $seconds } else { $null }
             steps = $steps; metrics = $metrics } }
     if ($report.ContainsKey('cleanup')) { $measurement.measurements.cleanup = $report.cleanup }
+    if ($Descriptor.kind -cin @('ui-scale-prefix', 'ui-scale-tail') -and $validation -ceq 'success') {
+        $measurement.nativeBinding = $binding | ConvertTo-Json -Depth 15 | ConvertFrom-Json -AsHashtable -Depth 15
+    }
     return $measurement
 }
 
 function Get-LaneHealthSeriesKey($Measurement) {
     if ($null -eq $Measurement.configuration -or $null -eq $Measurement.measuredAt) {
         throw 'Resolved configuration or measurement clock unavailable.'
+    }
+    if ($Measurement.Contains('lane')) {
+        $lane = Get-TimingLane $Measurement.lane
+        if ($lane -cin @('ui-scale-prefix', 'ui-scale-tail') -and $Measurement.selector -cne "--$lane") {
+            throw 'Comparison configuration unavailable: actual rich lane selector/native binding'
+        }
     }
     if ($Measurement.configuration.workload -ceq 'OrgExplorer.Desktop.Smoke' -and
         (!$Measurement.configuration.ContainsKey('display') -or $null -eq $Measurement.configuration.display)) {
@@ -644,10 +666,21 @@ function Get-LaneHealthSeriesKey($Measurement) {
     }
     $execution = @{ configuration = $Measurement.configuration; policyVersion = $Measurement.originalPolicy
         selector = $Measurement.selector }
-    return Get-HealthSeriesKey $execution
+    $key = Get-HealthSeriesKey $execution
+    if ($Measurement.selector -clike '--ui-scale-*') {
+        $binding = if ($Measurement.Contains('nativeBinding')) { $Measurement.nativeBinding } else { $null }
+        Assert-HealthNativeBinding $Measurement.configuration.native $binding $Measurement.selector
+    }
+    return $key
 }
 
 function Set-LaneHealthComparison($Record, $History) {
+    $Record.reference = $null; $Record.timingHealth = 'inconclusive'; $Record.seriesKey = $null
+    try { $Record.seriesKey = Get-LaneHealthSeriesKey $Record }
+    catch {
+        $diagnostic = "Comparison unavailable: $($_.Exception.Message)"
+        if ($Record.diagnostics -cnotcontains $diagnostic) { $Record.diagnostics += $diagnostic }
+    }
     $attempts = @($History.records | Where-Object { $_.Contains('lane') -and $_.lane -ceq $Record.lane -and
         $_.workflowPath -ceq $Record.workflowPath -and !($_.runId -ceq $Record.runId -and $_.runAttempt -ceq $Record.runAttempt) })
     $counts = [ordered]@{ attempts = $attempts.Count + 1 }
@@ -664,7 +697,14 @@ function Set-LaneHealthComparison($Record, $History) {
         (($_.Contains('comparisonInputEligible') -and $_.comparisonInputEligible) -or
             (!$_.Contains('recordType') -and $_.authority -ceq 'trusted-main-push')) -and
         $_.validation -ceq 'success' -and $_.revision -cne $Record.revision -and
-        $null -ne $_.measurements -and [DateTimeOffset]$_.measuredAt -le [DateTimeOffset]$Record.observedAt } |
+        $null -ne $_.measurements -and [DateTimeOffset]$_.measuredAt -le [DateTimeOffset]$Record.observedAt -and
+        ($Record.selector -cnotlike '--ui-scale-*' -or $(& {
+            try { (Get-LaneHealthSeriesKey $_) -ceq $Record.seriesKey }
+            catch {
+                $Record.diagnostics += "Prior comparison unavailable ($($_.Exception.Message)); original attempt retained."
+                $false
+            }
+        })) } |
         Sort-Object measuredAt -Descending)
     if (!$compatible.Count) {
         $Record.timingHealth = if ($attempts.Count) { 'inconclusive' } else { 'unbaselined' }

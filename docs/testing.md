@@ -122,6 +122,20 @@ successful raw work, null comparison keys and the prior immutable reference.
 Tuple equality to that independently validated binding, not a string blacklist,
 establishes native comparison availability.
 
+The existing required `LaneHealth.Tests.ps1` surface includes representative
+standalone prefix/tail native negatives; `-NativeIdentityOnly` runs that focused
+subset without the full cohort matrix. It uses real observation publication and
+history replay with complete normal-cleanup-success v4 worker fixtures.
+The required selection reuses its existing v2 raw worker fixtures for two
+unknown-identity checks; it does not run the full standalone-history subset or
+the 401-second full-cohort native matrix.
+Repeated unknown claims and well-formed mismatches preserve raw success and
+all attempts but cannot supply a comparison key or prior reference. The same
+shared native-tuple matcher serves lane and full-cohort comparison. Lane history
+retains the validated actual binding; older records lacking it keep their
+original verdict/hash and bytes, but are not upgraded into comparable native
+observations through cached keys or source-eligibility flags.
+
 V4 adds scoped failed build-housekeeping warnings, separate from verification
 and timing health. `HostedCleanup.Tests.ps1` holds a real x64 native image in a
 controlled external process after completed work and drives the public result

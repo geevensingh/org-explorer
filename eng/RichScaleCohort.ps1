@@ -27,18 +27,8 @@ function Get-RichCohortSeriesKey($Sample, [string]$ExpectedPolicyVersion = 'rich
             configuration = $Sample.rich[$worker].report.configuration
         }
         $binding = if ($worker -ceq 'prefix') { $Sample.rich.handoff.binding } else { $Sample.rich.receipt.binding }
-        if ($binding -isnot [Collections.IDictionary]) {
-            throw "Comparison configuration unavailable: --ui-scale-$worker validated native binding"
-        }
         $native = $Sample.rich[$worker].report.configuration.native
-        $fields = [ordered]@{ version = 'nativeVersion'; sourceId = 'nativeSourceId'; loadedSha256 = 'loadedNativeSha256' }
-        foreach ($field in $fields.Keys) {
-            $actual = $binding[$fields[$field]]
-            if ($actual -isnot [string] -or [string]::IsNullOrWhiteSpace($actual) -or
-                ($field -ceq 'loadedSha256' -and $actual -cnotmatch '^[0-9A-F]{64}$') -or $native[$field] -cne $actual) {
-                throw "Comparison configuration unavailable: --ui-scale-$worker native.$field differs from validated handoff/receipt binding"
-            }
-        }
+        Assert-HealthNativeBinding $native $binding "--ui-scale-$worker"
     }
     $configuration.richTestTree = $Sample.rich.handoff.binding.testTree
     $configuration.nativeVersion = $Sample.rich.handoff.binding.nativeVersion

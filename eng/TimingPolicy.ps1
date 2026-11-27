@@ -407,6 +407,8 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
     $evaluation.blocking = $evaluation.validationBlocking -or $red
     $configurationUncertain = $Record.recordType -cin @('performance-cohort', 'verification-execution') -and
         !(Get-TimingCohortKey $Record)
+    if ($Record.recordType -cin @('lane-health', 'lane-observation') -and
+        $Record.selector -clike '--ui-scale-*' -and $null -eq $Record.seriesKey) { $configurationUncertain = $true }
     if ($configurationUncertain -and $evaluation.health -cnotin @('red', 'yellow')) {
         $evaluation.health = 'inconclusive'
     }

@@ -394,6 +394,10 @@ does not invalidate an otherwise intact workload: retain its raw acceptance,
 report comparison uncertainty and preserve the prior reference without
 requesting replacement samples. Cached series hashes or eligibility fields
 cannot substitute for those actual configurations at canonical evaluation.
+Standalone prefix/tail observations retain that validated native binding and
+apply the same tuple matcher during live and historical reference selection.
+Legacy observation verdicts and hashes remain intact; missing retained actual
+binding is comparison-unavailable, never automatic compatibility.
 Existing conservative Get-HealthSeriesKey hashing is reused; an eng/fixture
 change may conservatively start a new series. Do not normalize that away.
 Application commit/binary hashes remain provenance across revisions, not equality
