@@ -156,6 +156,14 @@ retries stale even when the submitted name would otherwise clear.
 Changed-field delivery rejects save/retry;
 other-field delivery is retained, and success returns the exact saved base for
 newer typing rather than rereading a possibly newer provider revision.
+The admitted-work Preferred-name typing contract controls only its view-model
+request clock while the original operation remains held. Both save-name and
+independent-favorite cases also delay the test continuation past three wall-clock
+seconds, then require the actual original-value typing and its correct saved
+base/retirement. Natural scheduling delay counts toward that held-admission
+delay instead of being extended by another full delay. The five-second
+holds/waits and production stall clocks remain
+unchanged; this non-timing contract must not reject its intended typing as stalled.
 Ordinary profiles use `BeginProfileEdit`, staged text/Manager/photo operations,
 and explicit `SaveProfileEdit` / `CancelProfileEdit`. `ProfileEdit` exposes the
 person-scoped immutable baseline and complete draft. `TryLeaveProfileEdit`
@@ -273,6 +281,14 @@ owned-note cases, unavailable inherited/frozen contexts, deliberate same-Person
 reselection and explicit ongoing access retain independent preference/Workspace
 byte checks. Exact secondary/owned-Team/inherited/frozen restoration and retained
 writing guards remain.
+The invisible compiled recovery/Import probe admits one preview from the actual
+ready-control event and pumps a nested dispatcher while that original handler
+is still active. Recovery finishes its refresh before exposing Ready controls,
+without a duplicate caller refresh invalidating the next applicable review.
+Status-only finalization keeps a failed retry visibly failed, retryable and
+read-only with its exact profile draft while the original file remains held.
+Ordinary Preview/Apply refresh remains deferred. The existing twenty-second
+observations, one request and genuinely changed-revision invalidation case remain.
 Real-folder accepted Import and local-refresh cases additionally reopen an
 all-archived Workspace, then reactivate its remembered Person alongside a higher
 qualifying Manager. Both note scopes prove remembered priority, exact secondary
@@ -3167,23 +3183,8 @@ viewport offset and selected email; it retains the existing 180-second bound.
 
 ## Nightly and manual execution
 
-The temporary registered `ci.yml` input `sqlite_native_trace_stage1` defaults
-false. Selecting it runs only isolated hosted Windows permission/provider-schema
-feasibility metadata; it starts no fixture, trace, reader, lock or elevation.
-Ordinary and optional execution are suppressed for this investigative dispatch.
-Their normal commands, partitions and budgets remain unchanged when false.
-The existing `CI` aggregate is unchanged and cannot accept its skipped lanes.
-The diagnostic job also fails closed with `RefusedHost`,
-`BlockedPreCollectionFiltering` or `FeasibilityError`, retaining bounded
-`feasibility.json` under `diagnostic-sqlite-stage1-<sha>-<run>-<attempt>`.
-Provider metadata and generic PID filters do not demonstrate kernel-provider
-PID/known-file pre-collection isolation. This check includes no collector; its
-result requires owner reconciliation before any passive capture is implemented.
-It is not native tracing, normal CI, or STAGE2 authorization.
-Local contract check: `.\tests\SqliteNativeTraceStage1.Tests.ps1`.
-
-The separately authorized temporary `sqlite_native_trace_stage2` input also
-defaults false and excludes Stage1 and every normal/optional lane. It builds
+The authorized temporary `sqlite_native_trace_stage2` input defaults false
+and excludes every normal/optional lane. It builds
 matched same-source control/diagnostic native variants and selects exactly the
 original retained-`workspace.sqlite-wal` crash case. Vendor recipe/toolchain
 parity remains a declared build-manifest limitation; neither variant is clean
@@ -3200,7 +3201,7 @@ hashes, candidate/run/attempt, strict TRX and capture metadata are retained in
 not normal CI, while an original assertion failure remains failed.
 Local refusal contract: `.\tests\SqliteNativeStage2.Tests.ps1`; shared/local
 collection and native substitution are refused before any fixture execution.
-All Stage1/Stage2 routes, instrumentation and substitution are temporary and must
+The Stage2 route, instrumentation and substitution are temporary and must
 be removed from the final normal candidate after classification.
 
 `.github\workflows\scale-verification.yml` owns the independent non-UI job, the

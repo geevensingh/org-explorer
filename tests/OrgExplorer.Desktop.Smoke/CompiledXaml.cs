@@ -2376,11 +2376,18 @@ internal static partial class Program
                     Invoke("DiscardImportButton");
                 }
                 DispatcherOperation? recoveredPreview = null;
+                TimeoutException? admittedPreviewError = null;
                 var open = Control<Button>("OpenWorkspaceButton");
                 DependencyPropertyChangedEventHandler enterWhenReady = (_, _) =>
                 {
                     if (!open.IsEnabled || model.LocalSave.EditsPaused || recoveredPreview is not null) return;
                     recoveredPreview = window.Dispatcher.InvokeAsync(RequestPreview, DispatcherPriority.Send);
+                    try
+                    {
+                        PumpUntil(() => recoveredPreview.Task.IsCompleted &&
+                            Control<Button>("ApplyButton").IsEnabled);
+                    }
+                    catch (TimeoutException error) { admittedPreviewError = error; }
                 };
                 open.IsEnabledChanged += enterWhenReady;
                 try
@@ -2392,6 +2399,8 @@ internal static partial class Program
                 var requestedPreview = recoveredPreview ??
                     throw new InvalidOperationException("Recovered controls did not admit the single preview request.");
                 requestedPreview.Task.GetAwaiter().GetResult();
+                if (admittedPreviewError is not null)
+                    throw new InvalidOperationException("Advertised recovery readiness did not admit an applicable Import.", admittedPreviewError);
                 AwaitPreview(settleReview: true);
                 if (invalidateReview)
                 {
