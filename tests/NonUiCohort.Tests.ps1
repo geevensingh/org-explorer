@@ -993,7 +993,8 @@ try {
     $global:NonUiCohortFixture.collection.run_attempt = 1
     $runnerFixture = Join-Path $fixture 'runner'
     New-Item -ItemType Directory -Path (Join-Path $runnerFixture 'eng') -Force | Out-Null
-    foreach ($file in @('Run-Performance.ps1', 'ScaleRunner.ps1', 'PerformanceSuite.ps1')) {
+    foreach ($file in @('Run-Performance.ps1', 'ScaleRunner.ps1', 'PerformanceSuite.ps1',
+        'ScaleCleanupPolicy.ps1', 'TimingPolicy.ps1', 'FilesystemHealth.ps1')) {
         Copy-Item -LiteralPath (Join-Path $root "eng\$file") -Destination (Join-Path $runnerFixture "eng\$file")
     }
     '.ci-results/' | Set-Content -LiteralPath (Join-Path $runnerFixture '.gitignore')
