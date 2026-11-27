@@ -525,6 +525,9 @@ try {
         } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $GateSnapshotDirectory 'metadata.json')
         Copy-Item -LiteralPath (Join-Path $gateDecisionWork 'record.json') -Destination (Join-Path $GateSnapshotDirectory 'decision.json')
         Copy-Item -LiteralPath (Join-Path $gateWork 'record.json') -Destination (Join-Path $GateSnapshotDirectory 'rejected.json')
+        if ($GatePolicyVersion -ceq 'ci-timing-v4') {
+            & "$PSScriptRoot\CleanupHistory.Tests.ps1" -TimingFixtureMetadata (Join-Path $GateSnapshotDirectory 'metadata.json')
+        }
         Write-Host "PASS: public eligible-three/running-extension/serious-five snapshots: $GateSnapshotDirectory"
         $global:LASTEXITCODE = 0
         return
