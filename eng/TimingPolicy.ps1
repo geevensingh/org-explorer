@@ -84,6 +84,7 @@ function New-TimingExecutionRecord([string]$PerformanceDirectory, [string]$Prefi
     if ($report.Contains('cleanup')) { $sample.runnerReport = $report }
     Add-Metric executionSeconds $report.executionSeconds
     $sample.rich.handoff = Get-Content (Join-Path $sample.rich.prefix.run 'handoff\handoff.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+    $sample.rich.receipt = Get-Content (Join-Path $sample.rich.tail.run 'handoff-received.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
     foreach ($phase in @('normal-executable', 'background-export')) {
         $note = Get-Content (Join-Path $sample.rich.prefix.run "scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json") -Raw | ConvertFrom-Json
         Add-Metric "prefix-$phase-localDurability-p95-ms" $note.localDurability.p95Ms

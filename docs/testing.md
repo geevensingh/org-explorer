@@ -114,6 +114,13 @@ the required core smoke selection is unchanged.
 controls plus older-source refusal and distinct-environment checks without the
 full malformed-field matrix. Older-policy sample successes remain intact;
 the existing current-policy collection refusal is asserted, not relaxed.
+`-RichNativeIdentityOnly` is the bounded native-tuple selection. All three
+prefix or tail configurations are independently changed to unknown values or
+well-formed version/source/hash mismatches while the validated handoff/receipt
+stays intact. Actual collector, publisher, history and release consumers retain
+successful raw work, null comparison keys and the prior immutable reference.
+Tuple equality to that independently validated binding, not a string blacklist,
+establishes native comparison availability.
 
 V4 adds scoped failed build-housekeeping warnings, separate from verification
 and timing health. `HostedCleanup.Tests.ps1` holds a real x64 native image in a

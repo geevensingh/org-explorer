@@ -1,11 +1,12 @@
-param([switch]$PlanOnly, [switch]$SmokeOnly, [switch]$RichIdentityOnly, [switch]$RichIdentitySourceOnly, [string]$GateSnapshotDirectory,
+param([switch]$PlanOnly, [switch]$SmokeOnly, [switch]$RichIdentityOnly, [switch]$RichIdentitySourceOnly,
+    [switch]$RichNativeIdentityOnly, [string]$GateSnapshotDirectory,
     [string]$EventVersionMetadata, [string]$EventVersionCase,
     [ValidateSet('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')][string]$GatePolicyVersion = 'ci-timing-v2')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 $fixture = Join-Path $root ('.test-workspaces\baselines-' + [guid]::NewGuid().ToString('N'))
-if ($RichIdentityOnly -or $RichIdentitySourceOnly) {
+if ($RichIdentityOnly -or $RichIdentitySourceOnly -or $RichNativeIdentityOnly) {
     $fixture = Join-Path $root ('.test-workspaces\ri-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
 }
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
@@ -348,7 +349,7 @@ try {
     })
     $global:BaselineFixture = @{ ci = $ci; ciJobs = $ciJobs; controller = $second; cohortRun = 99; status = 'in_progress'
         outcome = $null; jobs = @(); artifacts = @(); evidence = @{}; sourceRemote = $remote }
-    if ($RichIdentityOnly -or $RichIdentitySourceOnly) {
+    if ($RichIdentityOnly -or $RichIdentitySourceOnly -or $RichNativeIdentityOnly) {
         '{"version":"ci-timing-v4"}' | Set-Content (Join-Path $source 'eng\timing-policy.json')
         $null = Invoke-FixtureGit $source @('add', 'eng/timing-policy.json')
         $identityRevision = Add-MainFixtureRevision 'Complete rich identity public fixture'
@@ -444,6 +445,17 @@ try {
             @{ name = 'empty-native-version'; field = 'native.version'; change = { param($c) $c.native.version = '' } },
             @{ name = 'malformed-native-hash'; field = 'native.loadedSha256'; change = { param($c) $c.native.loadedSha256 = 'unresolved' } }
         )
+        $nativeCases = @(
+            @{ name = 'unknown-native'; field = 'native'; allSamples = $true
+                change = { param($c) $c.native.version = 'unknown'; $c.native.sourceId = 'unknown' } },
+            @{ name = 'mismatched-native-version'; field = 'native.version'; allSamples = $true
+                change = { param($c) $c.native.version = 'synthetic-native-other' } },
+            @{ name = 'mismatched-native-source'; field = 'native.sourceId'; allSamples = $true
+                change = { param($c) $c.native.sourceId = 'synthetic-source-other' } },
+            @{ name = 'mismatched-native-hash'; field = 'native.loadedSha256'; allSamples = $true
+                change = { param($c) $c.native.loadedSha256 = 'F' * 64 } }
+        )
+        if ($RichNativeIdentityOnly) { $cases = $nativeCases } else { $cases += $nativeCases }
         if ($RichIdentitySourceOnly) { $cases = @() }
         $runId = 100
         foreach ($worker in @('prefix', 'tail')) {
@@ -460,19 +472,31 @@ try {
                     New-CompleteBaselineSample $number $revision 150 500 -TimingPolicyVersion ci-timing-v4 -SuccessfulCleanup
                 }
                 $affectedSample = 1 + ($runId % 3)
-                Set-RichBaselineConfiguration $affectedSample $worker $case.change
+                $affectedSamples = if ($case.ContainsKey('allSamples') -and $case.allSamples) { @(1, 2, 3) }
+                    else { @($affectedSample) }
+                foreach ($number in $affectedSamples) { Set-RichBaselineConfiguration $number $worker $case.change }
                 $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
                 $caseWork = Join-Path $fixture "s-$runId"
-                $publish = $case.name -ceq 'null-native'
+                $publish = $case.name -ceq 'null-native' -or $case.ContainsKey('allSamples')
                 & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
                     -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory $caseWork -RichScale -Publish:$publish `
                     -AllowLocalFixture -HistoryRemote $caseRemote -ApprovedPolicyVersion ci-timing-v4
                 $record = Get-Content (Join-Path $caseWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 40
+                Assert ($record.validation -ceq 'success' -and $record.metrics.Count -eq 64 -and
+                    $record.reliability.success -eq 3 -and $record.richScaleAcceptance -ceq 'complete') `
+                    'Unavailable comparison identity changed the original complete successful workload.'
+                if ($RichNativeIdentityOnly) {
+                    Write-Host ("PUBLIC NATIVE COMPARISON " + (@{ worker = $worker; case = $case.name
+                        validation = $record.validation; eligibility = $record.eligibility; promotion = $record.promotion
+                        health = $record.timingHealth; metrics = $record.metrics.Count
+                        keys = @($record.samples.rich.seriesKey) } | ConvertTo-Json -Compress))
+                }
                 Assert ($record.validation -ceq 'success' -and $record.richScaleAcceptance -ceq 'complete' -and
                     $record.metrics.Count -eq 64 -and $record.eligibility -ceq 'inconclusive' -and
                     $record.timingHealth -ceq 'inconclusive' -and $record.promotion -ceq 'retained' -and
                     !$record.timingEvaluation.blocking -and !$record.timingEvaluation.validationBlocking -and
                     !$record.extraSamples.Count -and $null -eq $record.samples[$affectedSample - 1].rich.seriesKey -and
+                    @($affectedSamples | Where-Object { $null -ne $record.samples[$_ - 1].rich.seriesKey }).Count -eq 0 -and
                     @($record.samples[$affectedSample - 1].diagnostics | Where-Object {
                         $_ -clike "*--ui-scale-$worker*$($case.field)*"
                     }).Count -gt 0) "Missing/malformed $worker $($case.name) did not retain intact workload and precise comparison uncertainty."
@@ -485,7 +509,26 @@ try {
                     @($read.records | Where-Object { $_.recordType -ceq 'performance-cohort' -and
                         $_.revision -ceq $identityRevision -and $_.eligibility -ceq 'inconclusive' }).Count -eq 1) `
                     'Unresolved identity replaced the prior immutable reference or lost an original attempt.'
+                if ($case.ContainsKey('allSamples')) {
+                    $nonUiDirectory = $global:BaselineFixture.evidence["non-ui-cohort-$revision-$runId-1-sample-1"]
+                    $unionDirectory = $global:BaselineFixture.evidence["rich-cohort-$revision-$runId-1-sample-1-union"]
+                    Assert-ReleaseVerification -PerformanceDirectory $nonUiDirectory -UiScaleDirectory $unionDirectory `
+                        -Candidate $revision -StartedAt ([DateTimeOffset]'2026-11-25T09:59:59Z') `
+                        -ExpectedPolicyVersion ci-timing-v4 -TimingHistoryRemote $caseRemote -AllowLocalFixture
+                    $release = Get-Content (Join-Path $unionDirectory 'timing-comparison.json') -Raw |
+                        ConvertFrom-Json -AsHashtable -Depth 40
+                    Assert ($release.validation -ceq 'success' -and $release.timingEvaluation.health -ceq 'inconclusive' -and
+                        $release.timingEvaluation.eligibility -ceq 'inconclusive' -and !$release.timingEvaluation.blocking -and
+                        !$release.timingEvaluation.validationBlocking -and !$release.timingEvaluation.additionalSamples.Count -and
+                        $null -eq $release.samples[0].rich.seriesKey -and
+                        @($release.comparisonDiagnostics | Where-Object { $_ -clike "*--ui-scale-$worker*$($case.field)*" }).Count -gt 0) `
+                        'Native configuration inconsistent with validated actual binding became eligible or blocked intact release work.'
+                }
             }
+        }
+        if ($RichNativeIdentityOnly) {
+            Write-Host "PASS: $checks public rich native comparison identity checks."
+            return
         }
         foreach ($policy in @('ci-timing-v2', 'ci-timing-v3')) {
             $runId++

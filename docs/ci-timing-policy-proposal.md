@@ -387,7 +387,9 @@ image/version/processors, actual display/DPI and setup/cache/controlled-clock/
 observation scope. Missing relevant identity means incompatible/inconclusive.
 Rich prefix and tail comparison requires the actual versioned display state,
 including positive integral mode/monitor/work-area/DPI/track dimensions, and
-resolved native version/source/hash. Unknown or malformed comparison metadata
+resolved native version/source/hash matching the independently validated
+prefix handoff and tail receipt binding. Nonblank placeholders or a different
+well-formed tuple cannot replace that actual binding. Unknown or malformed comparison metadata
 does not invalidate an otherwise intact workload: retain its raw acceptance,
 report comparison uncertainty and preserve the prior reference without
 requesting replacement samples. Cached series hashes or eligibility fields
