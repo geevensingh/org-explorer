@@ -76,6 +76,7 @@ try {
     @'
 param([string]$Native, [string]$Ready, [string]$Release)
 $ErrorActionPreference = 'Stop'
+if ($Native -match '^[A-Za-z]:\\') { $Native = "\\?\$Native" }
 $handle = [Runtime.InteropServices.NativeLibrary]::Load($Native)
 try {
     [IO.File]::WriteAllText($Ready, $PID.ToString())
@@ -146,8 +147,10 @@ try {
                 @(@($NonUiCohortPhases | ForEach-Object { "SCALE END $_; outcome=Passed; ms=1.0;" });
                     'SCALE ORDINARY-PROFILE ' + ($profile | ConvertTo-Json -Compress)) |
                     Set-Content -LiteralPath (Join-Path $run 'scale-measurements.log')
+                # Exercise the ordinary drive paths supplied by hosted runners.
+                $holderPath = $nativePath -replace '^\\\\\?\\([A-Za-z]:\\)', '$1'
                 $script:holder = & $startProcess pwsh -ArgumentList @('-NoProfile', '-File', "`"$nativeHolder`"",
-                    "`"$nativePath`"", "`"$ready`"", "`"$release`"") -PassThru -NoNewWindow
+                    "`"$holderPath`"", "`"$ready`"", "`"$release`"") -PassThru -NoNewWindow
                 $deadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
                 while (!(Test-Path -LiteralPath $ready)) {
                     if ($script:holder.HasExited -or [DateTimeOffset]::UtcNow -ge $deadline) {
@@ -288,7 +291,10 @@ try {
                     -ExpectedRevision $legacyRevision -ExpectedPolicyVersion $legacy -Selection $selection -Verify $verify
             } catch { $legacyFailure = $_ }
             $actual = Get-Content (Join-Path $results 'result.json') -Raw | ConvertFrom-Json
-            if (!$legacyFailure -or $actual.outcome -cne 'failure' -or $actual.observedOutcome -cne 'success' -or
+            if ($actual.observedOutcome -cne 'success') {
+                throw "Legacy cleanup control did not complete verification: $($actual.failure)"
+            }
+            if (!$legacyFailure -or $actual.outcome -cne 'failure' -or
                 !$actual.failure.Contains('e_sqlite3.dll') -or $actual.PSObject.Properties['acceptancePolicyVersion']) {
                 throw 'A current signature/policy reclassified original-policy native cleanup failure.'
             }

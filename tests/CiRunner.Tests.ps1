@@ -44,6 +44,13 @@ $command = $runner.Find({
 }, $true)
 if (!$command) { throw 'Missing budgeted CI command.' }
 . ([scriptblock]::Create($command.Extent.Text))
+$companion = $runner.Find({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Invoke-CiCompanion'
+}, $true)
+if (!$companion) { throw 'Missing CI companion execution.' }
+. ([scriptblock]::Create($companion.Extent.Text))
 $budgetAssignment = $runner.Find({
     param($node)
     $node -is [Management.Automation.Language.AssignmentStatementAst] -and
@@ -56,6 +63,28 @@ $steps = [Collections.Generic.List[object]]::new()
 $index = 0
 $null = New-Item -ItemType Directory -Path $results
 try {
+    $companionSteps = [Collections.Generic.List[object]]::new()
+    'published component' | Set-Content -LiteralPath (Join-Path $results 'component.txt')
+    $component = Invoke-CiCompanion 'read-published-component' {
+        Get-Content -LiteralPath (Join-Path $results 'component.txt')
+    } $companionSteps
+    if ($component -cne 'published component' -or $companionSteps.Count -ne 1 -or
+        $companionSteps[0].status -cne 'Passed') {
+        throw 'A desktop companion lost its caller-owned published component path or successful receipt.'
+    }
+    $companionFailure = $null
+    try {
+        Invoke-CiCompanion 'reject-published-component' {
+            $component = Get-Content -LiteralPath (Join-Path $results 'component.txt')
+            throw "Rejected $component"
+        } $companionSteps
+    } catch { $companionFailure = $_ }
+    if (!$companionFailure -or $companionFailure.Exception.Message -cne 'Rejected published component' -or
+        $companionSteps.Count -ne 2 -or $companionSteps[1].status -cne 'Failed' -or
+        $companionSteps[0].status -cne 'Passed') {
+        throw 'A desktop companion lost its caller-owned path or initiating failure when retaining timing.'
+    }
+    Write-Host 'PASS: actual CI companions retain the caller-owned published path and independent success/failure receipts.'
     foreach ($Lane in @('desktop', 'high-resolution')) {
         . ([scriptblock]::Create($budgetAssignment.Extent.Text))
         $started = [DateTimeOffset]::UtcNow.AddSeconds(-661)

@@ -105,6 +105,10 @@ flow. Controlled certificate/TSA and GitHub/process inputs replace only external
 hosting effects; the actual CLI signature verifier and result validators run.
 No desktop opens. Source A/controller B, complete raw counts, failed work,
 scope/host/proof forgery, original budgets and legacy refusal remain covered.
+The controlled native holder receives ordinary drive-letter paths and applies
+extended-length syntax only at the Windows loader boundary. Recorded cleanup
+paths and signed evidence remain unchanged. A holder/setup failure is reported
+separately from a failed assertion about legacy policy preservation.
 The supervisor retains actual script exit failure separately from saved results.
 `CleanupRecord.Tests.ps1`, also run by that suite, covers the public sample
 reader's mandatory v4 cleanup metadata and rejects artifact-supplied collection
@@ -1928,6 +1932,8 @@ contracts without launching WPF.
 It also runs `DocumentationHandoff.Tests.ps1` against isolated local Git
 repositories and a bare remote, including a source branch that advances beyond
 the approved documentation commit. Local path/file fixtures explicitly opt in.
+CI companion callbacks retain their caller-owned published-component folder
+while successful and failed timing receipts use a separate collection.
 Credential-route cases disable all transports and check rejection of SSH,
 plain HTTP, embedded credentials and applicable Authorization headers, while
 allowing harmless/unrelated headers without disclosing credential values.

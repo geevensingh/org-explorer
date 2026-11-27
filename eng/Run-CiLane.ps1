@@ -42,13 +42,13 @@ if ($Lane -in @('core', 'filesystem')) {
     })) { Remove-Item -LiteralPath $file.FullName -Force }
 }
 
-function Invoke-CiCompanion([string]$Name, [scriptblock]$Action, $Results = $steps) {
+function Invoke-CiCompanion([string]$Name, [scriptblock]$Action, $StepResults = $steps) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $phaseStarted = [DateTimeOffset]::UtcNow
     $passed = $false
     try { & $Action; $passed = $true }
     finally {
-        $Results.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds
+        $StepResults.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds
             status = if ($passed) { 'Passed' } else { 'Failed' }
             startedAt = $phaseStarted.ToString('O'); finishedAt = [DateTimeOffset]::UtcNow.ToString('O') })
     }
@@ -177,16 +177,16 @@ try {
                 Invoke-CiCompanion 'Update.Trust.Tests.ps1' {
                     & "$root\tests\Update.Trust.Tests.ps1" -Assembly (Join-Path $results 'product-check\OrgExplorer.Desktop.dll') `
                         -Configuration "$root\src\OrgExplorer.Desktop\update-trust.json"
-                } -Results $companionSteps
+                } -StepResults $companionSteps
                 Invoke-CiCompanion 'ApplicationIcon.Tests.ps1' {
                     & "$root\tests\ApplicationIcon.Tests.ps1" -Executable (Join-Path $results 'product-check\OrgExplorer.Desktop.exe')
-                } -Results $companionSteps
+                } -StepResults $companionSteps
                 Invoke-CiCompanion 'product-output-isolation' {
                     $files = Get-ChildItem (Join-Path $results 'product-check') -Recurse -File
                     if ($files | Where-Object { $_.FullName -match '(?i)fixtures|test-workspaces|OrgExplorer\.(Core\.Tests|Persistence\.Tests|Desktop\.Smoke)|ScaleFixture' }) {
                         throw 'Fictitious fixtures or test assemblies leaked into the product publish output.'
                     }
-                } -Results $companionSteps
+                } -StepResults $companionSteps
             }
         }
     }
