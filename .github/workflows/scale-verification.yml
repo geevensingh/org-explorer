@@ -77,6 +77,10 @@ jobs:
           ref: ${{ github.workflow_sha }}
           path: probe-controller
           persist-credentials: false
+      - name: Start nonaccepting cross-step worker diagnostic
+        run: .\probe-controller\tests\ScaleWorkerStep.Tests.ps1 -Stage Start
+      - name: Verify actual worker lifetime after controller exit
+        run: .\probe-controller\tests\ScaleWorkerStep.Tests.ps1 -Stage Complete
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.revision }}
@@ -104,7 +108,10 @@ jobs:
           name: cleanup-signing-probe-${{ github.run_id }}-${{ github.run_attempt }}
           retention-days: 30
           if-no-files-found: error
-          path: .ci-results/cleanup-signing-probe/*.json
+          path: |
+            .ci-results/cleanup-signing-probe/*.json
+            probe-controller/.ci-results/scale-worker-step/**/*.json
+            probe-controller/.ci-results/scale-worker-step/**/*.log
 
   non-ui-cohort-pilot:
     if: ${{ github.event_name == 'workflow_dispatch' && !inputs.cleanup_signing_probe && !inputs.prefix_only_diagnostic && (inputs.non_ui_cohort_pilot || inputs.rich_cohort_pilot) }}
