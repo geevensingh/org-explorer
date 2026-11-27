@@ -116,7 +116,8 @@ internal static partial class Program
         Directory.CreateDirectory(workspace);
         SetSettingsVisible(window, true);
         PickWorkspaceFolder(window, workspace);
-        AwaitRestoredWorkspace(window, workspace);
+        AwaitRestoredWorkspace(window, workspace,
+            ReadSmokeWorkspacePreferences().GetLastView(workspace)?.PersonEmail ?? "");
         return window;
     }
 

@@ -2115,11 +2115,136 @@ internal static partial class Program
         VerifyAutomaticRefreshSearch(windowType, root, compact: false);
         VerifyAutomaticRefreshSearch(windowType, root, compact: true);
         VerifyAutomaticRefreshSearch(windowType, root, compact: false, reviewedImport: true);
+        foreach (var historical in new[] { false, true })
+            foreach (var import in new[] { false, true })
+                VerifyReturningRememberedContext(windowType, root, historical, import);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: true);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: true, invalidateReview: true);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: false);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: false, recoveryScope: NoteScope.Person);
         VerifyAutomaticPeopleReading(windowType, root, importRetry: false, recoveryScope: NoteScope.Team);
+    }
+
+    private static void VerifyReturningRememberedContext(Type windowType, string root, bool historical, bool import)
+    {
+        var path = Path.Combine(root, $"returning-context-{historical}-{import}");
+        WorkspaceFixtures.CopyCurrent(path);
+        var preferencesPath = Path.Combine(Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY")!,
+            "workspace-settings.json");
+        var settings = new WorkspaceSettings(preferencesPath);
+        Guid noteId;
+        Guid? captureId = null;
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(path)) throw new InvalidOperationException(seed.Status);
+            noteId = seed.CreateTeamNote("casey@example.com", "Context", "Context")!.Id;
+            seed.CreateTeamNote("avery@example.com", "Own reading", "Not the remembered context");
+            if (historical)
+            {
+                if (!seed.EditPersonManager("avery@example.com", null)) throw new InvalidOperationException(seed.Status);
+                captureId = seed.GetHistoricalTeamContexts("avery@example.com")
+                    .Single(capture => capture.TeamNotes.Any(note => note.Id == noteId)).Id;
+                if (!seed.EditTeamNote(noteId, "Later context", "Different current writing"))
+                    throw new InvalidOperationException(seed.Status);
+            }
+            var archived = string.Join(",", seed.People.Select(person =>
+                $$"""{"email":"{{person.Email}}","archived":true}"""));
+            if (!seed.ApplyImport(seed.PreviewImport(SearchImport(archived, 911)).Id))
+                throw new InvalidOperationException(seed.Status);
+        }
+        var remembered = new RememberedView("avery@example.com",
+            historical ? SearchSource.HistoricalTeamNote : SearchSource.InheritedTeamNote,
+            noteId, "casey@example.com", captureId);
+        if (!settings.SetLastView(path, remembered)) throw new InvalidOperationException(settings.PreferenceError);
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic,
+            null, [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => path)], null)!;
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+        try
+        {
+            Invoke("OpenSettingsButton");
+            Invoke("OpenWorkspaceButton");
+            PumpUntil(() => model.IsWorkspaceCurrent && Control<Button>("OpenWorkspaceButton").IsEnabled);
+            if (model.PeopleNavigation.SelectedEmail is not null || model.ViewRecoveryFeedback is null)
+                throw new InvalidOperationException("Returning-context fixture did not start with an unavailable remembered Person.");
+            var content = (FrameworkElement)window.Content;
+            content.Measure(new Size(1100, 900));
+            content.Arrange(new Rect(0, 0, 1100, 900));
+            content.UpdateLayout();
+            Control<TextBox>("SearchQuery").Text = "Context";
+            Invoke("OpenSettingsButton");
+            Invoke("OpenImportButton");
+            var preferences = File.ReadAllBytes(preferencesPath);
+            var records = $$"""
+                {"email":"avery@example.com","archived":false,"managerEmail":{{(historical ? "null" : "\"alex@example.com\"")}}},
+                {"email":"alex@example.com","archived":false},
+                {"email":"casey@example.com","archived":false},
+                {"email":"higher@example.com","displayName":"A higher","managerEmail":null},
+                {"email":"one@example.com","displayName":"One","managerEmail":"higher@example.com"},
+                {"email":"two@example.com","displayName":"Two","managerEmail":"higher@example.com"}
+                """;
+            var batch = SearchImport(records, 910);
+            FocusManager.SetFocusedElement(window, Control<TextBox>("SearchQuery"));
+            if (import)
+            {
+                var source = path + "-returning.json";
+                File.WriteAllText(source, batch);
+                Control<TextBox>("ImportPath").Text = source;
+                Invoke("PreviewButton");
+                PumpUntil(() => Control<Button>("ApplyButton").IsEnabled);
+                Invoke("ApplyButton");
+            }
+            else
+            {
+                using var peer = OpenSmokeWorkspace(path);
+                if (!peer.ApplyImport(peer.PreviewImport(batch).Id) || !model.RefreshWorkspace())
+                    throw new InvalidOperationException(model.Status);
+            }
+            PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com" &&
+                Control<TextBlock>("WorkflowActivity").Text == "Ready");
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            var destination = model.PeopleNavigation.SelectedResult;
+            if (destination?.NoteId != noteId || destination.HistoricalContextId != captureId ||
+                destination.MatchText != "Context" ||
+                model.ViewRecoveryFeedback is not null || !model.IsImportOpen ||
+                Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Visible ||
+                Control<TextBox>("SearchQuery").Text != "Context" ||
+                FocusManager.GetFocusedElement(window) != Control<TextBox>("SearchQuery") ||
+                !preferences.SequenceEqual(File.ReadAllBytes(preferencesPath)))
+                throw new InvalidOperationException("Returning remembered context changed its exact destination, Import, search or preferences: " +
+                    $"historical={historical}; import={import}; note={destination?.NoteId}; capture={destination?.HistoricalContextId}; " +
+                    $"recovery={model.ViewRecoveryFeedback}; importOpen={model.IsImportOpen}; " +
+                    $"panel={Control<FrameworkElement>("ImportPanel").Visibility}; query={Control<TextBox>("SearchQuery").Text}; " +
+                    $"preferencesUnchanged={preferences.SequenceEqual(File.ReadAllBytes(preferencesPath))}.");
+            var team = Control<UserControl>("TeamNotes");
+            if (historical ? !Control<Expander>("HistoryAccess").IsExpanded :
+                !((Expander)team.FindName("CurrentTeamContext")).IsExpanded)
+                throw new InvalidOperationException("Returning remembered context was resolved but its actual reading section remained closed.");
+            var reading = historical
+                ? Control<FlowDocumentScrollViewer>("HistoricalTeamReading")
+                : (FlowDocumentScrollViewer)team.FindName("InheritedReading");
+            var section = historical
+                ? reading.Document.Blocks.OfType<Section>().Single(block => Equals(block.Tag, captureId))
+                    .Blocks.OfType<Section>().Single(block => Equals(block.Tag, noteId))
+                : reading.Document.Blocks.OfType<Section>().Single(block => Equals(block.Tag, noteId));
+            var text = new TextRange(section.ContentStart, section.ContentEnd).Text;
+            if (!text.Contains("Context", StringComparison.Ordinal) ||
+                text.Contains("Different current writing", StringComparison.Ordinal))
+                throw new InvalidOperationException("Returning remembered context did not present its exact saved writing.");
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Returning-context verification cannot create a native window.");
+            Console.WriteLine($"PASS: returning {(historical ? "frozen" : "inherited")} exact context is presented after " +
+                $"{(import ? "accepted Import" : "refresh")} without leaving Import, clearing search or changing preferences.");
+        }
+        finally
+        {
+            window.Close();
+            Invoke("CancelExitButton");
+            model.Dispose();
+        }
     }
 
     private static void VerifyAutomaticRefreshSearch(Type windowType, string root, bool compact, bool reviewedImport = false)

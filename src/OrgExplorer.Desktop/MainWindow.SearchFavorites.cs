@@ -247,7 +247,20 @@ public partial class MainWindow
         finally { activatingSearch = false; }
     }
 
-    private void ShowSearchContext(SearchResult result)
+    private SearchResult? pendingPreparedContext;
+
+    private bool CanRevealPreparedContext => ExplorerPanel.Visibility == Visibility.Visible &&
+        !workflow.IsImportOpen && workflow.PeopleNavigation.IsBrowsing && !workflow.PeopleNavigation.OverlayOpen;
+
+    private void RevealPreparedContext()
+    {
+        if (!CanRevealPreparedContext || pendingPreparedContext is not { } result) return;
+        pendingPreparedContext = null;
+        if (selectedMatch is not null && SameSearchDestination(result, selectedMatch))
+            ShowSearchContext(result, deferUntilBrowsing: true);
+    }
+
+    private void ShowSearchContext(SearchResult result, bool deferUntilBrowsing = false)
     {
         var target = SearchDestinationSurface(result);
         Block? readingBlock = null;
@@ -289,10 +302,20 @@ public partial class MainWindow
                     $"{result.Label}; capture {result.HistoricalContextId}; note {result.NoteId}");
                 break;
         }
+        if (deferUntilBrowsing && !CanRevealPreparedContext)
+        {
+            pendingPreparedContext = result;
+            return;
+        }
         _ = Dispatcher.BeginInvoke(() =>
         {
             if (ExplorerPanel.Visibility != Visibility.Visible || workflow.PeopleNavigation.OverlayOpen ||
                 selectedMatch is null || !SameSearchDestination(result, selectedMatch)) return;
+            if (deferUntilBrowsing && !CanRevealPreparedContext)
+            {
+                pendingPreparedContext = result;
+                return;
+            }
             FocusManager.SetFocusedElement(this, target);
             if (IsVisible) target.Focus();
             if (readingBlock is not null) readingBlock.BringIntoView();
@@ -321,6 +344,7 @@ public partial class MainWindow
 
     private void ClearSearchContext(bool clearSelection = true)
     {
+        pendingPreparedContext = null;
         if (clearSelection) workflow.CloseSearchContext();
         if (matchedProfileValue == PersonArchivalStatus && selectedEmail is { } email &&
             workflow.GetRelationships(email)?.Person is { Archived: false })

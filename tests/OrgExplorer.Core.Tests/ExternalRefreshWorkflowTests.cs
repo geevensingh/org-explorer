@@ -12,9 +12,10 @@ public sealed class ExternalRefreshWorkflowTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Accepted_refresh_prepares_the_cross_branch_Person_without_activating_search_or_leaving_Import(bool notesRefresh)
+    [InlineData(null)]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public void Accepted_refresh_prepares_the_cross_branch_Person_without_activating_search_or_leaving_Import(NoteScope? notesRefresh)
     {
         var workflow = ApplicationWorkflow.CreateInMemory();
         using var app = new WorkspaceViewModel(workflow);
@@ -43,7 +44,12 @@ public sealed class ExternalRefreshWorkflowTests
         Assert.True(workflow.ApplyImport(incoming.Id), workflow.Status);
         Assert.Null(app.PeopleNavigation.SelectedEmail);
 
-        Assert.True(notesRefresh ? app.RefreshPersonNotes() : app.RefreshWorkspace(), app.Status);
+        Assert.True(notesRefresh switch
+        {
+            NoteScope.Person => app.RefreshPersonNotes(),
+            NoteScope.Team => app.RefreshTeamNotes(),
+            _ => app.RefreshWorkspace()
+        }, app.Status);
 
         Assert.Equal("shallow@example.com", app.PeopleNavigation.SelectedEmail);
         Assert.Equal("shallow@example.com", app.PersonNotesView.OwnerEmail);

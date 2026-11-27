@@ -1,5 +1,7 @@
 using OrgExplorer.Workflow;
 using OrgExplorer.TestFixtures;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -8,6 +10,111 @@ public sealed class ExternalRefreshTests : IDisposable
 {
     private readonly string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", Guid.NewGuid().ToString("N")));
+
+    public class SelectionBoundary : DispatchProxy
+    {
+        internal IApplicationWorkflow Inner = null!;
+        internal Action? Ranking;
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            try
+            {
+                var result = targetMethod!.Invoke(Inner, args);
+                if (targetMethod.Name == "get_ReportingRoots") Ranking?.Invoke();
+                return result;
+            }
+            catch (TargetInvocationException error) when (error.InnerException is not null)
+            {
+                ExceptionDispatchInfo.Capture(error.InnerException).Throw();
+                throw;
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Deliberate_navigation_during_snapshot_selection_keeps_its_Person_and_saved_destination(bool accepted)
+    {
+        var workspace = Path.Combine(root, "receiver");
+        var preferencesPath = Path.Combine(root, "settings.json");
+        var settings = new WorkspaceSettings(preferencesPath);
+        using var source = ApplicationWorkflow.CreateFileBacked();
+        var receiver = ApplicationWorkflow.CreateFileBacked();
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, SelectionBoundary>();
+        var boundary = (SelectionBoundary)(object)proxy;
+        boundary.Inner = receiver;
+        using var app = new WorkspaceViewModel(proxy, settings);
+        Assert.True(source.OpenWorkspace(Path.Combine(root, "source")), source.Status);
+        Assert.True(app.OpenWorkspace(workspace), app.Status);
+        WorkspaceFixtures.JoinSnapshot(source, app, Path.Combine(root, "transport"));
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.True(source.ApplyImport(source.PreviewImport(Batch("""
+            {"email":"manager@example.com","displayName":"Manager","managerEmail":null},
+            {"email":"reader@example.com","displayName":"Reader","managerEmail":"manager@example.com"},
+            {"email":"other@example.com","displayName":"Other","managerEmail":"manager@example.com"}
+            """)).Id), source.Status);
+        Assert.True(source.SyncNow(), source.Synchronization.Error);
+        var ranked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        boundary.Ranking = () =>
+        {
+            ranked.TrySetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("The owning test did not release automatic ranking.");
+        };
+        var synchronizing = app.SynchronizeAsync();
+        try
+        {
+            await ranked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(accepted, app.NavigatePerson(accepted ? "reader@example.com" : "missing@example.com"));
+            Assert.Equal(accepted ? "reader@example.com" : null, app.PeopleNavigation.SelectedEmail);
+        }
+        finally
+        {
+            boundary.Ranking = null;
+            release.Set();
+            Assert.True(await synchronizing.WaitAsync(TimeSpan.FromSeconds(5)), app.Synchronization.Error);
+        }
+        var selected = accepted ? "reader@example.com" : "manager@example.com";
+        Assert.Equal(selected, app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(selected, app.PersonNotesView.OwnerEmail);
+        Assert.Equal(selected, app.TeamNotesView.OwnerEmail);
+        Assert.Equal(accepted ? new RememberedView("reader@example.com") : null, app.PeopleNavigation.LastValidView);
+        Assert.Equal(app.PeopleNavigation.LastValidView, new WorkspaceSettings(preferencesPath).GetLastView(workspace));
+    }
+
+    [Fact]
+    public void Deliberate_navigation_during_automatic_note_presentation_records_its_own_destination()
+    {
+        var workspace = Path.Combine(root, "workspace");
+        var preferencesPath = Path.Combine(root, "settings.json");
+        var receiver = ApplicationWorkflow.CreateFileBacked();
+        using var app = new WorkspaceViewModel(receiver, new WorkspaceSettings(preferencesPath));
+        Assert.True(app.OpenWorkspace(workspace), app.Status);
+        Assert.True(receiver.ApplyImport(receiver.PreviewImport(Batch("""
+            {"email":"manager@example.com","displayName":"Manager","managerEmail":null},
+            {"email":"reader@example.com","displayName":"Reader","managerEmail":"manager@example.com"},
+            {"email":"other@example.com","displayName":"Other","managerEmail":"manager@example.com"}
+            """)).Id), receiver.Status);
+        var navigated = false;
+        app.PropertyChanged += (_, _) =>
+        {
+            if (navigated || app.PersonNotesView.OwnerEmail != "manager@example.com") return;
+            navigated = true;
+            Assert.True(app.NavigatePerson("reader@example.com"), app.Status);
+        };
+
+        Assert.True(app.RefreshWorkspace(), app.Status);
+
+        Assert.True(navigated);
+        Assert.Equal("reader@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Equal("reader@example.com", app.PersonNotesView.OwnerEmail);
+        Assert.Equal("reader@example.com", app.TeamNotesView.OwnerEmail);
+        Assert.Equal(new RememberedView("reader@example.com"), app.PeopleNavigation.LastValidView);
+        Assert.Equal(app.PeopleNavigation.LastValidView, new WorkspaceSettings(preferencesPath).GetLastView(workspace));
+    }
 
     [Theory]
     [InlineData(false)]

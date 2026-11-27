@@ -300,6 +300,14 @@ snapshot adoption, cross-branch selection, current/Archived exact reading,
 non-activating search/Import, and unchanged saved destinations. Real folders
 retain failed Person/Team writing, profile and Preferred-name drafts and independent
 errors, and refuse invalid, incomplete, deferred, unavailable or stale data.
+Both Person-note and Team-note refresh use that same Workspace selection policy.
+An owned ranking barrier and a reentrant presentation notification prove that
+accepted deliberate navigation wins over automatic selection and records its own
+saved destination; a refused choice does not cancel a valid automatic fallback.
+Compiled returning-Person cases present exact inherited/frozen note sections after
+Import and refresh while preserving Import, active search, focus and preferences.
+Installed reopening expects the fixture's independently remembered Person, rather
+than incorrectly requiring the empty first-open destination for a populated reopen.
 The in-memory refresh/error-retention contract controls only its view-model
 request clock. Its two-scope delayed-validation cases hold the real public save
 boundary beyond three wall-clock seconds, then require the actual invalid-title

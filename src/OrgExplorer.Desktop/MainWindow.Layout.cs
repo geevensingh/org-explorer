@@ -192,6 +192,7 @@ public partial class MainWindow
         ReportsSection.Visibility = ReportsList.HasItems && (!wideWorkspace || !workflow.PeopleNavigation.IsBrowsing)
             ? Visibility.Visible : Visibility.Collapsed;
         if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
+        RevealPreparedContext();
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)

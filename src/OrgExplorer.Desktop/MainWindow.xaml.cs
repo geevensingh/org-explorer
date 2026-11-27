@@ -226,7 +226,8 @@ public partial class MainWindow : Window
         if (preview is { } id) await RunWorkflowAsync(() => workflow.ApplyImport(id), "Applying reviewed Import…", isImport: true);
         ApplyButton.IsEnabled = false;
         preview = null;
-        RefreshPeople();
+        var prepared = RefreshPeople();
+        PresentPreparedContext(prepared);
         ShowStatus();
     }
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
@@ -299,8 +300,9 @@ public partial class MainWindow : Window
         UpdatePeopleNavigation();
         return true;
     }
-    private void RefreshPeople()
+    private bool RefreshPeople()
     {
+        var presentContext = false;
         loading = true;
         var roots = workflow.ReportingRoots;
         if (!ReferenceEquals(PeopleList.ItemsSource, roots)) PeopleList.ItemsSource = roots;
@@ -310,7 +312,11 @@ public partial class MainWindow : Window
             !string.Equals(prepared, selectedEmail, StringComparison.OrdinalIgnoreCase) &&
             workflow.GetRelationships(prepared) is { } preparedContext)
         {
-            if (OpenPerson(preparedContext.Person, navigation: false)) pendingPeopleRevealEmail = prepared;
+            if (OpenPerson(preparedContext.Person, navigation: false))
+            {
+                pendingPeopleRevealEmail = prepared;
+                presentContext = true;
+            }
         }
         else if (selectedEmail is not null && workflow.GetRelationships(selectedEmail) is { } context)
             OpenPerson(context.Person, navigation: false);
@@ -338,6 +344,7 @@ public partial class MainWindow : Window
         }
         UpdatePreferredNameActions();
         if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
+        return presentContext;
     }
     private void ShowPerson(PersonProfile person)
     {
@@ -456,13 +463,21 @@ public partial class MainWindow : Window
     private void RefreshExternalWorkspace()
     {
         queryDirty = true;
-        if (workflow.IsWorkspaceCurrent) RefreshPeople();
+        var prepared = workflow.IsWorkspaceCurrent && RefreshPeople();
         ApplyButton.IsEnabled = false;
         preview = null;
         UpdateProfileMode();
         PersonNotes.RefreshExternalWorkspace();
         TeamNotes.RefreshExternalWorkspace();
+        PresentPreparedContext(prepared);
         ShowStatus();
+    }
+
+    private void PresentPreparedContext(bool prepared)
+    {
+        if (!prepared) return;
+        if (selectedMatch is { Source: SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote } result)
+            ShowSearchContext(result, deferUntilBrowsing: true);
     }
 
     private void ShowStatus()
