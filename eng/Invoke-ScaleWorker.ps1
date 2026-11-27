@@ -18,6 +18,8 @@ if (!$results.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringCompa
 $handle = Join-Path $results 'worker-process.json'
 $reportPath = Join-Path $results 'result.json'
 $receiptPath = Join-Path $results 'worker-exit.json'
+$logPath = Join-Path $results 'worker.log'
+$errorPath = Join-Path $results 'worker-errors.log'
 if ($Worker -ceq 'non-ui-performance' -and $ExtendedObservation) { throw 'Non-UI work has no extended-observation selection.' }
 
 if ($Stage -ceq 'Execute') {
@@ -27,8 +29,8 @@ if ($Stage -ceq 'Execute') {
     if ($PrefixResultsDirectory) { $parameters.PrefixResultsDirectory = $PrefixResultsDirectory }
     if ($CohortId) { $parameters.CohortId = $CohortId; $parameters.Sample = $Sample }
     $exitCode = 0
-    try { & (Join-Path $PSScriptRoot $entry) @parameters }
-    catch { $exitCode = 1; [Console]::Error.WriteLine($_.ToString()) }
+    try { & (Join-Path $PSScriptRoot $entry) @parameters 1>> $logPath 2>> $errorPath 3>&1 4>&1 5>&1 6>&1 }
+    catch { $exitCode = 1; [IO.File]::AppendAllText($errorPath, $_.ToString() + [Environment]::NewLine) }
     $runDirectory = $null
     if (Test-Path -LiteralPath $reportPath) { $runDirectory = (Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json).runDirectory }
     $receipt = @{ processId = $PID; processStartedAt = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('O')
@@ -84,10 +86,17 @@ public static class ScaleWorkerProgress {
     if ($PrefixResultsDirectory) { $arguments += @('-PrefixResultsDirectory', $PrefixResultsDirectory) }
     if ($CohortId) { $arguments += @('-CohortId', $CohortId, '-Sample', [string]$Sample) }
     if ($ExtendedObservation) { $arguments += '-ExtendedObservation' }
-    $process = Start-Process (Get-Process -Id $PID).Path -PassThru -WindowStyle Hidden `
-        -ArgumentList @($arguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }) `
-        -RedirectStandardOutput (Join-Path $results 'worker.log') -RedirectStandardError (Join-Path $results 'worker-errors.log')
+    [IO.File]::WriteAllText($logPath, '')
+    [IO.File]::WriteAllText($errorPath, '')
+    $start = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.WorkingDirectory = $root
+    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $start
     try {
+        if (!$process.Start()) { throw 'The scale worker process did not start.' }
         @{ processId = $process.Id; processStartedAt = $process.StartTime.ToUniversalTime().ToString('O')
             worker = $Worker; revision = $ExpectedRevision; deadlineAt = $deadline.ToString('O') } |
             ConvertTo-Json | Set-Content -LiteralPath $handle
