@@ -447,6 +447,10 @@ public sealed partial class SqliteWorkspaceTests
                 Assert.NotEmpty(app.GetHistoricalTeamContexts("report@example.com"));
             }
         }
+        using var stage2 = inspectCommittedWal && !requireRawWalTruth && boundary == "after" && mutation == "profile" &&
+            retainedCommittedFile == "workspace.sqlite-wal"
+            ? SqliteStage2Capture.Start(Workspace, Path.ChangeExtension(typeof(SqliteWorkspaceTests).Assembly.Location, ".runtimeconfig.json"))
+            : null;
         var readyName = @"Local\OrgExplorer-storage-crash-" + Guid.NewGuid().ToString("N");
         using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, readyName);
         var start = new ProcessStartInfo("dotnet")
@@ -484,6 +488,7 @@ public sealed partial class SqliteWorkspaceTests
             }
             Assert.True(process.Start());
             processStarted = true;
+            stage2?.Child(process.Id);
             Assert.True(ready.WaitOne(TimeSpan.FromSeconds(10)),
                 process.HasExited ? await process.StandardError.ReadToEndAsync() : "The real commit boundary was not reached.");
             Assert.True(File.Exists(Path.Combine(Workspace, "workspace.sqlite-wal")));
@@ -545,6 +550,7 @@ public sealed partial class SqliteWorkspaceTests
             {
                 var committedFiles = new[] { "workspace.sqlite", "workspace.sqlite-wal" }
                     .Select(name => Path.Combine(Workspace, name)).ToArray();
+                stage2?.Phase(3);
                 var before = committedFiles.Select(path => HashCommittedFile(path, "before-stale-index")).ToArray();
                 shmMapping!.RestoreIndex(staleShmIndex);
                 Assert.Equal(before, committedFiles.Select(path => HashCommittedFile(path, "after-stale-index")).ToArray());
@@ -553,6 +559,7 @@ public sealed partial class SqliteWorkspaceTests
                     rawWalEvidence = CaptureRawWalEvidence(rawCommittedFiles, rawCaptureFaults);
                     walIndexBeforeOpen = CaptureWalIndex(shmMapping);
                 }
+                stage2?.Phase(4);
             }
             string? evidence = null;
             if (unresolvedEvidence)
@@ -572,6 +579,7 @@ public sealed partial class SqliteWorkspaceTests
                     DateTimeOffset.UtcNow, new StackTrace(error, fNeedFileInfo: false)));
             };
             bool opened;
+            stage2?.Phase(5);
             AppDomain.CurrentDomain.FirstChanceException += observe;
             try { opened = reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly); }
             finally { AppDomain.CurrentDomain.FirstChanceException -= observe; }
@@ -634,6 +642,8 @@ public sealed partial class SqliteWorkspaceTests
                 }
             Assert.True(opened, reopenStatus + emissionFault);
             var firstRecoveredSave = reopened.LocalSave;
+            stage2?.Revision(firstRecoveredSave.CommittedRevision, firstRecoveredSave.Phase.ToString(),
+                firstRecoveredSave.Outcome.ToString(), firstRecoveredSave.OutstandingRequests);
             var expectedRevisionGuidValid = Guid.TryParseExact(expectedRevision, "D", out var expectedGuid);
             var actualRevisionGuidValid = Guid.TryParseExact(firstRecoveredSave.CommittedRevision, "D", out var actualGuid);
             object revisionEvidence;

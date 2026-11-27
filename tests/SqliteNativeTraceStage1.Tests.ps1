@@ -11,7 +11,7 @@ function Job([string]$source, [string]$name) {
     if (!$match.Success) { throw "Missing required job $name." }
     return ($match.Value -replace "`r", '').TrimEnd()
 }
-$guard = '    if: ${{ github.event_name != ''workflow_dispatch'' || !inputs.sqlite_native_trace_stage1 }}'
+$guard = '    if: ${{ github.event_name != ''workflow_dispatch'' || (!inputs.sqlite_native_trace_stage1 && !inputs.sqlite_native_trace_stage2) }}'
 foreach ($name in @('core', 'filesystem', 'desktop', 'high-resolution')) {
     $actual = Job $workflow $name
     if (!$actual.Contains($guard)) { throw 'Stage1 must not execute an ordinary suite.' }
@@ -20,7 +20,7 @@ foreach ($name in @('core', 'filesystem', 'desktop', 'high-resolution')) {
 }
 if ((Job $workflow 'ci') -cne (Job $baseline 'ci')) { throw 'The required CI aggregate must remain unchanged.' }
 foreach ($name in @('scale-verification', 'release-verification')) {
-    $normal = (Job $workflow $name).Replace(' && !inputs.sqlite_native_trace_stage1', '')
+    $normal = (Job $workflow $name).Replace(' && !inputs.sqlite_native_trace_stage1 && !inputs.sqlite_native_trace_stage2', '')
     if ($normal -cne (Job $baseline $name)) { throw 'Optional verification behavior changed outside stage1.' }
 }
 $stage = Job $workflow 'sqlite-native-stage1'

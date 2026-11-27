@@ -3182,6 +3182,27 @@ result requires owner reconciliation before any passive capture is implemented.
 It is not native tracing, normal CI, or STAGE2 authorization.
 Local contract check: `.\tests\SqliteNativeTraceStage1.Tests.ps1`.
 
+The separately authorized temporary `sqlite_native_trace_stage2` input also
+defaults false and excludes Stage1 and every normal/optional lane. It builds
+matched same-source control/diagnostic native variants and selects exactly the
+original retained-`workspace.sqlite-wal` crash case. Vendor recipe/toolchain
+parity remains a declared build-manifest limitation; neither variant is clean
+shipping acceptance. The original revision/hash/receipt/resource/death assertions
+and deadlines remain unchanged. The diagnostic registers only this fixture's
+parent/child and exact original DB/WAL/SHM objects before bounded native records
+are emitted; no kernel collection, extra SQLite reader or lock probe is used.
+Records contain identities/counters/decisions, not page contents. Missing scope,
+overflow, unpublished records, expiration, collector failure or absent first-read
+binding is `Incomplete`, not a causal verdict. Outside actors and content-through-
+read stay `Unknown` until supported by actual evidence. Exact source/native
+hashes, candidate/run/attempt, strict TRX and capture metadata are retained in
+`diagnostic-sqlite-stage2-<sha>-<run>-<attempt>`. A diagnostic pass is explicitly
+not normal CI, while an original assertion failure remains failed.
+Local refusal contract: `.\tests\SqliteNativeStage2.Tests.ps1`; shared/local
+collection and native substitution are refused before any fixture execution.
+All Stage1/Stage2 routes, instrumentation and substitution are temporary and must
+be removed from the final normal candidate after classification.
+
 `.github\workflows\scale-verification.yml` owns the independent non-UI job, the
 two isolated rich workers and their strict union collector. Separate invocations
 can overlap on the same ref; no scale concurrency group serializes or cancels
