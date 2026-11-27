@@ -37,10 +37,6 @@ public partial class MainWindow
         try { return localSave ? await workflow.RunLocalSaveAsync(operation) : await Task.Run(operation); }
         finally
         {
-            workPending = false;
-            ordinaryLocalWorkPending = false;
-            localImportPending = false;
-            recoveryWorkPending = false;
             if (pendingPreferredNameCancellations.Count != 0)
             {
                 var cancellations = pendingPreferredNameCancellations.Values.ToArray();
@@ -49,6 +45,16 @@ public partial class MainWindow
                     workflow.DiscardPersonTextDraft(cancelledName, OrgExplorer.Workflow.PersonTextField.PreferredName);
                 externalRefreshPending = true;
             }
+            if (browseSafeRecovery)
+            {
+                // Ready controls can admit the next Import before the original caller resumes.
+                externalRefreshPending = false;
+                RefreshExternalWorkspace();
+            }
+            workPending = false;
+            ordinaryLocalWorkPending = false;
+            localImportPending = false;
+            recoveryWorkPending = false;
             completion.TrySetResult();
             WorkflowActivity.Text = "Ready";
             OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = ImportPath.IsEnabled = true;
@@ -59,12 +65,10 @@ public partial class MainWindow
             FavoriteButton.IsEnabled = CanEditCurrentWorkspace && person is not null;
             PersonMoreMenu.IsEnabled = CanEditCurrentWorkspace && person is not null;
             queryDirty = true;
-            if (externalRefreshPending)
+            if (!browseSafeRecovery && externalRefreshPending)
             {
                 externalRefreshPending = false;
-                // Recovery must not leave an old invalidation behind the next reviewed Import.
-                if (browseSafeRecovery) RefreshExternalWorkspace();
-                else _ = Dispatcher.BeginInvoke(RefreshExternalWorkspace, DispatcherPriority.ContextIdle);
+                _ = Dispatcher.BeginInvoke(RefreshExternalWorkspace, DispatcherPriority.ContextIdle);
             }
         }
     }

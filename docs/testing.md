@@ -279,6 +279,12 @@ owned-note cases, unavailable inherited/frozen contexts, deliberate same-Person
 reselection and explicit ongoing access retain independent preference/Workspace
 byte checks. Exact secondary/owned-Team/inherited/frozen restoration and retained
 writing guards remain.
+The invisible compiled recovery/Import probe admits one preview from the actual
+ready-control event and pumps a nested dispatcher while that original handler
+is still active. Recovery finishes its refresh before exposing Ready controls,
+without a duplicate caller refresh invalidating the next applicable review.
+Ordinary Preview/Apply refresh remains deferred. The existing twenty-second
+observations, one request and genuinely changed-revision invalidation case remain.
 Real-folder accepted Import and local-refresh cases additionally reopen an
 all-archived Workspace, then reactivate its remembered Person alongside a higher
 qualifying Manager. Both note scopes prove remembered priority, exact secondary
