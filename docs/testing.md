@@ -304,10 +304,17 @@ Both Person-note and Team-note refresh use that same Workspace selection policy.
 An owned ranking barrier and a reentrant presentation notification prove that
 accepted deliberate navigation wins over automatic selection and records its own
 saved destination; a refused choice does not cancel a valid automatic fallback.
+A Workspace replacement invalidates pending ranking before Open and publishes its
+navigation reset under the same destination gate, without holding that gate over
+storage I/O. The real-folder barrier also switches to an all-archived Workspace
+containing the old candidate email and requires it to remain unselected.
 Compiled returning-Person cases present exact inherited/frozen note sections after
 Import and refresh while preserving Import, active search, focus and preferences.
 Installed reopening expects the fixture's independently remembered Person, rather
 than incorrectly requiring the empty first-open destination for a populated reopen.
+If isolated app preferences are absent, the populated installer fixture instead
+requires its known shallowest current Person, Casey; only the initial empty
+creation requires no selection.
 The in-memory refresh/error-retention contract controls only its view-model
 request clock. Its two-scope delayed-validation cases hold the real public save
 boundary beyond three wall-clock seconds, then require the actual invalid-title

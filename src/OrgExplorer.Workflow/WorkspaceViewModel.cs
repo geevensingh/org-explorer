@@ -138,22 +138,28 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
                     (workflow.LocalSaveError ?? workflow.Status);
                 return false;
             }
+            // Invalidate ranking before I/O and again when the replacement is published.
+            lock (destinationGate) destinationGeneration++;
             var opened = workflow.OpenWorkspace(path, mode);
-            if (opened || !IsWorkspaceCurrent)
+            lock (destinationGate)
             {
-                IsImportOpen = false;
-                noteViews.Clear();
-                retainedNoteViews.Clear();
-                ongoingPreferenceError = null;
-                ResetPeopleSearch();
-                PeopleNavigation = new("", false, null, null, [], 0);
-                LayoutPreferenceFeedback = null;
-                ViewPreferenceFeedback = null;
-                ViewRecoveryFeedback = null;
-                if (opened && IsWorkspaceCurrent)
+                if (opened || !IsWorkspaceCurrent)
                 {
-                    RestoreRememberedView();
-                    EnsurePeopleSelection();
+                    destinationGeneration++;
+                    IsImportOpen = false;
+                    noteViews.Clear();
+                    retainedNoteViews.Clear();
+                    ongoingPreferenceError = null;
+                    ResetPeopleSearch();
+                    PeopleNavigation = new("", false, null, null, [], 0);
+                    LayoutPreferenceFeedback = null;
+                    ViewPreferenceFeedback = null;
+                    ViewRecoveryFeedback = null;
+                    if (opened && IsWorkspaceCurrent)
+                    {
+                        RestoreRememberedView();
+                        EnsurePeopleSelection();
+                    }
                 }
             }
             return opened;

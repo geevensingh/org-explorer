@@ -33,9 +33,11 @@ public sealed class ExternalRefreshTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Deliberate_navigation_during_snapshot_selection_keeps_its_Person_and_saved_destination(bool accepted)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Navigation_or_Workspace_replacement_during_snapshot_selection_keeps_the_current_destination(
+        bool accepted, bool replaceWorkspace)
     {
         var workspace = Path.Combine(root, "receiver");
         var preferencesPath = Path.Combine(root, "settings.json");
@@ -56,10 +58,21 @@ public sealed class ExternalRefreshTests : IDisposable
             {"email":"other@example.com","displayName":"Other","managerEmail":"manager@example.com"}
             """)).Id), source.Status);
         Assert.True(source.SyncNow(), source.Synchronization.Error);
+        var replacement = Path.Combine(root, "replacement");
+        if (replaceWorkspace)
+        {
+            using var alternate = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(alternate.OpenWorkspace(replacement), alternate.Status);
+            Assert.True(alternate.ApplyImport(alternate.PreviewImport(Batch("""
+                {"email":"manager@example.com","displayName":"Archived in replacement","managerEmail":null,"archived":true}
+                """)).Id), alternate.Status);
+        }
         var ranked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
+        var rankings = 0;
         boundary.Ranking = () =>
         {
+            if (Interlocked.Increment(ref rankings) != 1) return;
             ranked.TrySetResult();
             if (!release.Wait(TimeSpan.FromSeconds(5)))
                 throw new TimeoutException("The owning test did not release automatic ranking.");
@@ -68,7 +81,10 @@ public sealed class ExternalRefreshTests : IDisposable
         try
         {
             await ranked.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.Equal(accepted, app.NavigatePerson(accepted ? "reader@example.com" : "missing@example.com"));
+            if (replaceWorkspace)
+                Assert.True(app.OpenWorkspace(replacement), app.Status);
+            else
+                Assert.Equal(accepted, app.NavigatePerson(accepted ? "reader@example.com" : "missing@example.com"));
             Assert.Equal(accepted ? "reader@example.com" : null, app.PeopleNavigation.SelectedEmail);
         }
         finally
@@ -77,7 +93,9 @@ public sealed class ExternalRefreshTests : IDisposable
             release.Set();
             Assert.True(await synchronizing.WaitAsync(TimeSpan.FromSeconds(5)), app.Synchronization.Error);
         }
-        var selected = accepted ? "reader@example.com" : "manager@example.com";
+        var selected = replaceWorkspace ? null : accepted ? "reader@example.com" : "manager@example.com";
+        Assert.Equal(replaceWorkspace ? replacement : workspace, app.Compatibility.WorkspacePath);
+        if (replaceWorkspace) Assert.True(app.GetRelationships("manager@example.com")!.Person.Archived);
         Assert.Equal(selected, app.PeopleNavigation.SelectedEmail);
         Assert.Equal(selected, app.PersonNotesView.OwnerEmail);
         Assert.Equal(selected, app.TeamNotesView.OwnerEmail);

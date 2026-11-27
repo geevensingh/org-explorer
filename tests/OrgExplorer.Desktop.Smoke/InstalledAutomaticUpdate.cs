@@ -22,7 +22,7 @@ internal static partial class Program
         using var original = Launch(args[0]);
         try
         {
-            var window = OpenInstalledWorkspace(original, args[0], args[1], args[3]);
+            var window = OpenInstalledWorkspace(original, args[0], args[1], args[3], "casey@example.com");
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertInstallerWorkspace(window);
             Click(window, "NewPersonNote");
