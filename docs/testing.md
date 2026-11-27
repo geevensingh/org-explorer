@@ -261,6 +261,15 @@ unrelated real-time stall. Both scopes also run with a continuation delayed past
 three wall-clock seconds; the six-second admission wait and all discard
 assertions stay intact. Production clocks and separate exact three-second
 queue/stall/unknown-outcome regressions remain unchanged.
+The small-fixture continuous-typing test keeps its one-second first-commit
+assertion, all 25 edits/60-ms waits, repeated durable progress and exact final
+reopen. A refusal emits `NOTE-FIRST-COMMIT-REFUSAL` with the existing edit/read
+request and return clocks for those 25 samples, without note bodies or paths.
+Its boundary is a completed independent Open/BeginNoteDraft read, not an
+instrumented physical Commit. No observer/proxy, added delay, retry, status query
+or I/O probe enters the measured path. Serialization runs only after the original
+assertion fails; reporting faults remain secondary to that failure. This is
+bounded capture for the unresolved hosted refusal, not a latency fix or waiver.
 Preferred-name Save/Enter submits the displayed field's immutable Person base
 through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only

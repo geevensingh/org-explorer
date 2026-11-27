@@ -1289,12 +1289,17 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        var samples = new (double EditRequestedMs, double EditReturnedMs,
+            double ReadRequestedMs, double ReadReturnedMs, bool FoundWriting)[25];
         var observed = new HashSet<string>();
         TimeSpan? firstCommit = null;
         for (var index = 0; index < 25; index++)
         {
+            samples[index].EditRequestedMs = elapsed.Elapsed.TotalMilliseconds;
             app.UpdateNoteDraft(scope, draft.Id, "Continuous context", $"Continuous writing {index:D2}");
+            samples[index].EditReturnedMs = elapsed.Elapsed.TotalMilliseconds;
             await Task.Delay(60);
+            samples[index].ReadRequestedMs = elapsed.Elapsed.TotalMilliseconds;
             using var reading = ApplicationWorkflow.CreateFileBacked();
             Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
             var committed = reading.BeginNoteDraft(scope, "manager@example.com", draft.Id);
@@ -1302,10 +1307,39 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
             {
                 firstCommit ??= elapsed.Elapsed;
                 observed.Add(committed.Markdown);
+                samples[index].FoundWriting = true;
             }
+            samples[index].ReadReturnedMs = elapsed.Elapsed.TotalMilliseconds;
         }
-        Assert.NotNull(firstCommit);
-        Assert.True(firstCommit <= TimeSpan.FromSeconds(1), $"First ordinary local commit took {firstCommit}.");
+        try
+        {
+            Assert.NotNull(firstCommit);
+            Assert.True(firstCommit <= TimeSpan.FromSeconds(1), $"First ordinary local commit took {firstCommit}.");
+        }
+        catch (Xunit.Sdk.XunitException failure)
+        {
+            try
+            {
+                Console.WriteLine("NOTE-FIRST-COMMIT-REFUSAL " + JsonSerializer.Serialize(new
+                {
+                    scope = scope.ToString(), firstSuccessfulReadMs = firstCommit?.TotalMilliseconds,
+                    boundary = "Completed independent OpenWorkspace and BeginNoteDraft, not physical Commit.",
+                    distinctWritingCount = observed.Count,
+                    samples = samples.Select((sample, index) => new
+                    {
+                        index, sample.EditRequestedMs, sample.EditReturnedMs,
+                        sample.ReadRequestedMs, sample.ReadReturnedMs, sample.FoundWriting
+                    }).ToArray()
+                }));
+            }
+            catch (Exception diagnostic)
+            {
+                failure.Data["FirstCommitDiagnosticFailure"] = diagnostic;
+                try { Console.Error.WriteLine("NOTE-FIRST-COMMIT-DIAGNOSTIC-FAULT " + diagnostic); }
+                catch (Exception reporting) { failure.Data["FirstCommitDiagnosticReportingFailure"] = reporting; }
+            }
+            throw;
+        }
         Assert.True(observed.Count >= 3, "Continuous typing must make repeated durable progress, not wait until idle.");
         Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
