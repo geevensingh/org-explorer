@@ -47,8 +47,10 @@ public sealed class TeamNoteTests
         Assert.Equal("Saved writing", Assert.Single(app.GetTeamNotes(note.OwnerEmail)).Markdown);
     }
 
-    [Fact]
-    public async Task Inherited_secondary_notes_reach_their_exact_owner_while_retaining_Person_writing()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4000)]
+    public async Task Inherited_secondary_notes_reach_their_exact_owner_while_retaining_Person_writing(int continuationDelayMilliseconds)
     {
         var proxy = DispatchProxy.Create<IApplicationWorkflow, PersonNoteTests.NoteSaveBoundary>();
         var boundary = (PersonNoteTests.NoteSaveBoundary)(object)proxy;
@@ -72,12 +74,18 @@ public sealed class TeamNoteTests
         var person = app.CreatePersonNote("avery@example.com", "Private", "Saved")!;
         Assert.True(app.OpenOwnedNote(NoteScope.Person, person.Id, editing: true));
         var admitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        app.WorkspaceChanged += (_, _) =>
+        {
+            if (app.GetRetainedNoteDraft(NoteScope.Person, person.Id) is null) completed.TrySetResult();
+        };
         using var release = new ManualResetEventSlim();
         boundary.BeforeSave = () => { admitted.TrySetResult(); release.Wait(); };
         app.UpdateNoteDraft(NoteScope.Person, person.Id, person.Title, "Retained Person writing");
         try
         {
             await admitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            if (continuationDelayMilliseconds > 0) await Task.Delay(continuationDelayMilliseconds);
             Assert.True(app.NavigateInheritedTeamNote(secondary.Id), app.Status);
             Assert.Equal(root.OwnerEmail, app.PeopleNavigation.SelectedEmail);
             Assert.Equal(secondary.Id, app.TeamNotesView.SelectedNote!.Id);
@@ -98,6 +106,7 @@ public sealed class TeamNoteTests
             Assert.Equal(before, app.GetTeamNotes(root.OwnerEmail));
         }
         finally { boundary.BeforeSave = null; release.Set(); }
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
         Assert.Equal("Retained Person writing", Assert.Single(app.GetPersonNotes(person.OwnerEmail)).Markdown);
         Assert.True(app.ConfirmTeamNote(secondary.Id));

@@ -291,6 +291,11 @@ unrelated real-time stall. Both scopes also run with a continuation delayed past
 three wall-clock seconds; the six-second admission wait and all discard
 assertions stay intact. Production clocks and separate exact three-second
 queue/stall/unknown-outcome regressions remain unchanged.
+The inherited secondary-note navigation case also observes the original save's
+public completion notification after releasing its deliberately held writer,
+before asserting close/flush readiness. It runs both ordinary and four-second
+delayed continuations. The real three-second stall remains intact; no save is
+retried, clock frozen or pending outcome called successful.
 The small-fixture continuous-typing test keeps its one-second first-commit
 assertion, all 25 edits/60-ms waits, repeated durable progress and exact final
 reopen. A refusal emits `NOTE-FIRST-COMMIT-REFUSAL` with the existing edit/read
