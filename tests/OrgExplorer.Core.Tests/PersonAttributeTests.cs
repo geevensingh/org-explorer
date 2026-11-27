@@ -1,4 +1,5 @@
 using OrgExplorer.Workflow;
+using System.Diagnostics;
 using System.Text.Json;
 using Xunit;
 
@@ -175,8 +176,10 @@ public class PersonAttributeTests
         app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, "Explicitly submitted");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
+        long admittedAt = 0;
         var saving = app.RunLocalSaveAsync(() =>
         {
+            admittedAt = Stopwatch.GetTimestamp();
             entered.SetResult();
             if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException("The owning test did not release its admitted operation.");
             return saveName
@@ -186,7 +189,8 @@ public class PersonAttributeTests
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            if (continuationDelay != TimeSpan.Zero) await Task.Delay(continuationDelay);
+            var remainingDelay = continuationDelay - Stopwatch.GetElapsedTime(admittedAt);
+            if (remainingDelay > TimeSpan.Zero) await Task.Delay(remainingDelay);
             Assert.Equal(LocalSavePhase.Pending, app.LocalSave.Phase);
             app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName);
             if (saveName)

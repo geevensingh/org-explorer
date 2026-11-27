@@ -160,7 +160,9 @@ The admitted-work Preferred-name typing contract controls only its view-model
 request clock while the original operation remains held. Both save-name and
 independent-favorite cases also delay the test continuation past three wall-clock
 seconds, then require the actual original-value typing and its correct saved
-base/retirement. The five-second holds/waits and production stall clocks remain
+base/retirement. Natural scheduling delay counts toward that held-admission
+delay instead of being extended by another full delay. The five-second
+holds/waits and production stall clocks remain
 unchanged; this non-timing contract must not reject its intended typing as stalled.
 Ordinary profiles use `BeginProfileEdit`, staged text/Manager/photo operations,
 and explicit `SaveProfileEdit` / `CancelProfileEdit`. `ProfileEdit` exposes the
