@@ -1,11 +1,11 @@
-param([switch]$PlanOnly, [switch]$SmokeOnly, [switch]$RichIdentityOnly, [string]$GateSnapshotDirectory,
+param([switch]$PlanOnly, [switch]$SmokeOnly, [switch]$RichIdentityOnly, [switch]$RichIdentitySourceOnly, [string]$GateSnapshotDirectory,
     [string]$EventVersionMetadata, [string]$EventVersionCase,
     [ValidateSet('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')][string]$GatePolicyVersion = 'ci-timing-v2')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 $fixture = Join-Path $root ('.test-workspaces\baselines-' + [guid]::NewGuid().ToString('N'))
-if ($RichIdentityOnly) {
+if ($RichIdentityOnly -or $RichIdentitySourceOnly) {
     $fixture = Join-Path $root ('.test-workspaces\ri-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
 }
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
@@ -348,7 +348,7 @@ try {
     })
     $global:BaselineFixture = @{ ci = $ci; ciJobs = $ciJobs; controller = $second; cohortRun = 99; status = 'in_progress'
         outcome = $null; jobs = @(); artifacts = @(); evidence = @{}; sourceRemote = $remote }
-    if ($RichIdentityOnly) {
+    if ($RichIdentityOnly -or $RichIdentitySourceOnly) {
         '{"version":"ci-timing-v4"}' | Set-Content (Join-Path $source 'eng\timing-policy.json')
         $null = Invoke-FixtureGit $source @('add', 'eng/timing-policy.json')
         $identityRevision = Add-MainFixtureRevision 'Complete rich identity public fixture'
@@ -444,6 +444,7 @@ try {
             @{ name = 'empty-native-version'; field = 'native.version'; change = { param($c) $c.native.version = '' } },
             @{ name = 'malformed-native-hash'; field = 'native.loadedSha256'; change = { param($c) $c.native.loadedSha256 = 'unresolved' } }
         )
+        if ($RichIdentitySourceOnly) { $cases = @() }
         $runId = 100
         foreach ($worker in @('prefix', 'tail')) {
             foreach ($case in $cases) {
@@ -462,8 +463,9 @@ try {
                 Set-RichBaselineConfiguration $affectedSample $worker $case.change
                 $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
                 $caseWork = Join-Path $fixture "s-$runId"
+                $publish = $case.name -ceq 'null-native'
                 & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
-                    -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory $caseWork -RichScale -Publish `
+                    -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory $caseWork -RichScale -Publish:$publish `
                     -AllowLocalFixture -HistoryRemote $caseRemote -ApprovedPolicyVersion ci-timing-v4
                 $record = Get-Content (Join-Path $caseWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 40
                 Assert ($record.validation -ceq 'success' -and $record.richScaleAcceptance -ceq 'complete' -and
@@ -479,7 +481,7 @@ try {
                 $prior = Get-TimingCanonicalReference $read $priorKey $revision
                 Assert ($prior.revision -ceq $completeRevision -and
                     @($read.records | Where-Object { $_.recordType -ceq 'timing-reference' }).Count -eq 1 -and
-                    @($read.records | Where-Object { $_.recordType -ceq 'performance-cohort' }).Count -eq 3 -and
+                    @($read.records | Where-Object { $_.recordType -ceq 'performance-cohort' }).Count -eq $(if ($publish) { 3 } else { 2 }) -and
                     @($read.records | Where-Object { $_.recordType -ceq 'performance-cohort' -and
                         $_.revision -ceq $identityRevision -and $_.eligibility -ceq 'inconclusive' }).Count -eq 1) `
                     'Unresolved identity replaced the prior immutable reference or lost an original attempt.'
@@ -501,14 +503,22 @@ try {
             }
             $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
             $caseWork = Join-Path $fixture "s-$runId"
-            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
-                -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory $caseWork -RichScale -Publish `
-                -AllowLocalFixture -HistoryRemote $caseRemote -ApprovedPolicyVersion ci-timing-v4
+            $refusal = $null
+            try {
+                & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+                    -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory $caseWork -RichScale -Publish `
+                    -AllowLocalFixture -HistoryRemote $caseRemote -ApprovedPolicyVersion ci-timing-v4
+            } catch {
+                $refusal = $_.Exception.Message
+            }
             $legacy = Get-Content (Join-Path $caseWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 40
-            Assert ($legacy.validation -ceq 'success' -and $legacy.effectivePolicyVersion -ceq $policy -and
+            Assert ($refusal -ceq 'Approved timing policy rejects this cohort; all original attempts remain recorded.' -and
+                $legacy.validation -ceq 'rejected' -and $legacy.reliability.success -eq 3 -and
+                $legacy.effectivePolicyVersion -ceq $policy -and
                 $legacy.sourcePolicyVersion -ceq $policy -and !$legacy.sourcePolicyCompatible -and
-                $legacy.eligibility -ceq 'inconclusive' -and $legacy.promotion -ceq 'retained' -and
-                !$legacy.extraSamples.Count -and !$legacy.timingEvaluation.blocking -and
+                $legacy.eligibility -ceq 'rejected' -and $legacy.promotion -ceq 'retained' -and
+                !$legacy.extraSamples.Count -and $legacy.timingEvaluation.validationBlocking -and
+                @($legacy.samples | Where-Object { $_.validation -cne 'success' }).Count -eq 0 -and
                 $legacy.samples[0].rich.prefix.profile.budgetMs -eq $(if ($policy -ceq 'ci-timing-v2') { 1000 } else { 1500 })) `
                 'Current comparison identity validation changed an older source verdict or conferred newer policy approval.'
         }

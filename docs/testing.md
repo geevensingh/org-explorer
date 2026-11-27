@@ -110,6 +110,10 @@ cannot bypass actual configuration. Complete identity and older source-policy
 controls preserve new-series bootstrap and original hard limits. These are
 synthetic public contracts, never desktop evidence or production references;
 the required core smoke selection is unchanged.
+`-RichIdentitySourceOnly` selects the same complete/unknown release and publisher
+controls plus older-source refusal and distinct-environment checks without the
+full malformed-field matrix. Older-policy sample successes remain intact;
+the existing current-policy collection refusal is asserted, not relaxed.
 
 V4 adds scoped failed build-housekeeping warnings, separate from verification
 and timing health. `HostedCleanup.Tests.ps1` holds a real x64 native image in a
