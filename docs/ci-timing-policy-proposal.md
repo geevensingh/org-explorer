@@ -385,6 +385,13 @@ population/size/sample matrices, metric unit/boundary/percentile/effective polic
 fixture/harness/test identity, resolved runtime/SDK/native binding, OS/architecture,
 image/version/processors, actual display/DPI and setup/cache/controlled-clock/
 observation scope. Missing relevant identity means incompatible/inconclusive.
+Rich prefix and tail comparison requires the actual versioned display state,
+including positive integral mode/monitor/work-area/DPI/track dimensions, and
+resolved native version/source/hash. Unknown or malformed comparison metadata
+does not invalidate an otherwise intact workload: retain its raw acceptance,
+report comparison uncertainty and preserve the prior reference without
+requesting replacement samples. Cached series hashes or eligibility fields
+cannot substitute for those actual configurations at canonical evaluation.
 Existing conservative Get-HealthSeriesKey hashing is reused; an eng/fixture
 change may conservatively start a new series. Do not normalize that away.
 Application commit/binary hashes remain provenance across revisions, not equality

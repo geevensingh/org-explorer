@@ -449,10 +449,12 @@ try {
             foreach ($case in $cases) {
                 $runId++
                 $revision = Add-MainFixtureRevision "$worker $($case.name) public fixture"
+                $caseRemote = Join-Path $fixture "h-$runId.git"
+                $null = Invoke-FixtureGit $fixture @('clone', '--bare', '--quiet', $remote, $caseRemote)
                 Select-BaselineFixture $revision 42 $runId
                 & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
                     -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture "p-$runId") `
-                    -RichScale -PublishPlan -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v4
+                    -RichScale -PublishPlan -AllowLocalFixture -HistoryRemote $caseRemote -ApprovedPolicyVersion ci-timing-v4
                 for ($number = 1; $number -le 3; $number++) {
                     New-CompleteBaselineSample $number $revision 150 500 -TimingPolicyVersion ci-timing-v4 -SuccessfulCleanup
                 }
@@ -462,7 +464,7 @@ try {
                 $caseWork = Join-Path $fixture "s-$runId"
                 & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
                     -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory $caseWork -RichScale -Publish `
-                    -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v4
+                    -AllowLocalFixture -HistoryRemote $caseRemote -ApprovedPolicyVersion ci-timing-v4
                 $record = Get-Content (Join-Path $caseWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 40
                 Assert ($record.validation -ceq 'success' -and $record.richScaleAcceptance -ceq 'complete' -and
                     $record.metrics.Count -eq 64 -and $record.eligibility -ceq 'inconclusive' -and
@@ -472,15 +474,75 @@ try {
                     @($record.samples[$affectedSample - 1].diagnostics | Where-Object {
                         $_ -clike "*--ui-scale-$worker*$($case.field)*"
                     }).Count -gt 0) "Missing/malformed $worker $($case.name) did not retain intact workload and precise comparison uncertainty."
-                $read = Open-HealthHistory (Join-Path $fixture "r-$runId.git") $remote -AllowLocalFixture `
+                $read = Open-HealthHistory (Join-Path $fixture "r-$runId.git") $caseRemote -AllowLocalFixture `
                     -RecordTypes (Get-LaneHealthRecordTypes)
                 $prior = Get-TimingCanonicalReference $read $priorKey $revision
                 Assert ($prior.revision -ceq $completeRevision -and
                     @($read.records | Where-Object { $_.recordType -ceq 'timing-reference' }).Count -eq 1 -and
-                    @($read.records | Where-Object { $_.recordType -ceq 'performance-cohort' }).Count -eq $runId - 98) `
+                    @($read.records | Where-Object { $_.recordType -ceq 'performance-cohort' }).Count -eq 3 -and
+                    @($read.records | Where-Object { $_.recordType -ceq 'performance-cohort' -and
+                        $_.revision -ceq $identityRevision -and $_.eligibility -ceq 'inconclusive' }).Count -eq 1) `
                     'Unresolved identity replaced the prior immutable reference or lost an original attempt.'
             }
         }
+        foreach ($policy in @('ci-timing-v2', 'ci-timing-v3')) {
+            $runId++
+            @{ version = $policy } | ConvertTo-Json | Set-Content (Join-Path $source 'eng\timing-policy.json')
+            $null = Invoke-FixtureGit $source @('add', 'eng/timing-policy.json')
+            $revision = Add-MainFixtureRevision "$policy source compatibility fixture"
+            $caseRemote = Join-Path $fixture "h-$runId.git"
+            $null = Invoke-FixtureGit $fixture @('clone', '--bare', '--quiet', $remote, $caseRemote)
+            Select-BaselineFixture $revision 42 $runId
+            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+                -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture "p-$runId") `
+                -RichScale -PublishPlan -AllowLocalFixture -HistoryRemote $caseRemote -ApprovedPolicyVersion ci-timing-v4
+            for ($number = 1; $number -le 3; $number++) {
+                New-CompleteBaselineSample $number $revision 150 500 -TimingPolicyVersion $policy
+            }
+            $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+            $caseWork = Join-Path $fixture "s-$runId"
+            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+                -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory $caseWork -RichScale -Publish `
+                -AllowLocalFixture -HistoryRemote $caseRemote -ApprovedPolicyVersion ci-timing-v4
+            $legacy = Get-Content (Join-Path $caseWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 40
+            Assert ($legacy.validation -ceq 'success' -and $legacy.effectivePolicyVersion -ceq $policy -and
+                $legacy.sourcePolicyVersion -ceq $policy -and !$legacy.sourcePolicyCompatible -and
+                $legacy.eligibility -ceq 'inconclusive' -and $legacy.promotion -ceq 'retained' -and
+                !$legacy.extraSamples.Count -and !$legacy.timingEvaluation.blocking -and
+                $legacy.samples[0].rich.prefix.profile.budgetMs -eq $(if ($policy -ceq 'ci-timing-v2') { 1000 } else { 1500 })) `
+                'Current comparison identity validation changed an older source verdict or conferred newer policy approval.'
+        }
+        $runId++
+        '{"version":"ci-timing-v4"}' | Set-Content (Join-Path $source 'eng\timing-policy.json')
+        $null = Invoke-FixtureGit $source @('add', 'eng/timing-policy.json')
+        $revision = Add-MainFixtureRevision 'Distinct complete display and image identity'
+        $caseRemote = Join-Path $fixture "h-$runId.git"
+        $null = Invoke-FixtureGit $fixture @('clone', '--bare', '--quiet', $remote, $caseRemote)
+        Select-BaselineFixture $revision 42 $runId
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture "p-$runId") `
+            -RichScale -PublishPlan -AllowLocalFixture -HistoryRemote $caseRemote -ApprovedPolicyVersion ci-timing-v4
+        for ($number = 1; $number -le 3; $number++) {
+            New-CompleteBaselineSample $number $revision 150 500 '20261117' -TimingPolicyVersion ci-timing-v4 -SuccessfulCleanup
+            foreach ($worker in @('prefix', 'tail')) {
+                Set-RichBaselineConfiguration $number $worker { param($c) $c.display.state.Mode.Frequency = 75 }
+            }
+        }
+        $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+        $caseWork = Join-Path $fixture "s-$runId"
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId $runId -CohortRunAttempt 1 -WorkingDirectory $caseWork -RichScale -Publish `
+            -AllowLocalFixture -HistoryRemote $caseRemote -ApprovedPolicyVersion ci-timing-v4
+        $distinct = Get-Content (Join-Path $caseWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 40
+        Assert ($distinct.validation -ceq 'success' -and $distinct.eligibility -ceq 'eligible' -and
+            $distinct.timingHealth -ceq 'unbaselined' -and $null -eq $distinct.reference -and
+            $distinct.samples[0].rich.seriesKey -cne $priorKey) `
+            'Distinct complete display/image configuration was normalized into the previous matching series.'
+        $read = Open-HealthHistory (Join-Path $fixture "r-$runId.git") $caseRemote -AllowLocalFixture `
+            -RecordTypes (Get-LaneHealthRecordTypes)
+        Assert ((Get-TimingCanonicalReference $read $priorKey $revision).revision -ceq $completeRevision -and
+            @($read.records | Where-Object { $_.recordType -ceq 'timing-reference' }).Count -eq 2) `
+            'A complete new environment series overwrote the original incompatible reference.'
         Write-Host "PASS: $checks public rich comparison identity checks."
         return
     }

@@ -98,6 +98,19 @@ available reference, and rejects only established complete five-run serious
 evidence after collection; the earlier saved result is unchanged. These are
 non-UI contract fixtures, not actual hosted measurements or production history.
 
+`AutomaticBaselines.Tests.ps1 -RichIdentityOnly` is the explicit non-UI
+comparison-availability selection for #167. Complete normal-cleanup-success v4
+fixtures cross the actual planner, raw result validators, immutable publisher,
+history reader and release gate. Null, missing, partial and malformed actual
+display/DPI or loaded-native metadata in either rich worker retain successful
+workload validation, but cannot establish comparison eligibility, request
+replacement samples or promote. Each negative uses isolated history retaining
+the same prior reference and original attempt; cached hashes/eligibility flags
+cannot bypass actual configuration. Complete identity and older source-policy
+controls preserve new-series bootstrap and original hard limits. These are
+synthetic public contracts, never desktop evidence or production references;
+the required core smoke selection is unchanged.
+
 V4 adds scoped failed build-housekeeping warnings, separate from verification
 and timing health. `HostedCleanup.Tests.ps1` holds a real x64 native image in a
 controlled external process after completed work and drives the public result
