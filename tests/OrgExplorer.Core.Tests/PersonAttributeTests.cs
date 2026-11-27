@@ -66,6 +66,9 @@ public class PersonAttributeTests
         Assert.True(app.ApplyImport(app.PreviewImport(CompleteBatch).Id));
         var basis = Assert.Single(app.People);
         app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, "Explicitly submitted");
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        RetainedPersonTextDraft? heldDraft = null;
+        double admittedMs = 0, retainedMs = 0, finishedMs = 0;
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
         var saving = app.RunLocalSaveAsync(() =>
@@ -79,18 +82,49 @@ public class PersonAttributeTests
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            admittedMs = elapsed.Elapsed.TotalMilliseconds;
             app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName);
-            if (saveName) Assert.NotNull(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+            retainedMs = elapsed.Elapsed.TotalMilliseconds;
+            if (saveName)
+            {
+                heldDraft = app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName);
+                Assert.NotNull(heldDraft);
+            }
             Assert.False(app.CanSafelyClose);
         }
         finally
         {
             release.Set();
             Assert.True(await saving.WaitAsync(TimeSpan.FromSeconds(5)), app.Status);
+            finishedMs = elapsed.Elapsed.TotalMilliseconds;
         }
         if (saveName)
         {
-            var retained = Assert.IsType<RetainedPersonTextDraft>(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+            var afterSave = app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName);
+            RetainedPersonTextDraft retained;
+            try { retained = Assert.IsType<RetainedPersonTextDraft>(afterSave); }
+            catch (Xunit.Sdk.XunitException failure)
+            {
+                try
+                {
+                    Console.WriteLine("PREFERRED-DRAFT-RETIREMENT-REFUSAL " + System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        admittedMs, retainedMs, finishedMs, observedMs = elapsed.Elapsed.TotalMilliseconds,
+                        originalBase = basis.PreferredName, heldValue = heldDraft?.Value,
+                        heldBase = heldDraft?.Basis.PreferredName, currentSavedName = inner.People.Single().PreferredName,
+                        localSave = app.LocalSave, app.Status, taskStatus = saving.Status.ToString(),
+                        synchronizationContext = SynchronizationContext.Current?.GetType().FullName,
+                        thread = Environment.CurrentManagedThreadId
+                    }));
+                }
+                catch (Exception diagnostic)
+                {
+                    failure.Data["PreferredDraftDiagnosticFailure"] = diagnostic;
+                    try { Console.Error.WriteLine("PREFERRED-DRAFT-DIAGNOSTIC-FAULT " + diagnostic); }
+                    catch (Exception reporting) { failure.Data["PreferredDraftDiagnosticReportingFailure"] = reporting; }
+                }
+                throw;
+            }
             Assert.Equal(basis.PreferredName, retained.Value);
             Assert.Equal("Explicitly submitted", retained.Basis.PreferredName);
             Assert.False(app.CanSafelyClose);

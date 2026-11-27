@@ -305,6 +305,13 @@ instrumented physical Commit. No observer/proxy, added delay, retry, status quer
 or I/O probe enters the measured path. Serialization runs only after the original
 assertion fails; reporting faults remain secondary to that failure. This is
 bounded capture for the unresolved hosted refusal, not a latency fix or waiver.
+The admitted-work Preferred-name retention case emits
+`PREFERRED-DRAFT-RETIREMENT-REFUSAL` only if its original retained-draft assertion
+fails. It records existing admission/retention/completion clocks, the held basis
+and value, and the later saved name/status from the fictitious fixture. Additional
+state reads and serialization occur only after refusal, with diagnostic faults
+secondary to the original assertion. This is capture for an unresolved hosted
+failure, not a fix, retry or amendment of draft-retirement semantics.
 Preferred-name Save/Enter submits the displayed field's immutable Person base
 through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
