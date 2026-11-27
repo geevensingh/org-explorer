@@ -33,11 +33,12 @@ public sealed class ExternalRefreshTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task Navigation_or_Workspace_replacement_during_snapshot_selection_keeps_the_current_destination(
-        bool accepted, bool replaceWorkspace)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    public async Task Navigation_or_graph_change_during_snapshot_selection_keeps_the_current_destination(
+        bool accepted, bool replaceWorkspace, bool archivePopulation)
     {
         var workspace = Path.Combine(root, "receiver");
         var preferencesPath = Path.Combine(root, "settings.json");
@@ -83,6 +84,12 @@ public sealed class ExternalRefreshTests : IDisposable
             await ranked.Task.WaitAsync(TimeSpan.FromSeconds(5));
             if (replaceWorkspace)
                 Assert.True(app.OpenWorkspace(replacement), app.Status);
+            else if (archivePopulation)
+                Assert.True(app.ApplyImport(app.PreviewImport(Batch("""
+                    {"email":"manager@example.com","archived":true},
+                    {"email":"reader@example.com","archived":true},
+                    {"email":"other@example.com","archived":true}
+                    """)).Id), app.Status);
             else
                 Assert.Equal(accepted, app.NavigatePerson(accepted ? "reader@example.com" : "missing@example.com"));
             Assert.Equal(accepted ? "reader@example.com" : null, app.PeopleNavigation.SelectedEmail);
@@ -93,9 +100,10 @@ public sealed class ExternalRefreshTests : IDisposable
             release.Set();
             Assert.True(await synchronizing.WaitAsync(TimeSpan.FromSeconds(5)), app.Synchronization.Error);
         }
-        var selected = replaceWorkspace ? null : accepted ? "reader@example.com" : "manager@example.com";
+        var selected = replaceWorkspace || archivePopulation ? null : accepted ? "reader@example.com" : "manager@example.com";
         Assert.Equal(replaceWorkspace ? replacement : workspace, app.Compatibility.WorkspacePath);
         if (replaceWorkspace) Assert.True(app.GetRelationships("manager@example.com")!.Person.Archived);
+        if (archivePopulation) Assert.All(app.People, person => Assert.True(person.Archived));
         Assert.Equal(selected, app.PeopleNavigation.SelectedEmail);
         Assert.Equal(selected, app.PersonNotesView.OwnerEmail);
         Assert.Equal(selected, app.TeamNotesView.OwnerEmail);

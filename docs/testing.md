@@ -308,8 +308,14 @@ A Workspace replacement invalidates pending ranking before Open and publishes it
 navigation reset under the same destination gate, without holding that gate over
 storage I/O. The real-folder barrier also switches to an all-archived Workspace
 containing the old candidate email and requires it to remain unselected.
+Ranking also binds the accepted local revision and is superseded by a newer
+selection pass, so an accepted same-Workspace Import that archives the population
+cannot commit an old current candidate afterward.
 Compiled returning-Person cases present exact inherited/frozen note sections after
 Import and refresh while preserving Import, active search, focus and preferences.
+Those same cases retain the exact remembered destination through unrelated search,
+query clearing and the return to browsing; deliberate Person navigation still
+replaces it. Search-match cleanup does not cancel remembered-note reading or reveal.
 Installed reopening expects the fixture's independently remembered Person, rather
 than incorrectly requiring the empty first-open destination for a populated reopen.
 If isolated app preferences are absent, the populated installer fixture instead

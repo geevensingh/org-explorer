@@ -29,16 +29,18 @@ public sealed partial class WorkspaceViewModel
     private void EnsurePeopleSelection()
     {
         long generation;
+        Guid? revision;
         lock (destinationGate)
         {
             if (!IsWorkspaceCurrent || HasValidPeopleSelection) return;
-            generation = destinationGeneration;
+            generation = ++destinationGeneration;
+            revision = workflow.Synchronization.LocalRevision;
         }
         if (Compatibility.WorkspacePath is { } path && settings?.GetLastView(path) is { } remembered &&
             workflow.GetRelationships(remembered.PersonEmail)?.Person is { Archived: false })
         {
             lock (destinationGate)
-                if (CanCommitAutomaticSelection(generation)) RestoreRememberedPerson(remembered);
+                if (CanCommitAutomaticSelection(generation, revision)) RestoreRememberedPerson(remembered);
             return;
         }
         var level = workflow.ReportingRoots;
@@ -55,11 +57,12 @@ public sealed partial class WorkspaceViewModel
         candidate ??= fallback;
         if (candidate is null) return;
         lock (destinationGate)
-            if (CanCommitAutomaticSelection(generation)) NavigateAutomaticPerson(candidate.Email);
+            if (CanCommitAutomaticSelection(generation, revision)) NavigateAutomaticPerson(candidate.Email);
     }
 
-    private bool CanCommitAutomaticSelection(long generation) =>
-        generation == destinationGeneration && IsWorkspaceCurrent && !HasValidPeopleSelection;
+    private bool CanCommitAutomaticSelection(long generation, Guid? revision) =>
+        generation == destinationGeneration && revision == workflow.Synchronization.LocalRevision &&
+        IsWorkspaceCurrent && !HasValidPeopleSelection;
 
     private bool NavigateAutomaticPerson(string email, SearchResult? destination = null, bool recoverRememberedNote = false)
     {

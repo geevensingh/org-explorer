@@ -2234,6 +2234,28 @@ internal static partial class Program
             if (!text.Contains("Context", StringComparison.Ordinal) ||
                 text.Contains("Different current writing", StringComparison.Ordinal))
                 throw new InvalidOperationException("Returning remembered context did not present its exact saved writing.");
+            Control<TextBox>("SearchQuery").Text = "No such note";
+            PumpUntil(() => !Control<ListBox>("SearchResults").HasItems &&
+                Control<TextBlock>("SearchCount").Text.StartsWith("People found: 0", StringComparison.Ordinal));
+            if (model.PeopleNavigation.SelectedResult != destination || model.PeopleNavigation.LastValidView != remembered)
+                throw new InvalidOperationException("An unrelated search discarded the automatically restored exact note destination.");
+            Control<TextBox>("SearchQuery").Clear();
+            PumpUntil(() => Control<TextBlock>("SearchCount").Text.StartsWith("Enter text to search", StringComparison.Ordinal));
+            if (model.PeopleNavigation.SelectedResult != destination)
+                throw new InvalidOperationException("Clearing search discarded the automatically restored exact note destination.");
+            LogicalDescendants(Control<FrameworkElement>("ImportPanel")).OfType<Button>()
+                .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (model.IsImportOpen || model.PeopleNavigation.SelectedResult != destination ||
+                !preferences.SequenceEqual(File.ReadAllBytes(preferencesPath)))
+                throw new InvalidOperationException("Returning to browsing lost the exact note destination or changed its saved preference.");
+            var next = model.ReportingRoots.Single(node => node.Person.Email == "higher@example.com");
+            Control<TreeView>("PeopleList").RaiseEvent(new RoutedPropertyChangedEventArgs<object>(
+                null!, next, TreeView.SelectedItemChangedEvent));
+            if (model.PeopleNavigation.SelectedEmail != "higher@example.com" ||
+                model.PeopleNavigation.SelectedResult is not null ||
+                new WorkspaceSettings(preferencesPath).GetLastView(path)?.PersonEmail != "higher@example.com")
+                throw new InvalidOperationException("Deliberate navigation did not replace the restored exact note destination.");
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Returning-context verification cannot create a native window.");
             Console.WriteLine($"PASS: returning {(historical ? "frozen" : "inherited")} exact context is presented after " +

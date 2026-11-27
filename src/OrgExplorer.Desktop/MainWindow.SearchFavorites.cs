@@ -126,7 +126,7 @@ public partial class MainWindow
             refreshingQueries = true;
             SearchResults.SelectedItem = null;
             refreshingQueries = false;
-            ClearSearchContext();
+            ClearSearchContext(preserveRememberedNote: true);
         }
         RefreshSearchAndFavorites();
     }
@@ -173,7 +173,7 @@ public partial class MainWindow
             if (selectedMatch is not null)
             {
                 var match = results.FirstOrDefault(r => r.Matches.Any(m => SameSearchDestination(m, selectedMatch)));
-                if (match is null) ClearSearchContext();
+                if (match is null) ClearSearchContext(preserveRememberedNote: true);
             }
             var favorites = snapshot.Favorites.Select(p => new FavoriteRow(p,
                 (snapshot.Current ? "" : "STALE retained — ") +
@@ -342,10 +342,28 @@ public partial class MainWindow
         }
     };
 
-    private void ClearSearchContext(bool clearSelection = true)
+    private bool HasRememberedNoteContext =>
+        selectedMatch is { Source: SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote } result &&
+        workflow.PeopleNavigation.LastValidView is { } remembered &&
+        remembered.PersonEmail.Equals(result.Person.Email, StringComparison.OrdinalIgnoreCase) &&
+        remembered.Source == result.Source && remembered.NoteId == result.NoteId &&
+        remembered.HistoricalContextId == result.HistoricalContextId &&
+        string.Equals(remembered.NoteOwnerEmail, result.NoteOwner?.Email, StringComparison.OrdinalIgnoreCase) &&
+        (result.Source == SearchSource.InheritedTeamNote
+            ? workflow.GetInheritedTeamNotes(result.Person.Email).Any(note => note.Note.Id == result.NoteId &&
+                note.Owner.Email.Equals(remembered.NoteOwnerEmail, StringComparison.OrdinalIgnoreCase))
+            : workflow.GetHistoricalTeamContexts(result.Person.Email).Any(capture => capture.Id == result.HistoricalContextId &&
+                capture.TeamNotes.Any(note => note.Id == result.NoteId &&
+                    note.OwnerEmail.Equals(remembered.NoteOwnerEmail, StringComparison.OrdinalIgnoreCase))));
+
+    private void ClearSearchContext(bool clearSelection = true, bool preserveRememberedNote = false)
     {
-        pendingPreparedContext = null;
-        if (clearSelection) workflow.CloseSearchContext();
+        var retained = preserveRememberedNote && HasRememberedNoteContext;
+        if (!retained)
+        {
+            pendingPreparedContext = null;
+            if (clearSelection) workflow.CloseSearchContext();
+        }
         if (matchedProfileValue == PersonArchivalStatus && selectedEmail is { } email &&
             workflow.GetRelationships(email)?.Person is { Archived: false })
         {
@@ -360,7 +378,7 @@ public partial class MainWindow
         matchedProfileHelp = null;
         if (matchedFormerFact?.Parent is Section section) section.Blocks.Remove(matchedFormerFact);
         matchedFormerFact = null;
-        System.Windows.Automation.AutomationProperties.SetHelpText(HistoricalTeamReading, "");
+        if (!retained) System.Windows.Automation.AutomationProperties.SetHelpText(HistoricalTeamReading, "");
     }
 
     private void SelectFavoritePerson(object sender, SelectionChangedEventArgs e)
