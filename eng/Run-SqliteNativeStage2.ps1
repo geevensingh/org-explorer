@@ -109,7 +109,8 @@ try {
         if ($bindings.Count -ne 1) { throw 'Stage2 lacks exactly one original-fixture scope binding.' }
         $binding = Get-Content -LiteralPath $bindings[0].FullName -Raw | ConvertFrom-Json
         if (!$binding.complete -or $binding.candidate -cne $revision -or
-            $binding.nativeSha256 -cne $record.nativeSha256 -or !$binding.firstRevision) {
+            $binding.nativeSha256 -cne $record.nativeSha256 -or !$binding.firstRevision -or
+            !$binding.originalMetadata -or $binding.originalMetadata.rawWalEvidence.Status -cne 'Complete') {
             throw 'Stage2 capture binding is incomplete or does not match the candidate/native/first-read boundary.'
         }
         $verdict = Get-Content -LiteralPath (Join-Path $bindings[0].DirectoryName 'native-verdict.json') -Raw | ConvertFrom-Json

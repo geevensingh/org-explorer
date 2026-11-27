@@ -202,8 +202,8 @@ jobs:
             .ci-results/sqlite-native-stage2/**/*.json
             .ci-results/sqlite-native-stage2/*.trx
             .ci-results/sqlite-native-stage2/*.log
-            .ci-results/sqlite-native-stage2/native/*.c
-            .ci-results/sqlite-native-stage2/native/*.h
-            .ci-results/sqlite-native-stage2/native/*.patch
-            .ci-results/sqlite-native-stage2/native/*.dll
-            .ci-results/sqlite-native-stage2/native/*.log
+            .ci-results/sqlite-native-stage2/native/**/*.c
+            .ci-results/sqlite-native-stage2/native/**/*.h
+            .ci-results/sqlite-native-stage2/native/**/*.patch
+            .ci-results/sqlite-native-stage2/native/**/*.dll
+            .ci-results/sqlite-native-stage2/native/**/*.log

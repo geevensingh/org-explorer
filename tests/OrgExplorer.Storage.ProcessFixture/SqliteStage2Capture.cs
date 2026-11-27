@@ -25,6 +25,7 @@ public sealed class SqliteStage2Capture : IDisposable
     private bool disposed;
     private int? expectedChild;
     private object? firstRevision;
+    private object? originalMetadata;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
     private delegate int Bind(int role, uint parent, uint self,
@@ -165,6 +166,7 @@ public sealed class SqliteStage2Capture : IDisposable
         firstRevision = new { revision, phase, outcome, outstanding };
         Phase(6);
     }
+    public void Evidence(object metadata) => originalMetadata = metadata;
 
     public void Dispose()
     {
@@ -189,12 +191,14 @@ public sealed class SqliteStage2Capture : IDisposable
                 nativeSha256 = Environment.GetEnvironmentVariable("ORGEXPLORER_SQLITE_STAGE2_NATIVE_SHA256"),
                 parentPid, expectedChild,
                 registeredParent = parentView.ReadUInt32(20), registeredChild = childView.ReadUInt32(20),
-                firstRevision, collectorPid = collector.Id, collectorExitCode = collector.ExitCode,
+                firstRevision, originalMetadata, collectorPid = collector.Id, collectorExitCode = collector.ExitCode,
                 complete = collector.ExitCode == 0 && parentView.ReadUInt32(20) == parentPid &&
                     expectedChild is { } child && childView.ReadUInt32(20) == child
             };
-            File.WriteAllText(Path.Combine(results, "fixture-binding.json"), JsonSerializer.Serialize(summary));
-            Console.WriteLine("SQLITE-STAGE2-FIXTURE " + JsonSerializer.Serialize(summary));
+            var json = JsonSerializer.Serialize(summary);
+            if (json.Length > 16384) throw new InvalidDataException("Stage2 fixture metadata exceeded its bounded capture.");
+            File.WriteAllText(Path.Combine(results, "fixture-binding.json"), json);
+            Console.WriteLine("SQLITE-STAGE2-FIXTURE " + json);
             var errors = collectorError.GetAwaiter().GetResult();
             var output = collectorOutput.GetAwaiter().GetResult();
             if (errors.Length != 0 || output.Length != 0)

@@ -424,6 +424,7 @@ public sealed partial class SqliteWorkspaceTests
         internal ShmHeldResources CaptureHeldResources() => new(identity, capacity,
             !file.SafeFileHandle.IsClosed, !mapping.SafeMemoryMappedFileHandle.IsClosed,
             !view.SafeMemoryMappedViewHandle.IsClosed);
+        internal CrashFileIdentity CaptureFileIdentity() => CaptureCrashFileIdentity(file);
 
         internal byte[] ReadIndex()
         {

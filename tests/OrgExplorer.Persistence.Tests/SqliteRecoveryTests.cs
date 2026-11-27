@@ -670,6 +670,7 @@ public sealed partial class SqliteWorkspaceTests
                     committedHolderPresent = committedFileHolder is not null,
                     committedHolderClosed = committedFileHolder?.SafeFileHandle.IsClosed, committedHolderIdentity,
                     shm = shmMapping?.CaptureHeldResources(),
+                    originalShmFileIdentity = stage2 is null ? null : shmMapping?.CaptureFileIdentity(),
                     staleIndexBytes = staleShmIndex?.Length, committedFiles = committedFileObservations.ToArray(),
                     rawWalEvidence, walIndexBeforeOpen,
                     walIndexAtEquality = inspectCommittedWal ? CaptureWalIndex(shmMapping) : null,
@@ -696,6 +697,7 @@ public sealed partial class SqliteWorkspaceTests
                     committedHolderIdentity, committedFiles = committedFileObservations.ToArray()
                 };
             }
+            stage2?.Evidence(revisionEvidence);
             try { Assert.Equal(expectedRevision, firstRecoveredSave.CommittedRevision); }
             catch (Xunit.Sdk.EqualException original)
             {

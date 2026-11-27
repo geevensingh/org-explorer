@@ -3199,6 +3199,12 @@ read stay `Unknown` until supported by actual evidence. Exact source/native
 hashes, candidate/run/attempt, strict TRX and capture metadata are retained in
 `diagnostic-sqlite-stage2-<sha>-<run>-<attempt>`. A diagnostic pass is explicitly
 not normal CI, while an original assertion failure remains failed.
+The Stage2-only fixture binding also retains the already-captured admission/raw
+truth/resource metadata on passing runs, bounded to 16 KiB. An identity query
+on the existing held SHM file handle binds that original object to native VFS
+observations without reopening a path or reading SQL; this extra metadata call
+occurs after the first returned snapshot and may perturb later scheduling.
+This transport is not proof of unchanged DB/WAL content through the read.
 Local refusal contract: `.\tests\SqliteNativeStage2.Tests.ps1`; shared/local
 collection and native substitution are refused before any fixture execution.
 The Stage2 route, instrumentation and substitution are temporary and must
