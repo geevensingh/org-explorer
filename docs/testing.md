@@ -156,6 +156,12 @@ retries stale even when the submitted name would otherwise clear.
 Changed-field delivery rejects save/retry;
 other-field delivery is retained, and success returns the exact saved base for
 newer typing rather than rereading a possibly newer provider revision.
+The admitted-work Preferred-name typing contract controls only its view-model
+request clock while the original operation remains held. Both save-name and
+independent-favorite cases also delay the test continuation past three wall-clock
+seconds, then require the actual original-value typing and its correct saved
+base/retirement. The five-second holds/waits and production stall clocks remain
+unchanged; this non-timing contract must not reject its intended typing as stalled.
 Ordinary profiles use `BeginProfileEdit`, staged text/Manager/photo operations,
 and explicit `SaveProfileEdit` / `CancelProfileEdit`. `ProfileEdit` exposes the
 person-scoped immutable baseline and complete draft. `TryLeaveProfileEdit`
