@@ -55,6 +55,7 @@ jobs:
       - name: Observe the original worker's final signed disposition
         if: ${{ steps.runner.outcome == 'success' }}
         env:
+          GH_TOKEN: ${{ github.token }}
           REVISION: ${{ inputs.revision }}
           ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
         run: |
@@ -114,6 +115,7 @@ jobs:
       - name: Observe the original prefix's final signed disposition
         if: ${{ steps.runner.outcome == 'success' }}
         env:
+          GH_TOKEN: ${{ github.token }}
           REVISION: ${{ inputs.revision }}
           ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
         run: |
@@ -179,6 +181,7 @@ jobs:
       - name: Observe the original tail's final signed disposition
         if: ${{ steps.runner.outcome == 'success' }}
         env:
+          GH_TOKEN: ${{ github.token }}
           REVISION: ${{ inputs.revision }}
           ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
         run: |

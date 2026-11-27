@@ -7,6 +7,20 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $evidence = [IO.Path]::GetFullPath($EvidenceDirectory, $root)
 $contextPath = Join-Path $evidence 'context.json'
+$completionSteps = @(
+    foreach ($workflow in @('scale-verification.yml', 'rich-cohort-sample.yml', 'non-ui-cohort-execution.yml')) {
+        $text = Get-Content -LiteralPath (Join-Path $root ".github\workflows\$workflow") -Raw
+        foreach ($step in ($text -split '(?m)^      - ')) {
+            if ($step -cmatch 'Invoke-ScaleWorker\.ps1 -Stage Complete') {
+                if ($step -cnotmatch '(?m)^          GH_TOKEN: \$\{\{ github\.token \}\}\s*$') {
+                    throw "Worker completion has no independently authenticated GitHub context: $workflow"
+                }
+                $workflow
+            }
+        }
+    }
+)
+if ($completionSteps.Count -ne 7) { throw 'The complete supervised worker workflow selection changed.' }
 
 if ($Stage -ceq 'Start') {
     if (Test-Path -LiteralPath $contextPath) { throw 'A step-lifetime test cannot reuse another invocation.' }

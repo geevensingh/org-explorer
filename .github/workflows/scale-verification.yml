@@ -176,6 +176,7 @@ jobs:
       - name: Observe original non-UI completion
         if: ${{ steps.runner.outcome == 'success' }}
         env:
+          GH_TOKEN: ${{ github.token }}
           ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
         run: |
           if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
@@ -246,6 +247,7 @@ jobs:
       - name: Observe original prefix completion
         if: ${{ steps.runner.outcome == 'success' }}
         env:
+          GH_TOKEN: ${{ github.token }}
           ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
         run: |
           if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
@@ -318,6 +320,7 @@ jobs:
       - name: Observe original tail completion
         if: ${{ steps.runner.outcome == 'success' }}
         env:
+          GH_TOKEN: ${{ github.token }}
           ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
         run: |
           if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {

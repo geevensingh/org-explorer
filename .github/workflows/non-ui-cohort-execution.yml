@@ -110,6 +110,7 @@ jobs:
       - name: Observe original sample completion
         if: ${{ steps.runner.outcome == 'success' }}
         env:
+          GH_TOKEN: ${{ github.token }}
           REVISION: ${{ inputs.revision }}
           ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
         run: |
