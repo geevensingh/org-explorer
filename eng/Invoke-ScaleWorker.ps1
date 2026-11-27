@@ -84,7 +84,7 @@ public static class ScaleWorkerProgress {
     if ($PrefixResultsDirectory) { $arguments += @('-PrefixResultsDirectory', $PrefixResultsDirectory) }
     if ($CohortId) { $arguments += @('-CohortId', $CohortId, '-Sample', [string]$Sample) }
     if ($ExtendedObservation) { $arguments += '-ExtendedObservation' }
-    $process = Start-Process (Get-Process -Id $PID).Path -PassThru -NoNewWindow `
+    $process = Start-Process (Get-Process -Id $PID).Path -PassThru -WindowStyle Hidden `
         -ArgumentList @($arguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }) `
         -RedirectStandardOutput (Join-Path $results 'worker.log') -RedirectStandardError (Join-Path $results 'worker-errors.log')
     try {

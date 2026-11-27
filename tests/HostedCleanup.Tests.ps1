@@ -57,13 +57,15 @@ try {
     }
     function Start-Process {
         param([string]$FilePath, [object[]]$ArgumentList, [switch]$PassThru, [switch]$NoNewWindow,
-            [string]$RedirectStandardOutput, [string]$RedirectStandardError)
+            [string]$RedirectStandardOutput, [string]$RedirectStandardError,
+            [Diagnostics.ProcessWindowStyle]$WindowStyle = 'Normal')
         if ($FilePath -ceq 'gh') {
             $ArgumentList += @('--custom-trusted-root', "`"$trust`"")
             $FilePath = $ghExecutable
         }
+        $window = if ($NoNewWindow) { @{ NoNewWindow = $true } } else { @{ WindowStyle = $WindowStyle } }
         & $startProcess -FilePath $FilePath -ArgumentList $ArgumentList -PassThru:$PassThru `
-            -NoNewWindow:$NoNewWindow -RedirectStandardOutput $RedirectStandardOutput -RedirectStandardError $RedirectStandardError
+            @window -RedirectStandardOutput $RedirectStandardOutput -RedirectStandardError $RedirectStandardError
     }
     . "$source\eng\PerformanceSuite.ps1"
     . "$source\eng\TimingPolicy.ps1"
