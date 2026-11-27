@@ -1990,7 +1990,12 @@ the public local result projection. It checks bounded overlap, ordered complete
 receipts, caller paths with spaces, named assembly arguments, environment/
 function/directory isolation, compiled and companion failure, mandatory cleanup
 selection, and deadline termination of an exited parent's descendant while an
-unrelated holder survives. Its small compiled workload is an isolated contract
+unrelated holder survives. The overlap child explicitly resolves four CPUs;
+a separate one-CPU child must complete all 21 companions serially, without
+overlapping receipts. Both cases run even when the caller resolves only one CPU;
+inherited `DOTNET_PROCESSOR_COUNT` cannot make the mandatory fixture demand
+impossible overlap. Production scheduling remains capped by its actual resolved
+processor count. Its small compiled workload is an isolated contract
 fixture, not a replacement for the full core selection or hosted acceptance.
 Lane-health contracts retain immutable history and distinguish serial versus
 different resolved parallelism series. No desktop automation or hosted dispatch

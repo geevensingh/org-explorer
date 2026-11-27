@@ -12,7 +12,12 @@ $names = @('CiGate.Tests.ps1', 'CiRunner.Tests.ps1', 'FilesystemHealth.Tests.ps1
 function Assert([bool]$Condition, [string]$Reason) {
     if (!$Condition) { throw $Reason }
 }
-function Invoke-ControlledCore([string]$Mode = 'overlap', [int]$BudgetUsed = 0, [int]$WaitMilliseconds = 60000) {
+function Invoke-ControlledCore([string]$Mode = 'overlap', [int]$BudgetUsed = 0,
+    [int]$WaitMilliseconds = 60000, [int]$ProcessorCount = 4) {
+    foreach ($name in @('first.started', 'second.started')) {
+        $path = Join-Path $fixture $name
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
+    }
     $start = [Diagnostics.ProcessStartInfo]::new((Get-Command pwsh).Source)
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
@@ -25,6 +30,7 @@ function Invoke-ControlledCore([string]$Mode = 'overlap', [int]$BudgetUsed = 0, 
     foreach ($key in @('LANE_STARTED_AT', 'GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT',
         'GITHUB_STEP_SUMMARY', 'CORE_CONTRACT_ISOLATION')) { $null = $start.Environment.Remove($key) }
     $start.Environment['CORE_CONTRACT_MODE'] = $Mode
+    $start.Environment['DOTNET_PROCESSOR_COUNT'] = [string]$ProcessorCount
     if ($BudgetUsed) { $start.Environment['LANE_STARTED_AT'] = [DateTimeOffset]::UtcNow.AddSeconds(-$BudgetUsed).ToString('O') }
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
@@ -101,10 +107,12 @@ if ($name -ceq 'CiGate.Tests.ps1') {
     function global:gh { throw 'A fake external binding leaked between companions.' }
     New-Item -ItemType File -Path (Join-Path $root 'first.started') -Force | Out-Null
     Set-Location -LiteralPath (Join-Path $root 'tests')
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(3)
-    while (!(Test-Path -LiteralPath (Join-Path $root 'second.started'))) {
-        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Required companions did not overlap.' }
-        Start-Sleep -Milliseconds 20
+    if ($env:CORE_CONTRACT_MODE -cne 'serial') {
+        $deadline = [DateTimeOffset]::UtcNow.AddSeconds(3)
+        while (!(Test-Path -LiteralPath (Join-Path $root 'second.started'))) {
+            if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Required companions did not overlap.' }
+            Start-Sleep -Milliseconds 20
+        }
     }
     Start-Sleep -Milliseconds 150
 }
@@ -123,10 +131,29 @@ if ($env:CORE_CONTRACT_MODE -ceq 'failure' -and $name -ceq 'FilesystemHealth.Tes
     git -C $fixture add .
     git -C $fixture -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Controlled runner workload'
     Assert ($LASTEXITCODE -eq 0) 'Controlled source could not be committed.'
+    . "$root\eng\LaneHealth.ps1"
+    $serial = Invoke-ControlledCore -Mode serial -ProcessorCount 1
+    Assert ($serial.exitCode -eq 0 -and $serial.execution.complete -and $serial.execution.outcome -ceq 'success') "One-CPU serial execution failed: $($serial.errors)`n$($serial.output)"
+    Assert ($serial.execution.configuration.processors -eq 1 -and
+        $serial.execution.configuration.coreContracts.maxParallelism -eq 1) 'One-CPU execution did not retain its resolved serial scheduling bound.'
+    Assert (($serial.execution.steps.name -join "`n") -ceq ((@('restore', 'test') + $names) -join "`n") -and
+        @([regex]::Matches($serial.output, 'CONTROLLED-COMPANION ')).Count -eq 21) 'Serial execution lost complete ordered receipts or repeated a companion.'
+    for ($index = 2; $index -lt $serial.execution.steps.Count; $index++) {
+        $record = $serial.execution.steps[$index]
+        Assert ($record.status -ceq 'Passed' -and $record.exitCode -eq 0) 'A serial companion did not complete successfully.'
+        if ($index -gt 2) {
+            Assert ([DateTimeOffset]$record.startedAt -ge [DateTimeOffset]$serial.execution.steps[$index - 1].finishedAt) 'The one-worker queue overlapped companion executions.'
+        }
+    }
+    $projection = Export-LocalCoreHealth (Join-Path $fixture '.ci-results\core') (Join-Path $fixture 'serial projection') $serial.exitCode
+    Assert ($projection.validation -ceq 'success' -and $projection.tests.total -eq 1 -and
+        $projection.configuration.coreContracts.maxParallelism -eq 1 -and !$projection.baselineEligible) 'Serial execution lost actual TRX validation or truthful local scheduling configuration.'
+    Write-Host 'PASS: one-CPU execution serializes every required companion with complete ordered receipts and successful local validation.'
     $success = Invoke-ControlledCore
     $execution = $success.execution
     Assert ($success.exitCode -eq 0) "Controlled runner failed: $($success.errors)`n$($success.output)"
     Assert ($execution.complete -and $execution.outcome -ceq 'success') 'Overlapping execution did not complete.'
+    Assert ($execution.configuration.processors -eq 4 -and $execution.configuration.coreContracts.maxParallelism -eq 4) 'The overlap fixture did not resolve its controlled four-CPU child configuration.'
     Assert (($execution.steps.name -join "`n") -ceq ((@('restore', 'test') + $names) -join "`n")) 'Required receipts lost manifest order.'
     $first = $execution.steps[2]; $second = $execution.steps[3]
     Assert ([DateTimeOffset]$second.startedAt -lt [DateTimeOffset]$first.finishedAt) 'Required companion clocks do not overlap.'
@@ -140,7 +167,6 @@ if ($env:CORE_CONTRACT_MODE -ceq 'failure' -and $name -ceq 'FilesystemHealth.Tes
         Assert ($record.exitCode -eq 0 -and (Test-Path -LiteralPath (Join-Path $fixture ".ci-results\core\$($record.stdout)")) -and
             (Test-Path -LiteralPath (Join-Path $fixture ".ci-results\core\$($record.stderr)"))) 'A completed receipt lost actual exit or output diagnostics.'
     }
-    . "$root\eng\LaneHealth.ps1"
     $projection = Export-LocalCoreHealth (Join-Path $fixture '.ci-results\core') (Join-Path $fixture 'success projection') $success.exitCode
     Assert ($projection.validation -ceq 'success' -and $projection.tests.total -eq 1 -and !$projection.baselineEligible) 'Real runner/TRX evidence did not pass the local public validator.'
     $omission = Join-Path $fixture 'omitted cleanup'
