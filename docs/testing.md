@@ -3135,6 +3135,16 @@ failed runs retain their original measurements and verdicts.
 Missing/incorrect UI, owner, writing or durability remains a failure within the
 original observations.
 
+The native note journey scopes its title, Markdown, identity and mode lookups
+to the same actual Person/Team note surface already used by its editor
+observation, instead of repeatedly searching the entire rich People window.
+Each lookup still reads the current provider and requests the same pattern;
+no property snapshot survives a later action. Creation, report/Manager
+navigation, continued typing, all 20/42/21 samples, independent full-store
+reopens and the original observation and worker budgets remain unchanged.
+Only isolated hosted execution can establish the resulting native runtime;
+compiled or in-memory checks cannot prove that it fits the 660-second gate.
+
 The rich save clock starts before native input and runs through actual WPF
 post-Commit acknowledgment for the exact current owner/note/title/request.
 The shared observation lifecycle owns request, body and cleanup so an observer

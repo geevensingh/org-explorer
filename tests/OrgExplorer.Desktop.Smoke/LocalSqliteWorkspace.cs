@@ -1090,12 +1090,12 @@ internal static partial class Program
                     editorPolls.Add(polls);
                     editorNodes.Add(observedNodes);
                 }
-                AssertNoteView(window, family, editing: true);
-                var id = Guid.Parse(Find(window, family + "NoteHeading").Current.HelpText);
+                AssertNoteView(surface, family, editing: true);
+                var id = Guid.Parse(Find(surface, family + "NoteHeading").Current.HelpText);
                 if (!identities.Add(id)) throw new InvalidOperationException("Repeated Add note reused another creation's identity.");
                 var titleText = $"Hosted {family} context {sample:D2}";
-                Set(window, family + "NoteTitle", titleText);
-                var bodyPattern = (ValuePattern)Find(window, family + "NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
+                Set(surface, family + "NoteTitle", titleText);
+                var bodyPattern = (ValuePattern)Find(surface, family + "NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
                 var text = $"# {family} continuous writing {sample:D2}";
                 var prefix = text;
                 var inputReturned = 0;
@@ -1136,9 +1136,9 @@ internal static partial class Program
                     navigationRequests.Add(nativeMs);
                     navigationPolls.Add(polls);
                     requireHeldExport?.Invoke();
-                    var edit = (SelectionItemPattern)Find(window, family + "NoteEditTab").GetCurrentPattern(SelectionItemPattern.Pattern);
+                    var edit = (SelectionItemPattern)Find(surface, family + "NoteEditTab").GetCurrentPattern(SelectionItemPattern.Pattern);
                     if (!edit.Current.IsSelected) edit.Select();
-                    bodyPattern = (ValuePattern)Find(window, family + "NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
+                    bodyPattern = (ValuePattern)Find(surface, family + "NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
                     ObserveNoteLatency(() =>
                     {
                         var frame = ReadNoteEditor(surface, editorCache, family, includeAcknowledgment: richFixture is not null);
@@ -1165,18 +1165,18 @@ internal static partial class Program
                     continuedEditRequestCompletedMs.Add(continuedTyping.RequestCompletedMs);
                     typingCompletedMs.Add(completedTyping);
                     requireHeldExport?.Invoke();
-                    AssertNoteView(window, family, editing: true);
-                    AssertValue(window, family + "NoteTitle", titleText);
-                    AssertValue(window, family + "NoteMarkdown", text);
-                    if (Find(window, family + "NoteHeading").Current.HelpText != id.ToString())
+                    AssertNoteView(surface, family, editing: true);
+                    AssertValue(surface, family + "NoteTitle", titleText);
+                    AssertValue(surface, family + "NoteMarkdown", text);
+                    if (Find(surface, family + "NoteHeading").Current.HelpText != id.ToString())
                         throw new InvalidOperationException("Native Person switches redirected the retained draft to another note.");
                     if (sample == 19)
                     {
                         var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
                         if (scroll.Current.VerticallyScrollable)
                             scroll.SetScrollPercent(ScrollPattern.NoScroll, 100);
-                        Await(() => !Find(window, "TeamNoteTitle").Current.IsOffscreen &&
-                            !Find(window, "TeamNoteMarkdown").Current.IsOffscreen);
+                        Await(() => !Find(surface, "TeamNoteTitle").Current.IsOffscreen &&
+                            !Find(surface, "TeamNoteMarkdown").Current.IsOffscreen);
                         CaptureVisualEvidence(window, "sqlite-nonblocking-note-editing" +
                             (richFixture is null ? "" : "-rich-" + phase));
                     }
@@ -1209,7 +1209,7 @@ internal static partial class Program
                             frame.Identity == id.ToString() && frame.Title == titleText &&
                             frame.Markdown == text && frame.Writable && frame.Editing;
                     });
-                    AssertValue(window, family + "NoteMarkdown", text);
+                    AssertValue(surface, family + "NoteMarkdown", text);
                     saved[scope] = (id, titleText, text);
                 });
             }
