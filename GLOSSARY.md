@@ -53,6 +53,10 @@ _Avoid_: Deleted person, departed employee
 The person to whom another person formally reports, regardless of job-title wording.
 _Avoid_: Project lead, informal lead
 
+**Direct report**:
+A Person who formally reports to a Manager without an intervening manager.
+_Avoid_: Any reporting descendant
+
 **Reporting chain**:
 A person's formal manager and all successive management ancestors.
 _Avoid_: Informal team membership

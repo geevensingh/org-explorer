@@ -17,7 +17,7 @@ public partial class MainWindow
     private bool wideWorkspace;
     private bool arrangingPanes;
     private bool draggingPane;
-    private string? pendingSearchRevealEmail;
+    private string? pendingPeopleRevealEmail;
     private int peopleBrowseRequest;
 
     private void ResizeWorkspace(object sender, SizeChangedEventArgs e) => ArrangeWorkspace();
@@ -52,7 +52,7 @@ public partial class MainWindow
             UpdatePeopleNavigation();
             if (transition && wide && workflow.PeopleNavigation.IsBrowsing)
             {
-                if (pendingSearchRevealEmail is not null) RevealAcceptedSearchPerson();
+                if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
                 else RestorePeopleBrowsing();
             }
         }
@@ -131,7 +131,7 @@ public partial class MainWindow
         {
             if (workflow.PeopleNavigation.IsBrowsing)
             {
-                if (pendingSearchRevealEmail is not null) RevealAcceptedSearchPerson();
+                if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
                 else RestorePeopleBrowsing();
             }
             Dispatcher.BeginInvoke(() =>
@@ -191,6 +191,8 @@ public partial class MainWindow
         BrowsingPanel.Visibility = workflow.PeopleNavigation.IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
         ReportsSection.Visibility = ReportsList.HasItems && (!wideWorkspace || !workflow.PeopleNavigation.IsBrowsing)
             ? Visibility.Visible : Visibility.Collapsed;
+        if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
+        RevealPreparedContext();
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
@@ -224,14 +226,16 @@ public partial class MainWindow
         }, DispatcherPriority.Loaded);
     }
 
-    private void RevealAcceptedSearchPerson()
+    private void RevealSelectedPerson()
     {
-        var email = pendingSearchRevealEmail;
+        if (!workflow.PeopleNavigation.IsBrowsing || ExplorerPanel.Visibility != Visibility.Visible ||
+            PeoplePanel.Visibility != Visibility.Visible || workflow.IsImportOpen) return;
+        var email = pendingPeopleRevealEmail;
+        if (email is null) return;
         var request = ++peopleBrowseRequest;
         Dispatcher.BeginInvoke(() =>
         {
-            if (request != peopleBrowseRequest || email is null || email != selectedEmail ||
-                !workflow.PeopleNavigation.IsBrowsing || PeoplePanel.Visibility != Visibility.Visible) return;
+            if (!IsPeopleRevealCurrent(request, email)) return;
             FrameworkElement? row;
             if (workflow.GetRelationships(email)?.Person is { Archived: true } person)
             {
@@ -253,17 +257,38 @@ public partial class MainWindow
                 StatusText.Text = "The Person is open, but their People row could not be revealed. Reopen People to try again.";
                 return;
             }
-            // Root rows can reserve a wider browsing extent; reveal the header's leading edge, not its trailing blank width.
-            row.BringIntoView(new Rect(0, 0, 1, Math.Min(28, row.ActualHeight)));
-            if (wideWorkspace)
+            // Expanded realization can publish its scroll extent after the current layout callback.
+            Dispatcher.BeginInvoke(() =>
             {
-                FocusManager.SetFocusedElement(this, row);
-                if (IsVisible) row.Focus();
-            }
-            pendingSearchRevealEmail = null;
-            RememberPeopleBrowsing();
+                if (!IsPeopleRevealCurrent(request, email) ||
+                    row is TreeViewItem treeRow &&
+                        (treeRow.DataContext is not ReportingNode node ||
+                            !node.Person.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return;
+                }
+                // Preserve leading-edge reveal without including the expanded subtree or trailing blank width.
+                var target = new Rect(0, 0, 1, Math.Min(28, row.ActualHeight));
+                row.BringIntoView(target);
+                if (wideWorkspace)
+                {
+                    FocusManager.SetFocusedElement(this, row);
+                    if (IsVisible) row.Focus();
+                }
+                pendingPeopleRevealEmail = null;
+                // Capture browsing only after the one queued scroll request has applied.
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (IsPeopleRevealCurrent(request, email)) RememberPeopleBrowsing();
+                }, DispatcherPriority.ContextIdle);
+            }, DispatcherPriority.ContextIdle);
         }, DispatcherPriority.Loaded);
     }
+
+    private bool IsPeopleRevealCurrent(int request, string email) =>
+        request == peopleBrowseRequest && email == selectedEmail && email == workflow.PeopleNavigation.SelectedEmail &&
+        workflow.IsWorkspaceCurrent && workflow.PeopleNavigation.IsBrowsing && !workflow.IsImportOpen &&
+        ExplorerPanel.Visibility == Visibility.Visible && PeoplePanel.Visibility == Visibility.Visible;
 
     private TreeViewItem? RevealReportingRow(string email)
     {

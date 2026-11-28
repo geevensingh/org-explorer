@@ -27,6 +27,14 @@ public sealed partial class SqliteWorkspaceTests
         => await AssertAbruptCommitRecovery("after", "profile", false, false,
             retainShmMapping: true, restoreStaleShmIndex: true, retainResources: true);
 
+    [Theory]
+    [InlineData("workspace.sqlite")]
+    [InlineData("workspace.sqlite-wal")]
+    public async Task Stale_SHM_recovery_preserves_committed_bytes_with_a_writable_file_handle_retained(string file)
+        => await AssertAbruptCommitRecovery("after", "profile", false, false,
+            retainShmMapping: true, restoreStaleShmIndex: true, retainResources: true,
+            retainedCommittedFile: file);
+
     private sealed class ShmReadBoundary : IWorkspaceFileObserver, IDisposable
     {
         internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

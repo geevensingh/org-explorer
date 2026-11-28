@@ -262,6 +262,7 @@ public sealed class SearchFavoriteTests
         var markdown = string.Concat(Enumerable.Repeat("Fictitious shared context \t \n", 4096)) + "lastneedle";
         app.CreateTeamNote("morgan@example.com", "Shared context", markdown);
         app.SearchPeople("lastneedle");
+        Assert.Equal("alex@example.com", app.PeopleNavigation.SelectedEmail);
 
         var before = GC.GetAllocatedBytesForCurrentThread();
         long request = 0;
@@ -272,11 +273,11 @@ public sealed class SearchFavoriteTests
         Assert.True(allocated < 2 * 1024 * 1024,
             $"Query input must defer matching and excerpts to the background search; allocated {allocated:N0} bytes.");
         Assert.Null(app.PeopleNavigation.HighlightedResult);
-        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.Equal("alex@example.com", app.PeopleNavigation.SelectedEmail);
         Assert.True(app.PublishPeopleSearchResults(request, app.SearchPeople("lastneedle")));
         Assert.Equal("morgan@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
         Assert.Equal(SearchSource.OwnedTeamNote, app.PeopleNavigation.HighlightedResult.Matches[0].Source);
-        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.Equal("alex@example.com", app.PeopleNavigation.SelectedEmail);
         Assert.True(app.NavigateSearchResult(app.PeopleNavigation.HighlightedResult), app.Status);
         Assert.Equal("morgan@example.com", app.PeopleNavigation.SelectedEmail);
         Assert.True(app.PeopleNavigation.IsBrowsing);
