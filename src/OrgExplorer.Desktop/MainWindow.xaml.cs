@@ -377,9 +377,15 @@ public partial class MainWindow : Window
     }
     private void ShowReportingSummary(ReportingSummary? summary)
     {
-        ReportingStructureValue.Text = summary is null ? "" :
-            string.Join(", ", new[] { $"{summary.Total} total" }.Concat(
-                summary.Categories.Select(count => $"{count.Count} {count.Category.PluralDisplayName}")));
+        if (summary is null) ReportingStructureValue.Text = "";
+        else
+        {
+            var categories = summary.Categories.Where(count => count.Count > 0).ToArray();
+            var values = categories.Select(count =>
+                $"{count.Count} {(count.Count == 1 ? count.Category.DisplayName : count.Category.PluralDisplayName).ToLowerInvariant()}");
+            ReportingStructureValue.Text = string.Join(", ", categories.Length > 1
+                ? new[] { $"{summary.Total} total" }.Concat(values) : values);
+        }
         ReportingStructureSlot.Visibility = summary is null ? Visibility.Collapsed : Visibility.Visible;
         // WrapPanel's fixed ItemWidth reserves space even for a collapsed child.
         if (summary is null) FactsGrid.Children.Remove(ReportingStructureSlot);

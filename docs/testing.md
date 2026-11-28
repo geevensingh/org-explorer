@@ -315,10 +315,15 @@ independence. The 12,000-report wide and 1,024-level deep cases prove uncapped
 counts, not either separate scale suite or a latency SLA. Real-folder cases
 reopen current counts and refresh selected profiles/ancestors while retaining
 private context and note writing. The existing invisible profile-refresh contract
-observes the ordinary zero-inclusive fact, its real read-only selectable
+observes the ordinary composition-aware fact, its real read-only selectable
 TextPattern provider and final-category character layout, accessible full text,
 placement, size matrix, delivered counts and eligibility changes without a
-native window. The prior plain TextBlock had no TextPattern; source text and
+native window. Independently specified exact outputs cover Employee-only and
+Vendor-only groups, singular nouns, mixed groups and a mixed pair; existing
+accepted-delivery/archival fixtures also refresh a mixed summary to a single
+category, omit its zero-count category and retain the absent/reappearing state.
+Underlying workflow count expectations remain zero-inclusive. The prior plain
+TextBlock had no TextPattern; source text and
 an outer control box alone cannot establish final-category glyph readability.
 Existing hosted profile, archival, external-refresh and responsive journeys
 observe every final count/category character's actual rendered text-range

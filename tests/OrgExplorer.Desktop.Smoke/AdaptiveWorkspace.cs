@@ -157,7 +157,7 @@ internal static partial class Program
             NavigateToManager(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
             AssertTeamNameReading(window, null);
-            AssertReportingStructure(window, 1, 1, 0);
+            AssertReportingStructure(window, "1 employee");
             AssertInitialsCircle(window, "M", photo);
             SelectTreePerson(window, "avery@example.com");
             AssertPhotoVisible(window);
