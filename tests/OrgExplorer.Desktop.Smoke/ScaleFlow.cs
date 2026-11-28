@@ -102,6 +102,7 @@ internal static partial class Program
                 expand.Collapse();
                 AwaitScale(() => expand.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
                 expand.Expand();
+                AssertScaleSubtreeExpansion(window, fixture);
             });
             ScaleFixture.Measure("UI-current-search", () =>
             {
@@ -164,6 +165,282 @@ internal static partial class Program
             if (process is not null) StopApplication(process);
         }
     }
+
+    private static void AssertScaleSubtreeExpansion(AutomationElement window, ScaleFixture fixture)
+    {
+        using var expected = ApplicationWorkflow.CreateFileBacked();
+        if (!expected.OpenWorkspace(fixture.Workspace, WorkspaceOpenMode.ExistingOnly))
+            throw new InvalidOperationException(expected.Status);
+        ScaleFixture.RequireRichPopulation(expected);
+        var managerEmails = Enumerable.Range(0, 150).Select(ScaleFixture.Email).ToArray();
+        if (managerEmails.Any(email => expected.GetRelationships(email) is not { ImportedReports.Count: > 0 }))
+            throw new InvalidOperationException("The independent complete rich tree fixture lost one of its 150 current reporting managers.");
+        var tree = Find(window, "People");
+        var root = Find(tree, ScaleFixture.Email(0));
+        var rootExpansion = (ExpandCollapsePattern)root.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        var query = Find(window, "SearchQuery");
+        AutomationElement[] CaptureExpansion()
+        {
+            using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
+            var cache = new CacheRequest { TreeScope = TreeScope.Element };
+            foreach (var property in new[] { AutomationElement.AutomationIdProperty, AutomationElement.NameProperty,
+                AutomationElement.ControlTypeProperty,
+                AutomationElement.ItemStatusProperty, AutomationElement.IsOffscreenProperty, AutomationElement.IsEnabledProperty,
+                AutomationElement.BoundingRectangleProperty, AutomationElement.HasKeyboardFocusProperty,
+                ValuePattern.ValueProperty, ExpandCollapsePattern.ExpandCollapseStateProperty })
+                cache.Add(property);
+            AutomationElementCollection controls;
+            using (cache.Activate())
+                controls = window.FindAll(TreeScope.Descendants, new OrCondition(
+                    new[] { "Email", "People", "PeopleNavigation", "SearchQuery", "SearchResults", "SearchCount",
+                        "TreeExpansionStatus", "CancelTreeExpansion", ScaleFixture.Email(0) }
+                        .Select(id => new PropertyCondition(AutomationElement.AutomationIdProperty, id)).ToArray()));
+            return controls.Cast<AutomationElement>().ToArray();
+        }
+        AutomationElement Captured(AutomationElement[] controls, string id) =>
+            id == ScaleFixture.Email(0)
+                ? TreeItemRealization.ReportingTarget(controls, id, control => control.Cached.AutomationId,
+                    control => control.Cached.ControlType == ControlType.TreeItem)
+                : controls.FirstOrDefault(control => control.Cached.AutomationId == id) ??
+                    throw new InvalidOperationException("Missing actual UI control: " + id);
+        bool Visible(AutomationElement[] controls, string id) =>
+            controls.FirstOrDefault(control => control.Cached.AutomationId == id) is { } control && !control.Cached.IsOffscreen;
+        string ExpansionText(AutomationElement[] controls) =>
+            controls.FirstOrDefault(control => control.Cached.AutomationId == "TreeExpansionStatus")?.Cached.Name ??
+                Captured(controls, "People").Cached.ItemStatus;
+        var owner = Captured(CaptureExpansion(), "Email").Cached.Name;
+        void AssertRetained(AutomationElement[]? controls = null, string boundary = "retention")
+        {
+            controls ??= CaptureExpansion();
+            var row = Captured(controls, ScaleFixture.Email(0));
+            var bounds = row.Cached.BoundingRectangle;
+            var viewport = Captured(controls, "People").Cached.BoundingRectangle;
+            if (Captured(controls, "Email").Cached.Name != owner || row.Cached.IsOffscreen ||
+                bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
+                throw new InvalidOperationException("Scale subtree expansion changed the open profile or lost its command target: " +
+                    $"boundary={boundary}; expectedOwner={owner}; actualOwner={Captured(controls, "Email").Cached.Name}; " +
+                    $"targetType={row.Cached.ControlType}; targetOffscreen={row.Cached.IsOffscreen}; " +
+                    $"target={bounds}; viewport={viewport}.");
+        }
+        (int People, int Branches) Progress(AutomationElement[] controls)
+        {
+            var text = ExpansionText(controls);
+            var match = System.Text.RegularExpressions.Regex.Match(text,
+                @"(\d+) imported People checked; (\d+) branches expanded\.");
+            if (!match.Success) throw new InvalidOperationException("The actual scale tree has no useful expansion progress: " + text);
+            return (int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value));
+        }
+        void Action(string label)
+        {
+            RightClickReportingRow(window, root, "full-population-" + label);
+            AutomationElement? menu = null;
+            AwaitScale(() => (menu = ReportingMenu(window)) is not null);
+            var actions = menu!.FindAll(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem))
+                .Cast<AutomationElement>().Where(item => !item.Current.IsOffscreen).ToArray();
+            var action = actions.SingleOrDefault(item => item.Current.Name == label && item.Current.IsEnabled) ??
+                throw new InvalidOperationException("The actual rich tree omitted " + label);
+            AssertRetained(boundary: "menu-open-" + label);
+            PrimaryClick(() => action);
+            AwaitScale(() => ReportingMenu(window) is null);
+        }
+
+        // Reset via the real recursive action, not ordinary disclosure or repaired fixture state.
+        Action("Collapse subtree");
+        AwaitScale(() => rootExpansion.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
+        AssertRetained();
+        Action("Expand subtree");
+        AutomationElement[] frame = [];
+        AwaitScale(() =>
+        {
+            frame = CaptureExpansion();
+            return ExpansionText(frame).StartsWith("Expanding subtree:", StringComparison.Ordinal) &&
+                Progress(frame) is { People: > 0, Branches: > 0 };
+        });
+        var cancel = Captured(frame, "CancelTreeExpansion");
+        if (!cancel.Cached.IsEnabled || cancel.Cached.IsOffscreen)
+            throw new InvalidOperationException("Full-population expansion has no actionable native cancellation control.");
+        AssertRetained(frame);
+        query.SetFocus();
+        AwaitScale(() => query.Current.HasKeyboardFocus);
+        if (!tree.Current.ItemStatus.StartsWith("Expanding subtree:", StringComparison.Ordinal))
+            throw new InvalidOperationException("Interaction was observed only after scale expansion finished, not while work was unfinished.");
+        AssertRetained();
+        ((ValuePattern)query.GetCurrentPattern(ValuePattern.Pattern)).SetValue("handle01000");
+        AwaitScale(() =>
+        {
+            frame = CaptureExpansion();
+            return Captured(frame, "SearchQuery").GetCachedPropertyValue(ValuePattern.ValueProperty).Equals("handle01000") &&
+                Visible(frame, "SearchResults") && !Visible(frame, "People") &&
+                Captured(frame, "SearchCount").Cached.Name.Contains("People found: 1 ", StringComparison.Ordinal);
+        });
+        cancel = Captured(frame, "CancelTreeExpansion");
+        if (!ExpansionText(frame).StartsWith("Expanding subtree:", StringComparison.Ordinal) ||
+            Progress(frame) is not { People: > 0 and < 9900, Branches: > 0 } ||
+            !Visible(frame, "PeopleNavigation") || !Visible(frame, "TreeExpansionStatus") ||
+            cancel.Cached.IsOffscreen || !cancel.Cached.IsEnabled ||
+            !Captured(frame, "SearchQuery").Cached.HasKeyboardFocus || Captured(frame, "Email").Cached.Name != owner)
+            throw new InvalidOperationException("Actual nonempty search must expose useful progress and actionable cancellation while full-rich expansion is genuinely unfinished.");
+        ((InvokePattern)cancel.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+        AwaitScale(() =>
+        {
+            frame = CaptureExpansion();
+            return ExpansionText(frame).StartsWith("Expand subtree cancelled;", StringComparison.Ordinal);
+        });
+        var partial = Progress(frame);
+        if (partial.People is <= 0 or >= 9900 || partial.Branches <= 0 || !Visible(frame, "SearchResults") ||
+            !Visible(frame, "TreeExpansionStatus") || Captured(frame, "Email").Cached.Name != owner)
+            throw new InvalidOperationException("Native scale cancellation did not preserve genuine unfinished expansion.");
+        var stable = Stopwatch.StartNew();
+        AwaitScale(() => stable.ElapsedMilliseconds >= 200);
+        if (Progress(CaptureExpansion()) != partial) throw new InvalidOperationException("Expansion continued after native cancellation.");
+        Click(window, "ClearSearch");
+        AwaitScale(() =>
+        {
+            frame = CaptureExpansion();
+            return Visible(frame, "People") &&
+                Captured(frame, "SearchQuery").GetCachedPropertyValue(ValuePattern.ValueProperty).Equals("");
+        });
+        if (Progress(frame) != partial || !Captured(frame, ScaleFixture.Email(0))
+            .GetCachedPropertyValue(ExpandCollapsePattern.ExpandCollapseStateProperty).Equals(ExpandCollapseState.Expanded))
+            throw new InvalidOperationException("Search-clear lost cancelled partial expansion.");
+        AssertRetained(frame);
+        Action("Expand subtree");
+        AwaitScale(() => tree.Current.ItemStatus.StartsWith("Expanded all available reporting levels:", StringComparison.Ordinal));
+        frame = CaptureExpansion();
+        var completed = Progress(frame);
+        if (completed.People != 9900 || completed.Branches + partial.Branches != 150)
+            throw new InvalidOperationException("The actual WPF expansion truncated the 9,900 current People or 150 reporting managers.");
+        AssertRetained(frame);
+        RightClickReportingRow(window, root, "full-population-completed");
+        AutomationElement? completedMenu = null;
+        AwaitScale(() => (completedMenu = ReportingMenu(window)) is not null);
+        if (completedMenu!.FindAll(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem))
+            .Cast<AutomationElement>().Any(item => !item.Current.IsOffscreen && item.Current.Name == "Expand subtree"))
+            throw new InvalidOperationException("The completed rich subtree still offers a no-op expansion.");
+        PressCopyKey(0x1B);
+        AwaitScale(() => ReportingMenu(window) is null);
+        AssertRetained();
+
+        // Deliberate observation of distant rows follows the action/target-retention boundary.
+        var rowTrace = new TreeItemRealization.ReportingRowTrace<ScaleReportingRowObservation>();
+        var ownerProbe = Captured(frame, "Email");
+        void ObserveRow(string phase, string requestedEmail, string? expectedParent, AutomationElement? row,
+            bool realizeRequested, ExpandCollapseState? lastAwaitedState)
+        {
+            try
+            {
+                using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
+                var cache = new CacheRequest { TreeScope = TreeScope.Element };
+                foreach (var property in new[] { AutomationElement.AutomationIdProperty,
+                    AutomationElement.ControlTypeProperty, AutomationElement.BoundingRectangleProperty,
+                    AutomationElement.IsOffscreenProperty, AutomationElement.ItemStatusProperty,
+                    AutomationElement.IsVirtualizedItemPatternAvailableProperty,
+                    ExpandCollapsePattern.ExpandCollapseStateProperty })
+                    cache.Add(property);
+                var observedRow = row?.GetUpdatedCache(cache);
+                var observedTree = tree.GetUpdatedCache(cache);
+                var expansion = observedRow?.GetCachedPropertyValue(ExpandCollapsePattern.ExpandCollapseStateProperty, true);
+                var virtualized = observedRow?.GetCachedPropertyValue(AutomationElement.IsVirtualizedItemPatternAvailableProperty, true);
+                var type = observedRow?.GetCachedPropertyValue(AutomationElement.ControlTypeProperty, true);
+                var rowBounds = observedRow?.GetCachedPropertyValue(AutomationElement.BoundingRectangleProperty, true);
+                var viewportBounds = observedTree.GetCachedPropertyValue(AutomationElement.BoundingRectangleProperty, true);
+                rowTrace.Retain(new(Stopwatch.GetTimestamp(), phase, requestedEmail, expectedParent, realizeRequested,
+                    observedRow?.GetCachedPropertyValue(AutomationElement.AutomationIdProperty, true) as string,
+                    type is ControlType controlType ? controlType.ProgrammaticName : null,
+                    expansion is ExpandCollapseState state ? state.ToString() : null, lastAwaitedState?.ToString(),
+                    virtualized is bool available ? available : null,
+                    observedRow?.GetCachedPropertyValue(AutomationElement.IsOffscreenProperty, true) is bool offscreen ? offscreen : null,
+                    rowBounds is System.Windows.Rect rowRect ? rowRect.ToString(System.Globalization.CultureInfo.InvariantCulture) : null,
+                    viewportBounds is System.Windows.Rect viewportRect ? viewportRect.ToString(System.Globalization.CultureInfo.InvariantCulture) : null,
+                    observedTree.GetCachedPropertyValue(AutomationElement.ItemStatusProperty, true) as string, ownerProbe.Current.Name,
+                    row is null ? "The lookup did not return a row." : null));
+            }
+            catch (Exception error) when (error is ElementNotAvailableException or InvalidOperationException or
+                ArgumentException or System.Runtime.InteropServices.COMException)
+            {
+                rowTrace.RecordFailure(error);
+                rowTrace.Retain(new(Stopwatch.GetTimestamp(), phase, requestedEmail, expectedParent, realizeRequested,
+                    null, null, null, lastAwaitedState?.ToString(), null, null, null, null, null, null,
+                    error.GetType().FullName + ": " + error.Message));
+            }
+        }
+        var rows = new Dictionary<string, AutomationElement>(StringComparer.OrdinalIgnoreCase) { [ScaleFixture.Email(0)] = root };
+        foreach (var email in managerEmails)
+        {
+            AutomationElement? row = null;
+            string? expectedParent = null;
+            var realizeRequested = false;
+            var afterRecorded = false;
+            ExpandCollapseState? lastAwaitedState = null;
+            try
+            {
+                if (email == ScaleFixture.Email(0)) row = root;
+                else
+                {
+                    var manager = expected.GetRelationships(email)!.Manager!.Email;
+                    expectedParent = manager;
+                    var items = (ItemContainerPattern)rows[manager].GetCurrentPattern(ItemContainerPattern.Pattern);
+                    row = items.FindItemByProperty(null, AutomationElement.AutomationIdProperty, email) ??
+                        throw new InvalidOperationException("Full expansion omitted a rich reporting row: " + email);
+                }
+                ObserveRow("before-request", email, expectedParent, row, realizeRequested, lastAwaitedState);
+                if (email != ScaleFixture.Email(0) && row.TryGetCurrentPattern(VirtualizedItemPattern.Pattern, out var virtualized))
+                {
+                    realizeRequested = true;
+                    ((VirtualizedItemPattern)virtualized).Realize();
+                }
+                if (email != ScaleFixture.Email(0)) rows[email] = row;
+                AwaitScale(() =>
+                {
+                    if (!afterRecorded)
+                    {
+                        // This boundary capture is inside the original 180-second observation budget.
+                        ObserveRow("after-request", email, expectedParent, row, realizeRequested, lastAwaitedState);
+                        afterRecorded = true;
+                    }
+                    lastAwaitedState = ((ExpandCollapsePattern)row.GetCurrentPattern(ExpandCollapsePattern.Pattern))
+                        .Current.ExpandCollapseState;
+                    return lastAwaitedState == ExpandCollapseState.Expanded;
+                });
+                ObserveRow("final-expanded", email, expectedParent, row, realizeRequested, lastAwaitedState);
+            }
+            catch (Exception primary) when (primary is TimeoutException or ElementNotAvailableException or
+                InvalidOperationException or System.Runtime.InteropServices.COMException)
+            {
+                if (!afterRecorded)
+                    ObserveRow("after-request-failed", email, expectedParent, row, realizeRequested, lastAwaitedState);
+                ObserveRow("final-failed", email, expectedParent, row, realizeRequested, lastAwaitedState);
+                rowTrace.AttemptOutput(primary, () => Console.WriteLine("TREE-SCALE-REALIZATION " +
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+                        runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+                        runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
+                        requestedEmail = email, expectedParent, realizeRequested,
+                        originalFailure = primary.GetType().FullName, originalMessage = primary.Message,
+                        timestampFrequency = Stopwatch.Frequency, observations = rowTrace.Recent,
+                        observationFailures = rowTrace.Failures,
+                        interpretation = "Bounded non-atomic UIA observations; null fields are unsupported or unreached, not default states. No repair, input replay or time deduction."
+                    }, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase })));
+                rowTrace.AttemptOutput(primary, () => CaptureFailureEvidence(window, "tree-scale-realization-failure"));
+                if (rowTrace.Failures.Count > 0)
+                    rowTrace.AttemptOutput(primary, () => Console.Error.WriteLine("TREE-SCALE-REALIZATION-DIAGNOSTIC-FAULT " +
+                        System.Text.Json.JsonSerializer.Serialize(rowTrace.Failures)));
+                throw;
+            }
+        }
+        if (rowTrace.Failures.Count > 0)
+            rowTrace.AttemptOutput(null, () => Console.Error.WriteLine("TREE-SCALE-REALIZATION-DIAGNOSTIC-FAULT " +
+                System.Text.Json.JsonSerializer.Serialize(rowTrace.Failures)));
+        Console.WriteLine("PASS: native full-rich expansion visited all 9,900 current People, restored all 150 manager rows, exposed progress/cancellation during actual nonempty search and retained partial expansion through cancellation/search-clear before resuming.");
+    }
+
+    private sealed record ScaleReportingRowObservation(long ObservedAt, string Phase, string RequestedEmail,
+        string? ExpectedParent, bool RealizeRequested, string? ReturnedEmail, string? ControlType,
+        string? ExpansionState, string? LastAwaitedState, bool? VirtualizedPatternAvailable, bool? IsOffscreen,
+        string? RowBounds, string? ViewportBounds, string? Operation, string? CurrentOwner, string? ObservationRefusal);
 
     private static void RunScaleMutationPrefix(string executable, string root)
     {
