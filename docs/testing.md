@@ -378,6 +378,72 @@ All source responses, native event streams, identities and images are fictitious
 Use independent expected values at the agreed public surfaces. Keep parsing,
 storage mechanics and graphs behind the shared workflow; private-method tests,
 per-record public repositories and success-only app flags are not migration seams.
+Favorites ordering extends `SearchFavoriteTests` through `ReorderFavorite(email,
+beforeEmail)`: a null destination appends; other destinations identify the next
+Favorite after removing the mover. Exact identity sequences prove all destinations,
+append/removal/re-addition, input-order ties in Import, replay, unchanged selection,
+People/search/reporting order and absence of order-only Profile evidence.
+`SearchFavoritePersistenceTests` uses real isolated SQLite Workspaces for
+one-time supported unordered initialization, initialized-empty/switching behavior,
+exact reopen, Save/Cancel and name/Manager/archive independence, malformed/future
+order refusal, commit-time revalidation, actual writer locks and recovery/retry
+retaining independent failed notes and Preferred-name drafts. Held existing
+storage-phase observations let a separate fixture writer introduce unexpected
+ordering after validation: initialization and adoption must reject it without
+overwriting the old sequence or private content. Legacy stores without an order
+remain browsable through blocked WAL negotiation or unresolved receipts, then
+initialize during explicit recovery before writes resume.
+Confirmed writer-lock initialization cases preserve both populated legacy
+browsing and pristine-seed Join eligibility. Reconciliation before releasing
+the lock must fail, retain the confirmed noncommit and original revision, and
+keep edits and safe close paused; recovery after release must still succeed.
+Successful unchanged retries after
+a second client completes Favorite membership or ordering retire only their own
+failure; the tests retain independent note errors and assert no new revision or
+Profile history.
+Cached no-op cases use separate real local clients: a changed saved revision
+must be refreshed before deciding membership or order. Exact reopened sequences
+and unrelated delivered profile values prove actual changes are saved, while
+self-destination and repeated genuine no-ops add no revision or Profile history.
+Local reloads, including Favorite-triggered refresh and `SyncNow`, must invalidate
+an Import preview built from an older revision before Apply can overwrite its
+population/order. All three paths preserve same-revision previews;
+changed-revision cases reject stale Apply,
+reopen the complete incoming Favorites and accept a fresh preview. Publication
+metadata changed after legacy validation must be rejected before creating write
+evidence, preserving the complete original file set and bytes.
+`WorkspaceSnapshotTests` supplies #143's exact-order interchange-2
+publication/adoption/reopen, initialized-empty and supported unordered
+interchange-1 initialization (including equal-name input ties), pre-transport
+local continuation, pristine Join and unresolved-receipt recovery. It retains
+independently expected private notes, Team names, photos, history and Import
+replay alongside exact unsorted identity sequences. Whole-version choice
+selects and later restores complete competing arrangements; malformed, changed
+and future delivery retains the previous order/content and provider bytes before
+deliberate repair/retry. Existing retained-writing, actual adoption Commit failure
+and provider-outage cases also observe ordered Favorites. Cold read-only WAL cases
+cover deferred pre-transport initialization and explicit recovery.
+Future local publication metadata refuses both reopen and commit-time downgrade.
+The pristine Join regression covers both an initialized empty ordering table and
+`Fixtures\workspace-sqlite-v3-pristine-87c6ade.zip`, the unchanged, cleanly closed
+empty store created through `ApplicationWorkflow.CreateFileBacked().OpenWorkspace`
+at pinned main `87c6adeacaef6de440fcf344900e8f23a8571f10`. The original fixture
+has no Favorites-order or synchronization tables and independently reopened and
+Joined a complete snapshot on that revision. It is not a modern store with
+ordering removed or a main-database-only copy of active WAL state. Its original
+seed revision is `1f32abe5-7cc4-4d72-8722-b3edf1c564a3`. Both cases retain that
+revision through initialization/reopen, then publicly Join and adopt the exact
+ordered snapshot and private writing without changing provider bytes. Pending
+Join cases also reopen supported old seeds with a configured folder and retain
+their original revision through reconfiguration and adoption.
+The existing complete-state handoff hashes the unsorted Favorites identity
+sequence as well as Person/private content, and its ordinary fictitious-file cases
+retain a nonalphabetical arrangement after independent public Join/reopen.
+The existing `search-favorites` and responsive reading journey now
+cancel and complete actual handle drags, observe the exact visible sequence and
+unchanged Person, physically click ordinary rows, and reopen that sequence.
+Compilation and invisible XAML loading do not establish those hosted interactions;
+all existing lane selections, budgets and matrices remain required.
 The bounded shared-Team-note excerpt regression measures allocations through
 real in-memory `Search` after warming its index: 64 reports share a long note,
 and one request must allocate less than 2 MiB instead of normalizing the body

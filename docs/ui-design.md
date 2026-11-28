@@ -192,6 +192,28 @@ without activating a result restores Favorites and the previous reporting-tree
 position. Successful activation instead reveals the chosen Person as described
 below.
 
+**Favorites ordering:** keep one Favorites list with the saved sequence described
+in [the product design](design.md#favorites-ordering).
+Reordering uses drag-and-drop from a dedicated handle; ordinary row clicks still
+open the Person's profile. Save each completed move immediately, preserving the
+previous order and reporting an error if saving fails. Dragging does not itself
+activate another profile.
+
+An insertion line marks the intended destination, and the list scrolls when a
+handle drag is held near its top or bottom. Escape or an outside drop cancels the
+move. After a local-save failure, retain the old rows and existing recovery/error
+surface; reconcile storage and deliberately drag again to retry. Native interaction
+acceptance still requires the exact-candidate hosted journey.
+
+Accepted complete-snapshot delivery uses this same ordered projection, not a
+separately alphabetized desktop copy. Competing arrangements use Settings'
+existing whole-Workspace choice, with no order-specific resolution controls.
+
+There are no keyboard move commands, named groups, alphabetize/reset action,
+confirmation dialog, separate editing mode or order Save button. Reordering is
+available in the Favorites list, not in the search results that temporarily
+replace it; People, search and reporting-tree ordering remain unchanged.
+
 Search still covers existing profile and note information, including its
 current/historical distinctions; it is not reduced to a name-only filter.
 Secondary notes remain searchable: their matches lead to their Person, whose

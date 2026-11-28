@@ -14,6 +14,7 @@ internal static class WorkspacePublicState
     internal static string Hash(IApplicationWorkflow app)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(JsonSerializer.SerializeToUtf8Bytes(app.FavoritePeople.Select(person => person.Email).ToArray(), Json));
         foreach (var person in app.People.OrderBy(person => person.Email, StringComparer.Ordinal))
         {
             var photo = app.GetPhoto(person.Email);

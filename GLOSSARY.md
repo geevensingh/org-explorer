@@ -105,6 +105,9 @@ An individual's private collection of people, notes, and observed organizational
 history.
 _Avoid_: Shared CRM
 
+**Favorite**:
+A Person the workspace owner has marked for quick access to their profile.
+
 ### Observations and changes
 
 **Observation**:

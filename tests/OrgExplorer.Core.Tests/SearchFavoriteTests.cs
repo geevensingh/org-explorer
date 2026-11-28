@@ -1408,6 +1408,106 @@ public sealed class SearchFavoriteTests
     }
 
     [Fact]
+    public void Favorite_membership_appends_new_and_refavorited_people_without_repositioning_existing_members()
+    {
+        using var app = Open();
+        Assert.True(app.EditFavorite("morgan@example.com", true), app.Status);
+        Assert.True(app.EditFavorite("avery@example.com", true), app.Status);
+        Assert.True(app.EditFavorite("alex@example.com", true), app.Status);
+        Assert.Equal(["morgan@example.com", "avery@example.com", "alex@example.com"],
+            app.FavoritePeople.Select(person => person.Email));
+        var history = app.GetProfileTimeline("morgan@example.com")!;
+        Assert.True(app.EditFavorite("MORGAN@example.com", true), app.Status);
+        Assert.Equal(history.Changes, app.GetProfileTimeline("morgan@example.com")!.Changes);
+        Assert.Equal(history.Observations, app.GetProfileTimeline("morgan@example.com")!.Observations);
+        Assert.Equal(["morgan@example.com", "avery@example.com", "alex@example.com"],
+            app.FavoritePeople.Select(person => person.Email));
+        Assert.True(app.EditFavorite("avery@example.com", false), app.Status);
+        Assert.Equal(["morgan@example.com", "alex@example.com"], app.FavoritePeople.Select(person => person.Email));
+        Assert.True(app.EditFavorite("avery@example.com", true), app.Status);
+        Assert.Equal(["morgan@example.com", "alex@example.com", "avery@example.com"],
+            app.FavoritePeople.Select(person => person.Email));
+    }
+
+    [Theory]
+    [InlineData("MORGAN@example.com", "ALEX@example.com", "morgan@example.com,alex@example.com,avery@example.com")]
+    [InlineData("morgan@example.com", "avery@example.com", "alex@example.com,morgan@example.com,avery@example.com")]
+    [InlineData("alex@example.com", null, "avery@example.com,morgan@example.com,alex@example.com")]
+    public void Favorite_moves_use_identity_destinations_without_navigation_or_reordering_other_people(
+        string moving, string? before, string expected)
+    {
+        using var app = (WorkspaceViewModel)Open();
+        Apply(app, """
+            {"email":"morgan@example.com","isFavorite":true},
+            {"email":"avery@example.com","isFavorite":true},
+            {"email":"alex@example.com","isFavorite":true}
+            """, 2);
+        Assert.True(app.NavigatePerson("avery@example.com"), app.Status);
+        var people = app.People.ToArray();
+        var search = app.SearchPeople("example").ToArray();
+        var roots = app.ReportingRoots.ToArray();
+        var history = app.People.ToDictionary(person => person.Email, person => app.GetProfileTimeline(person.Email)!);
+        var notifications = new List<string?>();
+        app.PropertyChanged += (_, change) => notifications.Add(change.PropertyName);
+
+        Assert.True(app.ReorderFavorite(moving, before), app.Status);
+
+        Assert.Equal(expected.Split(','), app.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Contains(nameof(app.FavoritePeople), notifications);
+        Assert.Equal(people, app.People);
+        Assert.Equal(search.Select(result => result.Person.Email), app.SearchPeople("example").Select(result => result.Person.Email));
+        Assert.Equal(roots, app.ReportingRoots);
+        foreach (var (email, timeline) in history)
+        {
+            Assert.Equal(timeline.Changes, app.GetProfileTimeline(email)!.Changes);
+            Assert.Equal(timeline.Observations, app.GetProfileTimeline(email)!.Observations);
+        }
+    }
+
+    [Fact]
+    public void Import_appends_displayed_name_batches_with_input_ties_and_replay_preserves_later_arrangements()
+    {
+        using var app = Open();
+        Apply(app, """
+            {"email":"a-tie@example.com","displayName":"Same","managerEmail":null},
+            {"email":"z-tie@example.com","displayName":"Same","managerEmail":null},
+            {"email":"zz-fallback@example.com","displayName":"Directory","managerEmail":null}
+            """, 2);
+        Assert.True(app.EditPersonText("zz-fallback@example.com", PersonTextField.DirectoryName, null));
+        Assert.True(app.EditFavorite("morgan@example.com", true));
+        Assert.True(app.EditFavorite("avery@example.com", true));
+        const string batch = """
+            {"email":"z-tie@example.com","isFavorite":true},
+            {"email":"a-tie@example.com","isFavorite":true},
+            {"email":"zz-fallback@example.com","isFavorite":true},
+            {"email":"alex@example.com","isFavorite":true},
+            {"email":"morgan@example.com","displayName":"AAA changed"},
+            {"email":"avery@example.com","preferredName":"ZZZ changed"}
+            """;
+
+        Apply(app, batch, 3);
+
+        Assert.Equal(["morgan@example.com", "avery@example.com", "alex@example.com",
+            "z-tie@example.com", "a-tie@example.com", "zz-fallback@example.com"],
+            app.FavoritePeople.Select(person => person.Email));
+        Assert.True(app.ReorderFavorite("zz-fallback@example.com", "morgan@example.com"));
+        Assert.True(app.EditFavorite("z-tie@example.com", false));
+        Apply(app, batch, 3);
+        Assert.Equal(["zz-fallback@example.com", "morgan@example.com", "avery@example.com",
+            "alex@example.com", "a-tie@example.com"], app.FavoritePeople.Select(person => person.Email));
+        Apply(app, """
+            {"email":"morgan@example.com","isFavorite":false},
+            {"email":"avery@example.com","officeCountry":"France"}
+            """, 4);
+        Assert.Equal(["zz-fallback@example.com", "avery@example.com", "alex@example.com", "a-tie@example.com"],
+            app.FavoritePeople.Select(person => person.Email));
+        var invalid = app.PreviewImport(Batch("""{"email":"avery@example.com","favoriteOrder":1}""", 5));
+        Assert.False(invalid.CanApply);
+        Assert.Contains("favoriteOrder", string.Join("\n", invalid.Errors));
+    }
+
+    [Fact]
     public void Favorites_are_local_or_explicit_import_state_and_omission_false_replay_and_archival_remain_distinct()
     {
         using var app = Open();

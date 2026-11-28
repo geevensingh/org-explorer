@@ -75,6 +75,78 @@ Import envelopes and logical fingerprints, Profile observations/changes, Person
 and Team notes, Team confirmation/context revisions, frozen Historical team
 contexts, and required photo bytes.
 
+Favorites adds `favorite_order` to SQLite format 3 without changing the
+directory-exchange format. Its single
+row has `singleton=1`, `format_version=1` and a JSON `sequence` of stable Person
+emails. An absent table denotes a supported unordered store: after complete
+validation and local recovery, initialize A-Z in one evidenced local transaction.
+While WAL negotiation or an original receipt blocks persistence, retain the
+validated A-Z projection and private content for read-only browsing. Explicit
+recovery completes initialization before enabling writes. An existing table
+requires that row and the complete, valid sequence, including `[]`; missing,
+duplicate, unknown, non-Favorite or incomplete identities are rejected, never
+alphabetized as recovery. Save revalidates the stored sequence inside the same
+transaction as membership, Import or order changes. Initialization rechecks its
+expected absence before writing; snapshot adoption revalidates the local order
+before replacing any content. Older local Workspace
+formats remain unsupported and are not migrated.
+Confirmed SQLite writer-lock noncommits during initialization likewise retain
+the validated read-only projection and defer persistence to explicit recovery.
+Recovery while that lock remains held fails without clearing the new storage
+fault or enabling edits; initialization must commit before recovery succeeds.
+Invalid state and unresolved outcomes are not treated as successful initialization.
+Initialization revalidates publication metadata inside its transaction before
+starting write evidence; unsupported metadata cannot leave a new receipt.
+
+Synchronization metadata's `snapshot_format=2` records ordered publication
+support. An absent column or value 1 denotes a supported pre-transport store.
+After full validation and local recovery, initialize that marker once with a
+fresh evidenced continuation revision, preserving an already saved arrangement
+and all private content. This avoids changing the bytes of an already published
+interchange-1 revision. A pristine, empty, unconfigured or pending-Join seed initializes its
+empty Favorites order (if absent) and transport metadata atomically without
+advancing its unpublished revision, preserving Join eligibility. This also
+applies to supported format-3 seeds with neither ordering nor synchronization
+tables; it does not change any published snapshot.
+Read-only WAL failures and unresolved transaction evidence defer the upgrade,
+retaining validated browsing and the existing explicit recovery requirement.
+Unsupported marker values refuse opening/writing, including commit-time
+revalidation; they are not silently downgraded.
+
+**Favorites ordering (#142 and #143):** retain the saved
+Favorite sequence as private Workspace state, using stable Person identity
+rather than displayed names. A workspace without saved ordering initializes it
+once from its existing A-Z displayed-name sequence, preserving relative order
+among equal names. A saved empty sequence is still initialized state, not a
+reason to alphabetize again.
+
+Membership changes and completed reorders commit coherently with the local
+Workspace state. New Favorites append; removing one discards its position.
+Before treating either operation as unchanged, reconcile a newer saved local
+revision. A stale cached sequence or membership cannot confirm success; failed
+refresh rejects the operation. Genuine no-ops create no revision or Profile change.
+Loading a different committed local revision, including during Sync, invalidates
+the old Import preview. Review a fresh preview against that population before
+Apply; a reload
+at the same revision preserves the existing preview.
+After another local client completes a failed Favorite change, a successful
+unchanged retry retires only that change's failure, without a new revision or
+Profile history. Independent failed writing remains retained.
+Renaming or archiving a Person does not move them. A failed reorder save leaves
+the previously committed sequence authoritative and reports the failure.
+Validated complete snapshots must retain the saved order together with Favorite
+membership, including across restart and external sync. Divergent arrangements
+follow the existing whole-snapshot choice, with no order merge or independent
+per-device preference.
+
+Ordinary Person Import cannot supply a custom order. It preserves existing
+Favorites' relative order and appends newly favorited people from that batch in
+A-Z displayed-name order, retaining input order for equal names. Existing
+Favorite omission/false and accepted-batch replay semantics remain unchanged.
+Ordinary Person export continues to exclude private Favorite status and order;
+complete-snapshot sync is distinct from that exchange. See the
+[product behavior](design.md#favorites-ordering).
+
 Explicit profile/Preferred-name Save always reads the actual SQLite head and
 format. If that revision still matches the already validated local state, Save
 reuses that state instead of loading/validating the whole population again.
@@ -157,7 +229,7 @@ unresolved evidence pauses editing. No valid local state means an explicit
 recovery failure, not a successful empty Workspace. Unsaved editor buffers are
 not durable restart data.
 
-## Complete logical snapshots (interchange 1)
+## Complete logical snapshots (interchange 2; supported legacy 1)
 
 Configure a separate, non-nested provider-carried folder in Settings. Multiple
 computers are supported one at a time. A new empty local Workspace may explicitly
@@ -167,7 +239,7 @@ after complete validation.
 An immutable `<workspace-id>-<revision>.oesnapshot` owns a complete logical
 version and every required resource byte. It is not a SQLite database copy.
 The strict JSON envelope contains `format: "OrgExplorer complete logical Workspace"`,
-`version: 1`, uppercase `sha256` of decoded `content`, and base64 `content`.
+`version: 2`, uppercase `sha256` of decoded `content`, and base64 `content`.
 SHA-256 establishes completeness/integrity, not authenticity.
 
 Decoded content has `workspaceFormat: 3`, `workspaceId`, `revision`, ordered
@@ -182,6 +254,26 @@ root-through-current `ancestry`, and complete arrays:
 | `historicalContexts` | Complete frozen former-chain/note/transition evidence |
 | `notes` | Scope, ID, owner, metadata and full Markdown |
 | `photos` | Immutable references and base64 resource bytes |
+| `favoriteOrder` | Exact private sequence of stable Person emails, including initialized `[]` |
+
+Interchange 2 requires `favoriteOrder`: every current Favorite appears exactly
+once, with no duplicate (including case variants), unknown or non-Favorite
+identity. Missing/null ordering, invalid values and membership disagreement are
+explicit failures, never a legacy initialization or alphabetical fallback.
+Publication reads membership and ordering from the same committed SQLite
+transaction; adoption installs both in the same local transaction. Order-only
+delivery preserves navigation, and repeated sync/reopen retains that exact order.
+
+Supported interchange 1 is unordered and must not contain `favoriteOrder`,
+even null. Its fully validated population initializes A-Z by displayed name,
+preserving equal-name relative order from the incoming population. Initialization
+and a fresh ordered continuation revision commit in the original adoption
+transaction; the original incoming revision remains in ancestry and its artifact
+is not rewritten. An initialized empty interchange-2 sequence does not initialize
+again. Choosing a retained legacy version likewise initializes its complete
+selected state in the existing fresh resolution transaction. Future interchange
+versions remain unsupported. Invalid delivery retains the last valid local
+order, membership and private content with a separate synchronization error.
 
 Optional `resolvedRevisions` records exact branch revisions acknowledged by a
 deliberate whole-version choice. The chosen data remains intact; its ancestry

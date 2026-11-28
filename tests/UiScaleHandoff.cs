@@ -193,7 +193,7 @@ internal static class UiScaleHandoff
         var payload = root.GetProperty("content").GetBytesFromBase64();
         var hash = Hash(payload);
         Require(root.GetProperty("format").GetString() == "OrgExplorer complete logical Workspace" &&
-            root.GetProperty("version").GetInt32() == 1 && root.GetProperty("sha256").GetString() == hash,
+            root.GetProperty("version").GetInt32() == 2 && root.GetProperty("sha256").GetString() == hash,
             "Invalid complete-snapshot envelope/integrity.");
         using var content = JsonDocument.Parse(payload);
         Require(content.RootElement.GetProperty("workspaceId").GetGuid() == identity &&

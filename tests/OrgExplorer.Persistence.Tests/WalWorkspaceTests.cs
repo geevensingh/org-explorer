@@ -160,9 +160,12 @@ public sealed class WalWorkspaceTests(ITestOutputHelper output) : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Cold_validated_DELETE_workspace_remains_browsable_and_paused_until_explicit_WAL_recovery(bool independentRecoveryFault)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Cold_validated_DELETE_workspace_remains_browsable_and_paused_until_explicit_WAL_recovery(
+        bool independentRecoveryFault, bool legacySnapshotPublication)
     {
         var local = Path.Combine(root, "cold");
         Guid noteId;
@@ -197,6 +200,11 @@ public sealed class WalWorkspaceTests(ITestOutputHelper output) : IDisposable
         {
             external.Open();
             using var command = external.CreateCommand();
+            if (legacySnapshotPublication)
+            {
+                command.CommandText = "UPDATE synchronization SET snapshot_format=1;";
+                command.ExecuteNonQuery();
+            }
             command.CommandText = "PRAGMA journal_mode=DELETE;";
             Assert.Equal("delete", command.ExecuteScalar());
             using var reader = external.BeginTransaction(deferred: true);

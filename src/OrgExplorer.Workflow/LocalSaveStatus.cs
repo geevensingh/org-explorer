@@ -103,7 +103,7 @@ public sealed partial class ApplicationWorkflow
         if (localRequests.Status.OutstandingRequests != 0) return false;
         lock (workspaceGate)
         {
-            if (!RefreshWorkspaceCore()) return false;
+            if (!RefreshWorkspaceCore(recoverLocalSaves: true)) return false;
             if (!ReconcileLocalWriteEvidence()) return false;
             localSaveFault = null;
             localWalFault = null;

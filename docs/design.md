@@ -196,6 +196,47 @@ breakdown, followed by `Known current reports, all levels`. Preserve readable
 wrapping without a separate card, chart, large-number tiles, or individual
 category rows. See [Person profile and navigation](ui-design.md#person-profile-and-navigation).
 
+### Favorites ordering
+
+Saved ordering, membership/Import reconciliation and the dedicated handle (#142)
+and exact-order complete-snapshot publication/adoption (#143) are implemented.
+Both slices and their documentation must reach `main` together. Joint delivery
+still requires review and fresh hosted evidence for the exact integration
+candidate; local checks and compilation do not establish hosted drag acceptance.
+
+Favorite retains its existing meaning: the profile star marks a Person for quick
+access. This change adds a saved order to the existing single Favorites list,
+not a new kind of Favorite or named groups.
+
+A workspace without a saved Favorites order starts with its existing Favorites
+sorted A-Z by displayed name: Preferred name, otherwise Directory name, otherwise
+email. Equal displayed names retain their existing relative order. Initialize
+this sequence once; subsequent loads do not alphabetize it again.
+
+New Favorites append to the end. Unfavoriting discards the Person's position;
+favoriting them again appends them as a new addition. Changes to names or
+reporting relationships do not rearrange Favorites. Archived Favorites remain
+visible and retain their positions.
+
+Users rearrange Favorites directly by drag-and-drop using a dedicated drag
+handle. Ordinary row clicks continue to open profiles. A completed move saves
+immediately, independently of profile Save/Cancel; a failed save retains the
+previous order and reports the error. There is no separate order-editing mode,
+Save button, keyboard move command, alphabetize/reset button, or confirmation
+dialog.
+
+The order is private Workspace state that survives restart and travels with
+complete-snapshot sync. Divergent arrangements use the existing whole-snapshot
+conflict choice; they are not merged or treated as per-device preferences.
+
+Person Imports preserve existing Favorites' relative order. Newly favorited
+people from one accepted Import append in A-Z displayed-name order, retaining
+input order among equal displayed names. Existing Favorite omission/false
+semantics remain unchanged. Import cannot supply a custom arrangement, and
+ordinary Person export continues to omit private Favorite status and order.
+These rules do not change the ordering of People, search results or the
+reporting tree.
+
 ### Viewing and editing
 
 Default to View mode when opening a workspace or selecting a person. Present
