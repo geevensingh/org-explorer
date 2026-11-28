@@ -238,6 +238,12 @@ Preparation restores expansion only: it must not select a Person or queue a
 second reveal before the original guarded browsing request. Selection remains
 with the existing Loaded/restoration path; the cold replay also rejects a
 Selected event emitted during preparation.
+Read-only UI Automation item lookup can prepare an off-tree recyclable wrapper;
+its framework expansion/collapse events are not user browsing. Only actual
+People-tree descendants may update expansion or restore routed selection.
+Native manager observations follow the independent reporting graph depth-first,
+retaining the exact same 150-manager set so each active ancestor still exposes
+its item-container provider without another realization or Expand request.
 That correct initial expansion can virtualize the unrelated root used by the
 compiled search fixture. When absent, the fixture makes one real data-item
 ScrollIntoView request before its original selection, without another Expand,

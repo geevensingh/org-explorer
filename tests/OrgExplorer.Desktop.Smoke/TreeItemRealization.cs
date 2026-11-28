@@ -1,9 +1,21 @@
 using System.IO;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
 internal static class TreeItemRealization
 {
+    internal static IEnumerable<ReportingNode> ReportingManagerPreorder(IEnumerable<ReportingNode> roots)
+    {
+        var pending = new Stack<ReportingNode>(roots.Reverse());
+        while (pending.TryPop(out var node))
+        {
+            if (node.Reports.Count == 0) continue;
+            yield return node;
+            foreach (var child in node.Reports.Reverse()) pending.Push(child);
+        }
+    }
+
     internal enum MenuBranchInput { ExpandCollapseProvider, DisclosureArrow, DisclosureToggle }
     internal enum MenuRetentionBoundary { Command, OrdinaryFixtureRestoration }
 

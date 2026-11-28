@@ -175,6 +175,11 @@ internal static partial class Program
         var managerEmails = Enumerable.Range(0, 150).Select(ScaleFixture.Email).ToArray();
         if (managerEmails.Any(email => expected.GetRelationships(email) is not { ImportedReports.Count: > 0 }))
             throw new InvalidOperationException("The independent complete rich tree fixture lost one of its 150 current reporting managers.");
+        var managerObservationOrder = TreeItemRealization.ReportingManagerPreorder(expected.ReportingRoots)
+            .Select(node => node.Person.Email).ToArray();
+        if (managerObservationOrder.Length != managerEmails.Length ||
+            !managerObservationOrder.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(managerEmails))
+            throw new InvalidOperationException("The rich manager observation order omitted or duplicated a required reporting branch.");
         var tree = Find(window, "People");
         var root = Find(tree, ScaleFixture.Email(0));
         var rootExpansion = (ExpandCollapsePattern)root.GetCurrentPattern(ExpandCollapsePattern.Pattern);
@@ -374,7 +379,7 @@ internal static partial class Program
             }
         }
         var rows = new Dictionary<string, AutomationElement>(StringComparer.OrdinalIgnoreCase) { [ScaleFixture.Email(0)] = root };
-        foreach (var email in managerEmails)
+        foreach (var email in managerObservationOrder)
         {
             AutomationElement? row = null;
             string? expectedParent = null;

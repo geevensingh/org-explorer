@@ -1,10 +1,33 @@
 using OrgExplorer.Desktop.Smoke;
+using OrgExplorer.Workflow;
 using Xunit;
 
 namespace OrgExplorer.Core.Tests;
 
 public sealed class TreeItemRealizationTests
 {
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Manager_observations_finish_each_ancestry_path_before_virtualizing_it_with_another_branch()
+    {
+        using var workflow = ApplicationWorkflow.CreateInMemory();
+        Assert.True(workflow.OpenWorkspace("manager-preorder"), workflow.Status);
+        var preview = workflow.PreviewImport("""
+            {"schemaVersion":1,"batchId":"36000000-0000-4000-8000-000000000001",
+             "observedAt":"2026-11-01T17:00:00Z","people":[
+             {"email":"root@example.com","displayName":"Root","managerEmail":null},
+             {"email":"a@example.com","displayName":"A","managerEmail":"root@example.com"},
+             {"email":"b@example.com","displayName":"B","managerEmail":"root@example.com"},
+             {"email":"a-child@example.com","displayName":"A child","managerEmail":"a@example.com"},
+             {"email":"a-leaf@example.com","displayName":"A leaf","managerEmail":"a-child@example.com"},
+             {"email":"b-child@example.com","displayName":"B child","managerEmail":"b@example.com"},
+             {"email":"b-leaf@example.com","displayName":"B leaf","managerEmail":"b-child@example.com"}]}
+            """);
+        Assert.True(workflow.ApplyImport(preview.Id), workflow.Status);
+        Assert.Equal(["root@example.com", "a@example.com", "a-child@example.com", "b@example.com", "b-child@example.com"],
+            TreeItemRealization.ReportingManagerPreorder(workflow.ReportingRoots).Select(node => node.Person.Email));
+    }
+
     [Fact]
     [Trait("Category", "Runner")]
     public void Reporting_row_reads_retain_live_state_without_repeating_discovery()
