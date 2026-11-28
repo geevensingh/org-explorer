@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using OrgExplorer.Workflow;
 using Xunit;
 
@@ -6,6 +8,160 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class SearchFavoriteTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_batch_cannot_publish_old_reporting_expansion_after_concurrent_graph_replacement(bool replaceWorkspace)
+    {
+        var core = ApplicationWorkflow.CreateInMemory();
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, ReportingChangeBoundary>();
+        var boundary = (ReportingChangeBoundary)(object)proxy;
+        boundary.Inner = core;
+        using var app = new WorkspaceViewModel(proxy);
+        Assert.True(app.OpenWorkspace("original"));
+        Apply(app, """
+            {"email":"old-root@example.com","displayName":"Old root","managerEmail":null},
+            {"email":"old-leaf@example.com","displayName":"Old leaf","managerEmail":"old-root@example.com"}
+            """, 1);
+        app.RememberPeopleBrowsing([], 0);
+        var incoming = app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"88000000-0000-4000-8000-000000000001",
+             "observedAt":"2026-11-01T17:00:00Z","people":[
+             {"email":"new-root@example.com","displayName":"New root","managerEmail":null}]}
+            """);
+        Assert.True(incoming.CanApply);
+        Assert.True(app.ExecutePeopleTreeAction("old-root@example.com", PeopleTreeAction.ExpandSubtree));
+        boundary.DuringReports = () =>
+        {
+            boundary.DuringReports = null;
+            Assert.True(Task.Run(() => replaceWorkspace
+                ? app.OpenWorkspace("replacement")
+                : app.ApplyImport(incoming.Id)).WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult());
+        };
+
+        Assert.Empty(app.ContinuePeopleTreeExpansion());
+
+        Assert.DoesNotContain("old-root@example.com", app.PeopleNavigation.ExpandedPeople);
+        if (replaceWorkspace)
+        {
+            Assert.Empty(app.People);
+            Assert.Null(app.PeopleTreeExpansion);
+            Assert.Null(app.PeopleTreeActionFeedback);
+        }
+        else
+        {
+            Assert.Contains(app.People, person => person.Email == "new-root@example.com");
+            Assert.Equal(PeopleTreeExpansionStatus.Interrupted, app.PeopleTreeExpansion!.Status);
+            Assert.Equal(0, app.PeopleTreeExpansion.VisitedPeople);
+            Assert.Equal(0, app.PeopleTreeExpansion.ExpandedBranches);
+        }
+    }
+
+    public class ReportingChangeBoundary : DispatchProxy
+    {
+        internal IApplicationWorkflow Inner = null!;
+        internal Action? DuringReports;
+        private IReadOnlyList<ReportingNode>? source, wrapped;
+        protected override object? Invoke(MethodInfo? method, object?[]? arguments)
+        {
+            try
+            {
+                var result = method!.Invoke(Inner, arguments);
+                if (method.Name != "get_ReportingRoots") return result;
+                if (!ReferenceEquals(source, result))
+                {
+                    source = (IReadOnlyList<ReportingNode>)result!;
+                    wrapped = source.Select(node => node with
+                    {
+                        Reports = new ReportBoundary(node.Reports, () => DuringReports?.Invoke())
+                    }).ToArray();
+                }
+                return wrapped;
+            }
+            catch (TargetInvocationException error) when (error.InnerException is not null)
+            {
+                ExceptionDispatchInfo.Capture(error.InnerException).Throw();
+                throw;
+            }
+        }
+    }
+
+    [Fact]
+    public void A_refused_concurrent_open_does_not_consume_the_unpublished_expansion_batch()
+    {
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, ReportingChangeBoundary>();
+        var boundary = (ReportingChangeBoundary)(object)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateInMemory();
+        using var app = new WorkspaceViewModel(proxy);
+        Assert.True(app.OpenWorkspace("original"));
+        Apply(app, """
+            {"email":"root@example.com","displayName":"Root","managerEmail":null},
+            {"email":"leaf@example.com","displayName":"Leaf","managerEmail":"root@example.com"}
+            """, 1);
+        Assert.True(app.BeginProfileEdit("root@example.com"));
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Keep writing"));
+        app.RememberPeopleBrowsing([], 0);
+        Assert.True(app.ExecutePeopleTreeAction("root@example.com", PeopleTreeAction.ExpandSubtree));
+        var progress = app.PeopleTreeExpansion;
+        boundary.DuringReports = () =>
+        {
+            boundary.DuringReports = null;
+            Assert.False(Task.Run(() => app.OpenWorkspace("refused")).WaitAsync(TimeSpan.FromSeconds(5))
+                .GetAwaiter().GetResult());
+        };
+        Assert.Empty(app.ContinuePeopleTreeExpansion());
+        Assert.Equal(progress, app.PeopleTreeExpansion);
+        Assert.Empty(app.PeopleNavigation.ExpandedPeople);
+        Assert.Equal(["root@example.com"], app.ContinuePeopleTreeExpansion());
+        Assert.Equal(PeopleTreeExpansionStatus.Completed, app.PeopleTreeExpansion!.Status);
+        Assert.Equal(2, app.PeopleTreeExpansion.VisitedPeople);
+        Assert.Equal(["root@example.com"], app.PeopleNavigation.ExpandedPeople);
+        Assert.Equal("Keep writing", app.ProfileEdit!.Draft.OfficeNumber);
+    }
+
+    private sealed class ReportBoundary(IReadOnlyList<ReportingNode> reports, Action observe) : IReadOnlyList<ReportingNode>
+    {
+        public int Count { get { var count = reports.Count; observe(); return count; } }
+        public ReportingNode this[int index] => reports[index];
+        public IEnumerator<ReportingNode> GetEnumerator() => reports.GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Successful_Workspace_replacement_clears_tree_operation_but_refused_open_retains_it(bool cancel)
+    {
+        using var app = (WorkspaceViewModel)Open();
+        Apply(app, string.Join(",", Enumerable.Range(0, 100).Select(index => JsonSerializer.Serialize(new
+        {
+            email = $"replacement{index:000}@example.com", displayName = $"Replacement {index}",
+            managerEmail = "morgan@example.com"
+        }))), 2);
+        app.RememberPeopleBrowsing([], 0);
+        Assert.True(app.ExecutePeopleTreeAction("morgan@example.com", PeopleTreeAction.ExpandSubtree));
+        app.ContinuePeopleTreeExpansion();
+        Assert.True(app.PeopleTreeExpansion!.IsRunning);
+        if (cancel) app.CancelPeopleTreeExpansion();
+        var operation = app.PeopleTreeExpansion;
+        var feedback = app.PeopleTreeActionFeedback;
+        var navigation = app.PeopleNavigation;
+        Assert.True(app.BeginProfileEdit("avery@example.com"));
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Retain rejected replacement writing"));
+        Assert.False(app.OpenWorkspace("replacement"));
+        Assert.Equal(operation, app.PeopleTreeExpansion);
+        Assert.Equal(feedback, app.PeopleTreeActionFeedback);
+        Assert.Equal(navigation, app.PeopleNavigation);
+        app.CancelProfileEdit();
+
+        Assert.True(app.OpenWorkspace("replacement"), app.Status);
+        Assert.Null(app.PeopleTreeExpansion);
+        Assert.Null(app.PeopleTreeActionFeedback);
+        Assert.Empty(app.PeopleNavigation.ExpandedPeople);
+        Assert.Empty(app.ContinuePeopleTreeExpansion());
+        Assert.Null(app.PeopleTreeExpansion);
+    }
+
     [Fact]
     public void Collapse_other_branches_preserves_the_target_subtree_and_ancestor_path_and_resets_hidden_outside_expansion()
     {

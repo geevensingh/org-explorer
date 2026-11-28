@@ -156,6 +156,7 @@ public partial class MainWindow : Window
         expandedPeople.Clear();
         reportingRows.Clear();
         pendingPeopleRevealEmail = null;
+        ShowTreeExpansion();
         peopleBrowseRequest++;
         workflow.ShowArchivedPeople(ShowArchivedPeople.IsChecked == true);
         loading = true;

@@ -3980,6 +3980,22 @@ internal static partial class Program
             if (model.PeopleTreeExpansion != stopped)
                 throw new InvalidOperationException("A later expansion batch continued after accepted search navigation.");
         }
+        if (model.PeopleTreeExpansion is not { Status: PeopleTreeExpansionStatus.Cancelled } ||
+            Control<FrameworkElement>("TreeExpansionPanel").Visibility != Visibility.Visible ||
+            string.IsNullOrEmpty(System.Windows.Automation.AutomationProperties.GetItemStatus(tree)))
+            throw new InvalidOperationException("Workspace replacement must begin with observable cancelled expansion from the old Workspace.");
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, Path.Combine(settings, "tree-replacement"));
+        PumpUntil(() => model.Compatibility.WorkspacePath == Path.GetFullPath(Path.Combine(settings, "tree-replacement")) &&
+            model.IsWorkspaceCurrent && Control<Button>("OpenWorkspaceButton").IsEnabled);
+        var replacementSettled = false;
+        window.Dispatcher.BeginInvoke(() => replacementSettled = true, DispatcherPriority.ContextIdle);
+        PumpUntil(() => replacementSettled);
+        if (model.PeopleTreeExpansion is not null || model.PeopleTreeActionFeedback is not null ||
+            Control<FrameworkElement>("TreeExpansionPanel").Visibility != Visibility.Collapsed ||
+            Control<Button>("CancelTreeExpansionButton").Visibility != Visibility.Collapsed ||
+            Control<TextBlock>("TreeExpansionStatus").Text != "" || System.Windows.Automation.AutomationProperties.GetItemStatus(tree) != "")
+            throw new InvalidOperationException("A new Workspace retained the previous tree operation, feedback or accessible status.");
         Console.WriteLine("PASS: actual nonempty query during unfinished expansion, visible progress/cancel, exact partial-state retention and search-clear in wide/compact compiled People.");
     }
 

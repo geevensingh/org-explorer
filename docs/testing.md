@@ -75,6 +75,17 @@ expansion root, settles deferred Person reveal before preparing browsing, and
 observes the current row container after search-clear rather than a detached
 pre-search container. Logical partial-state, resumability and writing assertions
 remain unchanged.
+Workspace replacement also clears the operation, pending traversal and feedback,
+then clears the timer, panel, text and accessible People status. Refused opening
+preserves the existing operation and writing. Public proxy regressions let an
+actual worker open another Workspace or apply an Import between graph validation
+and batch publication; old identities and completion must not reach the new
+view. Observed workflow work advances a generation under the existing destination
+gate, without holding that gate across I/O. A batch traverses an immutable pending
+stack locally and publishes only against the unchanged generation, operation and
+reporting roots. A refused concurrent open leaves the uncommitted traversal
+available for the next batch. The compiled contract opens a second real Workspace
+after cancellation and checks that no previous counts or status remain.
 It also retains exact independent profile/note drafts.
 The focused non-UI selector below runs this same contract; it remains included
 in the existing full `--verify-profile-refresh` companion check:

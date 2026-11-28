@@ -106,7 +106,16 @@ public partial class MainWindow
 
     private void ShowTreeExpansion()
     {
-        if (workflow.PeopleTreeExpansion is not { } progress) return;
+        if (workflow.PeopleTreeExpansion is not { } progress)
+        {
+            treeExpansionTimer.Stop();
+            treeExpansionTarget = null;
+            TreeExpansionStatus.Text = "";
+            TreeExpansionPanel.Visibility = Visibility.Collapsed;
+            CancelTreeExpansionButton.Visibility = Visibility.Collapsed;
+            System.Windows.Automation.AutomationProperties.SetItemStatus(PeopleList, "");
+            return;
+        }
         TreeExpansionStatus.Text = progress.Status switch
         {
             PeopleTreeExpansionStatus.Running =>
