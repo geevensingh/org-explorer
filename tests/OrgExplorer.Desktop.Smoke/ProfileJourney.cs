@@ -13,25 +13,35 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private static readonly string ProfileJourneyInitialImport = $$"""
+        {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
+         "observedAt":"2026-11-01T17:00:00Z","people":[
+         {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"007B",
+          "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
+          "managerEmail":"morgan@example.com","photoPath":"avery.png"},
+         {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"z-context@example.com"},
+         {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
+         {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+         {"email":"archived.reference@example.com","displayName":"Archived reference","managerEmail":null,"archived":true},
+         {"email":"z-context@example.com","displayName":"Z single-report ancestor","managerEmail":null},
+         {{string.Join(",", Enumerable.Range(0, 24).Select(i =>
+             $$"""{"email":"context{{i:00}}@example.com","displayName":"A context {{i:00}}","managerEmail":null}"""))}}]}
+        """;
+
+    private const string ProfileJourneyInheritedImport = """
+        {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000089",
+         "observedAt":"2026-11-02T16:00:00Z","people":[
+         {"email":"morgan@example.com","managerEmail":"rowan@example.com"},
+         {"email":"rowan@example.com","displayName":"Rowan Example","managerEmail":null}]}
+        """;
+
     private static void RunProfileJourney(string executable, string root)
     {
         var producer = Path.Combine(root, "producer");
         Directory.CreateDirectory(producer);
         CreatePhotoFixture(Path.Combine(producer, "avery.png"));
         var import = Path.Combine(producer, "import.json");
-        File.WriteAllText(import, $$"""
-            {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
-             "observedAt":"2026-11-01T17:00:00Z","people":[
-             {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"007B",
-              "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
-              "managerEmail":"morgan@example.com","photoPath":"avery.png"},
-             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"z-context@example.com"},
-             {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
-             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
-             {"email":"z-context@example.com","displayName":"Z single-report ancestor","managerEmail":null},
-             {{string.Join(",", Enumerable.Range(0, 24).Select(i =>
-                 $$"""{"email":"context{{i:00}}@example.com","displayName":"A context {{i:00}}","managerEmail":null}"""))}}]}
-            """);
+        File.WriteAllText(import, ProfileJourneyInitialImport);
         var workspace = Path.Combine(root, "workspace");
         Directory.CreateDirectory(workspace);
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -109,6 +119,9 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             if (!Find(window, "Preview").Current.Name.Contains("avery@example.com"))
                 throw new InvalidOperationException("The real import preview omitted the new Person.");
+            AssertImportBatchImpact(window, "People added: 30; Existing people changed: 0; No Person changes: 0");
+            AssertGroupedImportDisclosure(window, "avery@example.com", "Add",
+                ["Directory name: Avery Example", "Manager: morgan@example.com", "Photo: Supplied local image"]);
             CaptureVisualEvidence(window, "settings-import-enter-preview");
             using (var saved = ApplicationWorkflow.CreateFileBacked())
             {
@@ -139,6 +152,11 @@ internal static partial class Program
             Click(window, "ApplyImport");
             Await(() => Status(window).Contains("Import applied"));
             AssertAutomaticImportContext(window, preferencePath);
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            AssertImportDiagnostic(window, "Already applied: exact replay is a no-op.");
+            AssertImportHasNoImpact(window);
+            CaptureVisualEvidence(window, "import-replay-status");
             ReturnToPeople(window);
             AssertSelectedPeopleRow(window, "morgan@example.com", "z-context@example.com");
             OpenPerson(window, "morgan@example.com");
@@ -318,13 +336,41 @@ internal static partial class Program
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000002",
                  "observedAt":"2026-11-03T17:00:00Z","people":[
-                 {"email":"avery@example.com","officeNumber":"0009C","department":null}]}
+                 {"email":"morgan@example.com","displayName":"Morgan Example"},
+                 {"email":"avery@example.com","officeNumber":"0009C","department":null},
+                 {"email":"V-reference@example.com"}]}
                 """);
             OpenImportView(window);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Await(() => Find(window, "Preview").Current.Name.Contains("0009C") &&
                 Find(window, "Preview").Current.Name.Contains("(clear)"));
+            AssertGroupedImportDisclosure(window, "avery@example.com", "2 changes",
+                "Department: Research → (clear); Office number: 007B → 0009C",
+                ["Department: Research → (clear)", "Office number: 007B → 0009C"], allowCountFallback: true);
+            AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 2");
+            var reviewedUpdate = File.ReadAllText(import);
+            File.WriteAllText(import, reviewedUpdate.Replace("2026-11-03", "2026-10-03"));
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            AssertImportUnchangedDisclosure(window, ["morgan@example.com", "V-reference@example.com"], "older evidence");
+            File.WriteAllText(import, reviewedUpdate.Replace("\"department\":null", "\"department\":null,\"archived\":true"));
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            AssertGroupedImportDisclosure(window, "avery@example.com", "Archive; 3 changes",
+                "Department: Research → (clear); Office number: 007B → 0009C; Archive: Current → Archived; retain profile and local context",
+                ["Archive: Current → Archived; retain profile and local context"], allowCountFallback: true);
+            AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 2", "Archived: 1");
+            ExerciseAdaptiveImportReview(window, workspace, import);
+            File.WriteAllText(import, reviewedUpdate.Replace("\"department\":null", "\"department\":null,\"managerEmail\":\"missing@example.com\""));
+            Click(window, "PreviewImport");
+            Await(() => !Find(window, "ApplyImport").Current.IsEnabled && Status(window).Contains("Import rejected"));
+            AssertImportDiagnostic(window, "missing@example.com");
+            AssertImportHasNoImpact(window);
+            CaptureVisualEvidence(window, "import-invalid-diagnostics");
+            File.WriteAllText(import, reviewedUpdate);
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             ReturnToPeople(window);
             AssertProfileValue(window, "OfficeNumber", "007B");
             OpenImportView(window);
@@ -334,6 +380,15 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
             Await(() => Status(window).Contains("Import applied"));
+            File.WriteAllText(import, reviewedUpdate.Replace("000000000002", "000000000003"));
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            AssertImportBatchImpact(window, "People added: 0; Existing people changed: 0; No Person changes: 3");
+            var observation = Find(window, "ImportObservations").Current;
+            if (observation.IsOffscreen || !observation.Name.StartsWith("Zero Person changes.", StringComparison.Ordinal) ||
+                !observation.Name.Contains("email-only records supply no field Observation", StringComparison.Ordinal))
+                throw new InvalidOperationException("An ordinary all-unchanged Import must remain applicable and explain conditional Observations without claiming replay.");
+            CaptureVisualEvidence(window, "import-ordinary-unchanged");
             ReturnToPeople(window);
             ExpandHistory(window);
             Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("007B → 0009C") &&
@@ -457,12 +512,7 @@ internal static partial class Program
 
     private static void AssertInheritedTeamNameEditing(AutomationElement window, string import, string workspace)
     {
-        File.WriteAllText(import, """
-            {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000089",
-             "observedAt":"2026-11-02T16:00:00Z","people":[
-             {"email":"morgan@example.com","managerEmail":"rowan@example.com"},
-             {"email":"rowan@example.com","displayName":"Rowan Example","managerEmail":null}]}
-            """);
+        File.WriteAllText(import, ProfileJourneyInheritedImport);
         ApplyReviewedHistoryImport(window);
         Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
         NavigateToManager(window, "rowan@example.com");

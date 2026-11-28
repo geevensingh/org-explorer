@@ -44,7 +44,7 @@ do not mock away the business behavior being asserted.
 | Workspace Create/Open, remembered views, Settings, close or exit | [Workspace opening and exit](testing/workspace-opening-exit.md) |
 | Local SQLite Commit, WAL readers, receipts, compatibility or crash recovery | [Workspace storage and recovery](testing/workspace-storage-recovery.md) |
 | Snapshot publication/adoption, periodic synchronization or whole-version choice | [Workspace synchronization](testing/workspace-synchronization.md) |
-| Reviewed Import Apply/reentry, collector policy or captured producer evidence | [Import and producer verification](testing/import-and-producer.md) |
+| Person-first Import review, Apply/reentry, collector policy or captured producer evidence | [Import and producer verification](testing/import-and-producer.md) |
 | Signed update drain, safe restart or installed Workspace preservation | [Application updates](testing/application-updates.md) |
 | Required lane/partition gates, focused local checks, artifacts or product-output isolation | [CI and artifacts](testing/ci-and-artifacts.md) |
 | Native interaction, invisible compiled controls, fixture isolation or visual evidence | [Desktop harness operation](testing/desktop-harness.md) |

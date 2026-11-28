@@ -35,6 +35,126 @@ incomplete-result blockers, rejection of unverified host-saved references
 length/content/hash validation.
 It performs no live WorkIQ reads or desktop automation.
 
+## Person-first preview and batch impact
+
+Grouped import review uses the public import-preview/Apply seam in
+`ReportingImportTests`: ordered per-Person differences, addition baselines,
+distinct lifecycle/preference actions, full long values, clears and exact replay.
+Existing history and photo cases retain same-value Observations and meaningful
+Photo-clear outcomes. The invisible compiled Import-path Enter contract checks
+one initially collapsed native disclosure and complete inline expansion without
+changing saved bytes. Batch-impact cases at that same public preview/Apply seam
+cover zero-inclusive Person totals, overlapping existing-person actions, Add
+baselines, interleaved unchanged identities, email-only versus supplied
+Observations, invalid whole batches and exact replay. Real-photo cases include
+replacement and clear counts without treating a new Person's photo as a transition.
+The compiled Import contract also checks the counted collapsed end section,
+identity-only recycling list, accessible warnings above counts and invalid-batch
+suppression without changing saved bytes. Its narrow `--verify-import-review`
+selector also drives
+the actual compiled controls through 1100/700/1100 widths, checking native text
+layout, inline/count/restoration, long/multiline/many differences and explicit
+Add/Archive/Reactivate fallback. It uses the same public preview and compiled
+contract as the full profile-refresh selection; it does not open a native window.
+The hosted profile journey separately checks every collapsed identity/summary
+character's actual TextPattern rectangle on one line, complete expanded text,
+unchanged typography, Space-key disclosure and 1000/700/1000 width transitions
+on the established 96-DPI disposable desktop. Long/multiline values, many fields
+and lifecycle fallback retain full details and unchanged saved bytes. Native
+read-only text providers support those character checks; a one-line outer box
+alone is not evidence. The hosted journey also checks impact counts, identity-only
+unchanged expansion, independent warnings/error/replay status and ordinary
+zero-change explanation. Neither in-memory nor compiled checks are hosted WPF evidence.
+
+The same compiled Import selector checks an 81-line valid value taller than the
+700x700 review viewport: scrolling to the end must expose its final character
+and the subsequent Office number and Office state fields. Ten real wrapping
+older-evidence warnings must remain complete and independently scrollable at
+700x700 and 700x500, with visible impact and at least three ordinary row-heights
+(72 DIPs) of Person review space. The hosted profile journey adds actual
+per-character TextPattern rectangles for the tall value's final line and both
+following fields. It also uses single Ctrl+Home/Ctrl+End actions on sixteen
+wrapping diagnostics to observe complete first/last warnings, visible counts
+and usable review space at both compact heights, followed by Space-key Person
+expansion/collapse. These assertions and their named captures need the existing
+isolated hosted desktop; compiled checks do not prove native input or pixels.
+The shared disclosure helper makes one focus request and one Space action per
+transition and only observes afterward; it does not retry actions.
+
+Import detail discovery matches the real `ImportDetail` Edit control and exact
+full value, not only its Name: the enclosing ItemsControl data-item peer exposes
+the same Name but no TextPattern. The compiled review walks that actual nested
+automation peer tree and requires the selected text provider's complete
+payload. `--verify-import-review-reused` provides a tight non-UI loop through the
+full profile-refresh fixture's Settings/folder rejection and Import path, including
+its retained `Juniper` building baseline. It uses the same assertions as the full
+`--verify-profile-refresh` command, rather than recreating a fresh shallow window.
+Expected before-values distinguish that known fixture from the standalone fixture's
+absent building; exact full before/after, wrapping and final-character assertions
+remain. The diagnostics cap leaves room for nonzero action counts at 700x500 as
+well as the existing 72-DIP minimum review-space check.
+
+Adaptive disclosure acceptance intentionally reveals a requested detail in the
+outer Person review list before checking its glyphs. One focus request first
+establishes the actual read-only detail as the keyboard reading destination.
+A partially visible control
+or completed ExpandCollapse state does not prove its text is reached. When the
+detail is outside the current viewport, one scroll-percent request centers its
+actual bounds using the observed viewport and vertical view size; no action is
+retried. Fresh complete document/typography and every character rectangle must
+then pass within the existing 20-second observation budget. Collapsed one-line
+checks also observe actual settled glyphs, without relaxing their geometry.
+Timeout diagnostics retain the selected ID/type/name, offscreen state, control
+and viewport bounds, scroll percent/view size and last missing/clipped character.
+The tight Import selectors and full profile-refresh contract include a real
+six-entry compact fixture, sequential long/multiline/Archive disclosures and
+actual complete glyph geometry after outer scrolling. The text provider's
+own ScrollIntoView did not move this enclosing list in the observed regression;
+compiled success is still not a hosted physical-input or screen-rectangle pass.
+
+Those selectors and the full profile-refresh contract also replay the accepted
+ProfileJourney history before the actual adaptive, tall and many-warning inputs:
+the shared initial photo import, copied-profile Save/restore evidence, owned
+Team-name changes, the shared Morgan-to-Rowan import, inherited-owner edits,
+Preferred name and LinkedIn Save. The shared initial import retains the distant
+branching Manager's single-report ancestor and 24 earlier roots used by automatic
+Person-selection acceptance, plus the import-review archived reference: 30
+initial People and 31 after adding Rowan. The replay pins local recording time and checks
+the independently known restored values and Manager evidence. It retains the
+separate 700x500 glyph regression; the complete-history adaptive phase uses the
+hosted journey's 700-DIP height, followed by tall review and sixteen complete
+diagnostics at 700x700/500. Preview diagnostics record CanApply, errors, warnings,
+exact impact and per-Person changes. Sixteen genuine older warnings must produce
+only Avery's `007B` to `FINAL-0099` Office-number change, with four unchanged
+People and every action count zero: Morgan's supplied Manager remains Rowan.
+The entire preview sequence preserves saved bytes. Native keyboard, all required
+character rectangles and captures remain separate hosted acceptance.
+
+Read-only diagnostics retain a visible reading caret: WPF disables document
+navigation commands when a read-only TextBox hides its caret. The complete-history
+loop executes the actual document-start/end commands, requires the collapsed
+selection at the exact endpoint, and observes every first/last warning character.
+Its invisible window cannot activate native keyboard focus, so it explicitly
+reveals the command's actual caret rectangle through the public scrolling surface.
+That is not evidence of automatic scrolling or physical keyboard input.
+The hosted loop confirms focus before one Ctrl+Home/End action, then requires the
+exact native caret endpoint, complete document/typography and every requested
+warning glyph within the existing 20-second observation budget. Scroll percentage
+is diagnostic, not a substitute for visible content. State records include the
+actual focused element, selection/caret, native scrollbar offset/range and
+derived extent/viewport, outer review geometry and first/last glyph bounds.
+The tall disclosure's closing focus and the intervening Person disclosure are
+retained across both compact heights, with usable counts/list and saved bytes.
+Neither input nor scroll actions are retried; native glyph tolerances are unchanged.
+
+At that final many-warning disclosure, the shared rendered expectation is the
+complete `Office number: 007B → FINAL-0099` difference, distinct from the semantic
+`1 change` count. The full-history compiled loop checks the actual text-provider
+document and Segoe UI/10.5-point attributes, every identity/summary character and
+one-line geometry at both compact heights before expanding the Person. Hosted
+checks retain the same exact text, typography and complete glyph requirements;
+text/typography failures report expected and actual text and both font attributes.
+
 ## Failed Apply, explicit discard and scoped reentry
 
 The invisible compiled recovery/Import probe admits one preview from the actual
