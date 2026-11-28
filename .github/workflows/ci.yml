@@ -6,6 +6,11 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      core_capacity_diagnostic:
+        description: Nonaccepting complete core calibration; retain 300s goal, no native lanes or release
+        required: false
+        default: false
+        type: boolean
       run_scale_verification:
         description: Run separate scale verification at this dispatch commit
         required: false
@@ -22,6 +27,7 @@ permissions:
 
 jobs:
   core:
+    if: ${{ !inputs.core_capacity_diagnostic }}
     name: Core and view models
     runs-on: windows-latest
     timeout-minutes: 5
@@ -46,6 +52,7 @@ jobs:
             .ci-results/core/*.trx
 
   filesystem:
+    if: ${{ !inputs.core_capacity_diagnostic }}
     name: Real filesystem persistence
     runs-on: windows-latest
     timeout-minutes: 11
@@ -70,6 +77,7 @@ jobs:
             .ci-results/filesystem/*.trx
 
   desktop:
+    if: ${{ !inputs.core_capacity_diagnostic }}
     name: Actual Windows desktop smoke (${{ matrix.partition }})
     runs-on: windows-latest
     timeout-minutes: 15
@@ -98,6 +106,7 @@ jobs:
             .ci-results/desktop-${{ matrix.partition }}/*.png
 
   high-resolution:
+    if: ${{ !inputs.core_capacity_diagnostic }}
     name: High-resolution Windows smoke (${{ matrix.partition }})
     runs-on: windows-latest
     timeout-minutes: 15
@@ -127,7 +136,7 @@ jobs:
 
   ci:
     name: CI
-    if: ${{ always() }}
+    if: ${{ always() && !inputs.core_capacity_diagnostic }}
     needs: [core, filesystem, desktop, high-resolution]
     runs-on: windows-latest
     timeout-minutes: 2
@@ -156,7 +165,7 @@ jobs:
 
   scale-verification:
     name: Optional manual scale verification
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification && !inputs.run_release_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.core_capacity_diagnostic && inputs.run_scale_verification && !inputs.run_release_verification }}
     permissions:
       contents: read
       actions: read
@@ -168,7 +177,7 @@ jobs:
 
   release-verification:
     name: Optional product release rehearsal
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.core_capacity_diagnostic && inputs.run_release_verification }}
     permissions:
       contents: read
       actions: read
@@ -177,3 +186,30 @@ jobs:
     uses: ./.github/workflows/release-verification.yml
     with:
       revision: ${{ github.sha }}
+
+  core-capacity:
+    name: Nonaccepting core capacity calibration
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.core_capacity_diagnostic }}
+    runs-on: windows-latest
+    timeout-minutes: 16
+    steps:
+      - name: Start bounded diagnostic observation before setup
+        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Observe original compiled selection and all required companions
+        run: .\eng\Run-CiLane.ps1 core -CoreCapacityDiagnostic
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: core-capacity-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            .ci-results/core-capacity/*.json
+            .ci-results/core-capacity/*.log
+            .ci-results/core-capacity/*.trx

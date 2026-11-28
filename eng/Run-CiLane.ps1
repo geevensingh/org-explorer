@@ -1,12 +1,14 @@
 param(
     [Parameter(Mandatory)][ValidateSet('core', 'filesystem', 'desktop', 'high-resolution')][string] $Lane,
     [ValidateSet('people', 'workspace')][string] $DesktopPartition,
-    [ValidateSet('reading', 'context')][string] $HighResolutionPartition
+    [ValidateSet('reading', 'context')][string] $HighResolutionPartition,
+    [switch]$CoreCapacityDiagnostic
 )
 $ErrorActionPreference = 'Stop'
 $started = if ($env:LANE_STARTED_AT) { [DateTimeOffset]::Parse($env:LANE_STARTED_AT) } else { [DateTimeOffset]::UtcNow }
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
+if ($CoreCapacityDiagnostic -and $Lane -cne 'core') { throw 'Capacity calibration is a nonaccepting core-only observation.' }
 if ($DesktopPartition -and $Lane -ne 'desktop') { throw 'Only ordinary desktop execution supports partitions.' }
 if ($HighResolutionPartition -and $Lane -ne 'high-resolution') {
     throw 'Only high-resolution desktop execution supports high-resolution partitions.'
@@ -16,15 +18,16 @@ if ($HighResolutionPartition -and $Lane -ne 'high-resolution') {
 $partition = if ($HighResolutionPartition) { $HighResolutionPartition } else { $DesktopPartition }
 $partitions = Get-DesktopPartitions -HighResolution:([bool]$HighResolutionPartition)
 $runDesktopContracts = $Lane -eq 'desktop' -and $DesktopPartition -ne 'people'
-$resultsName = if ($partition) { "$Lane-$partition" } else { $Lane }
+$resultsName = if ($CoreCapacityDiagnostic) { 'core-capacity' } elseif ($partition) { "$Lane-$partition" } else { $Lane }
 $results = Join-Path $root ".ci-results\$resultsName"
 New-Item -ItemType Directory -Path $results -Force | Out-Null
 $steps = [System.Collections.Generic.List[object]]::new()
 $companionSteps = [System.Collections.Generic.List[object]]::new()
 $index = 0
 $artifactBuild = Join-Path $results 'build'
-$ceilingSeconds = if ($Lane -eq 'core') { 300 } `
+$ceilingSeconds = if ($CoreCapacityDiagnostic) { 900 } elseif ($Lane -eq 'core') { 300 } `
     elseif ($Lane -in @('desktop', 'high-resolution')) { 900 } else { 660 }
+if ($CoreCapacityDiagnostic) { Write-Host 'DIAGNOSTIC ONLY: 300s goal, bounded 900s observation; this run cannot accept a candidate or supply a baseline.' }
 $env:SCALE_TIMING_FILE = Join-Path $results 'scale-measurements.log'
 $updateFixture = $null
 $previousUpdateFixture = $env:ORG_EXPLORER_UPDATE_FIXTURE
@@ -106,8 +109,9 @@ try {
     switch ($Lane) {
         core {
             Invoke-BudgetedDotnet restore @('restore', 'tests\OrgExplorer.Core.Tests', '--locked-mode')
+            $testResults = if ($CoreCapacityDiagnostic) { $results } else { '.ci-results\core' }
             Invoke-BudgetedDotnet test @('test', 'tests\OrgExplorer.Core.Tests', '-c', 'Release', '--no-restore', '--logger', 'trx',
-                '--results-directory', '.ci-results\core')
+                '--results-directory', $testResults)
             Invoke-CoreContracts $root $results $artifactBuild $started $ceilingSeconds $steps
         }
         filesystem {
@@ -245,7 +249,8 @@ try {
     }
     $elapsed = ([DateTimeOffset]::UtcNow - $started).TotalSeconds
     @{ lane = $Lane; startedAt = $started.ToString('O'); executionSeconds = $elapsed; targetSeconds = 300;
-        ceilingSeconds = $ceilingSeconds; steps = @($steps.ToArray()); queuesIncluded = $false; cdIncluded = $false } |
+        ceilingSeconds = $ceilingSeconds; diagnosticOnly = [bool]$CoreCapacityDiagnostic
+        steps = @($steps.ToArray()); queuesIncluded = $false; cdIncluded = $false } |
         ConvertTo-Json -Depth 5 | Set-Content (Join-Path $results 'timing.json')
     if ($partition) {
         @{ schemaVersion = 1; lane = $Lane; partition = $partition; revision = $executionRevision
@@ -265,8 +270,11 @@ try {
             runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { 'local' }
             runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { 'local' }
             startedAt = $started.ToString('O'); finishedAt = [DateTimeOffset]::UtcNow.ToString('O')
-            complete = $complete; outcome = $outcome; error = $executionFailure
-            policyVersion = "$Lane-original-v1"; selector = if ($Lane -eq 'core') { 'all' } else { 'Category!=Performance' }
+            complete = ($complete -and !$CoreCapacityDiagnostic)
+            outcome = if ($CoreCapacityDiagnostic) { "diagnostic_$outcome" } else { $outcome }
+            observedComplete = $complete; diagnosticOnly = [bool]$CoreCapacityDiagnostic; error = $executionFailure
+            policyVersion = if ($CoreCapacityDiagnostic) { 'core-capacity-diagnostic-v1' } else { "$Lane-original-v1" }
+            selector = if ($Lane -eq 'core') { 'all' } else { 'Category!=Performance' }
             ceilingSeconds = $ceilingSeconds; targetSeconds = 300; executionSeconds = $elapsed
             steps = @($steps.ToArray()); configuration = $configuration; configurationErrors = $configurationErrors
         } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $results 'execution.json')

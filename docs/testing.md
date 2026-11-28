@@ -1947,6 +1947,17 @@ matrix belongs to its separate required smoke suite, not a substitute for comple
 
 ## Required PR/main execution
 
+The explicit default-off `core_capacity_diagnostic` dispatch observes the full
+unfiltered core selection and all 21 companions on one hosted worker, with a
+bounded 900-second observation window and 16-minute upload watchdog. Normal
+lanes and aggregate acceptance are skipped only for this diagnostic dispatch.
+Its separate `core-capacity` artifacts always declare `complete=false`,
+`diagnosticOnly=true` and a diagnostic policy/outcome, even if all observed
+checks pass. The 300-second goal and normal five-minute cutoff remain unchanged;
+900 seconds is a capture bound, not an activated safety policy. No production
+latency, coverage or baseline authority is amended. The focused non-UI
+`CoreCapacity.Tests.ps1` checks exhausted-window refusal and dispatch isolation.
+
 Every PR and `main` commit, including docs/test-only changes, retains four
 required logical lanes: workflow/view-model, filesystem, ordinary desktop,
 and high-resolution desktop. Ordinary desktop uses two parallel, isolated
