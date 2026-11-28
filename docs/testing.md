@@ -139,6 +139,13 @@ through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
 that field's unsaved failure, never other fields, profile sessions, quick actions,
 notes, Import, local recovery or retained synchronization divergence.
+The incoming-adoption draft-retention fixture holds the existing actual validation
+phase until the Preferred-name/profile/note draft is retained, rather than racing
+a competing SQLite writer's busy failure after a directory-watcher signal.
+Immediate and delayed continuations require validation still active and editing
+available before retention, then the original refusal, revision and exact-draft
+assertions. Natural scheduling delay counts toward the controlled delay; the
+five-second entry and ten-second completion waits and production clocks remain.
 Fresh compact entries display Preferred name, otherwise Directory name, otherwise
 empty, without retaining or publishing that default. Explicit Save/Enter captures
 the submitted text and original base before asynchronous work begins, so an
