@@ -44,7 +44,7 @@ internal static partial class Program
             Set(window, "TeamNoteTitle", "Retained owned Team note");
             Set(window, "TeamNoteMarkdown", "Owned Team writing");
             NavigateToManager(window, "morgan@example.com");
-            AssertReportingStructure(window, 1, 1, 0);
+            AssertReportingStructure(window, "1 employee");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Manager context");
             Set(window, "TeamNoteMarkdown", "# Frozen Manager\nOriginal Manager writing");
@@ -220,7 +220,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Reactivation mixed frozen writing into current context.");
             NavigateToManager(window, "morgan@example.com");
             AssertTeamNameReading(window, "Platform");
-            AssertReportingStructure(window, 1, 1, 0);
+            AssertReportingStructure(window, "1 employee");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
 
             BeginProfileEditing(window);

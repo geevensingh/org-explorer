@@ -191,6 +191,13 @@ internal static partial class Program
                 }
             }
             if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
+            if (verifyProfileRefresh)
+            {
+                var reportsWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { HarnessRuntime.Run("compiled-reporting-structure", () => VerifyReportsVisibility(reportsWindow, settings)); }
+                finally { ClosePublishedCompiledWindow(reportsWindow); }
+            }
             if (verifyExitStartup || verifyExit || verifyProfileRefresh)
                 HarnessRuntime.Run("compiled-exit-host-startup", () => VerifyOwnedExitHostStartup(executable, settings));
             if (verifyExit || verifyProfileRefresh)
@@ -278,10 +285,6 @@ internal static partial class Program
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyRetainedOverlayGeometry(retainedWindow, settings); }
                 finally { ClosePublishedCompiledWindow(retainedWindow); }
-                var reportsWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
-                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
-                try { VerifyReportsVisibility(reportsWindow, settings); }
-                finally { ClosePublishedCompiledWindow(reportsWindow); }
                 var teamNameWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyOwnedTeamNameProfile(teamNameWindow, Path.Combine(settings, "team-name-workspace")); }
@@ -4056,7 +4059,7 @@ internal static partial class Program
             if (Presented(slot) != (counts is not null) || value.Text != (counts ?? "") ||
                 counts is not null && new TextBoxAutomationPeer(value).GetName() != $"Reporting structure: {counts}" ||
                 scope.Text != "Known current reports, all levels")
-                throw new InvalidOperationException("The compiled Reporting structure fact lost counts, accessible text, scope or eligibility.");
+                throw new InvalidOperationException($"The compiled Reporting structure fact lost counts, accessible text, scope or eligibility: expected '{counts}', actual '{value.Text}'.");
             if (counts is null) return;
             var facts = Control<Panel>("FactsGrid");
             if (facts.Children.IndexOf(slot) != 1 || !slot.IsDescendantOf(facts) ||
@@ -4066,7 +4069,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Reporting structure must wrap compactly immediately after the first Team-name fact.");
             if (UIElementAutomationPeer.CreatePeerForElement(value)?.GetPattern(PatternInterface.Text) is not ITextProvider text)
                 throw new InvalidOperationException("The compiled reporting value must expose a real TextPattern provider for final-category readability.");
-            var finalCategory = counts[(counts.LastIndexOf(", ", StringComparison.Ordinal) + 2)..];
+            var finalCategory = counts.Split(", ")[^1];
             var finalRange = text.DocumentRange.FindText(finalCategory, false, false);
             if (text.DocumentRange.GetText(-1) != counts || finalRange is null || finalRange.GetText(-1) != finalCategory)
                 throw new InvalidOperationException("The actual reporting TextPattern must retain the complete count and final category.");
@@ -4168,7 +4171,7 @@ internal static partial class Program
         Expect(false, "empty compact browsing");
         Select(manager);
         Layout(700);
-        ExpectSummary("1 total, 1 Employees, 0 Vendors");
+        ExpectSummary("1 employee");
         Expect(true, "populated compact browsing");
         var viewport = Control<ScrollViewer>("PersonScroll");
         var reports = Control<ListBox>("ReportsList");
@@ -4182,7 +4185,7 @@ internal static partial class Program
             throw new InvalidOperationException("Opening People must not reflow the underlying reports or profile content.");
         Invoke("ClosePeopleButton");
         Layout(1100);
-        ExpectSummary("1 total, 1 Employees, 0 Vendors");
+        ExpectSummary("1 employee");
         Expect(false, "populated wide tree browsing");
         Control<TextBox>("SearchQuery").Text = "avery";
         Expect(true, "populated wide search");
@@ -4213,25 +4216,25 @@ internal static partial class Program
             return review.CanApply && source.ApplyImport(review.Id);
         });
         if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Synchronization.Error);
-        PumpUntil(() => Control<TextBox>("ReportingStructureValue").Text == "3 total, 2 Employees, 1 Vendors");
+        PumpUntil(() => Control<TextBox>("ReportingStructureValue").Text == "3 total, 2 employees, 1 vendor");
         if (Control<ListBox>("ReportsList").Items.Count != 1 ||
             Control<TextBlock>("ReportCount").Text != "Imported reports: 1 (selected population, not a full-company count)")
             throw new InvalidOperationException("All-level reporting counts replaced the separate direct-only list or count.");
         foreach (var (width, height) in new[] { (700d, 500d), (1100d, 900d), (1920d, 900d) })
         {
             Layout(width, height);
-            ExpectSummary("3 total, 2 Employees, 1 Vendors");
+            ExpectSummary("3 total, 2 employees, 1 vendor");
             if (width == 1100)
             {
                 var value = Control<TextBox>("ReportingStructureValue");
-                value.Text = "12000 total, 9000 Employees, 3000 Vendors";
+                value.Text = "12000 total, 9000 employees, 3000 vendors";
                 root.UpdateLayout();
                 if (value.LineCount < 2)
                     throw new InvalidOperationException("The reporting text-layout fixture must exercise actual width-dependent wrapping.");
-                ExpectSummary("12000 total, 9000 Employees, 3000 Vendors");
-                value.Text = "3 total, 2 Employees, 1 Vendors";
+                ExpectSummary("12000 total, 9000 employees, 3000 vendors");
+                value.Text = "3 total, 2 employees, 1 vendor";
                 root.UpdateLayout();
-                ExpectSummary("3 total, 2 Employees, 1 Vendors");
+                ExpectSummary("3 total, 2 employees, 1 vendor");
             }
             var team = Control<Panel>("TeamNameContext").Children.OfType<TextBlock>().Single(value =>
                 System.Windows.Automation.AutomationProperties.GetAutomationId(value) == "TeamNameLabel");
@@ -4245,24 +4248,54 @@ internal static partial class Program
         Control<ListBox>("ReportsList").SelectedItem = Control<ListBox>("ReportsList").Items.Cast<PersonProfile>()
             .Single(person => person.Email == "avery@example.com");
         Layout(700, 500);
-        ExpectSummary("2 total, 1 Employees, 1 Vendors");
+        ExpectSummary("2 total, 1 employee, 1 vendor");
         if (Control<TextBlock>("Email").Text != "avery@example.com" || Control<TextBlock>("PersonCategoryLabel").Text != "Employee")
             throw new InvalidOperationException("Direct-report navigation lost its exact destination category or reporting summary.");
         Activate("v-solo@example.com");
-        ExpectSummary("1 total, 0 Employees, 1 Vendors");
+        ExpectSummary("1 vendor");
+        provider.Publish(source =>
+        {
+            var review = source.PreviewImport("""
+                {"schemaVersion":1,"batchId":"86000000-0000-4000-8000-000000000003",
+                 "observedAt":"2026-11-03T17:00:00Z","people":[
+                 {"email":"employee-root@example.com","displayName":"Employee root","managerEmail":null},
+                 {"email":"employee-one@example.com","displayName":"Employee one","managerEmail":"employee-root@example.com"},
+                 {"email":"employee-two@example.com","displayName":"Employee two","managerEmail":"employee-root@example.com"},
+                 {"email":"employee-three@example.com","displayName":"Employee three","managerEmail":"employee-root@example.com"},
+                 {"email":"employee-four@example.com","displayName":"Employee four","managerEmail":"employee-root@example.com"},
+                 {"email":"v-two@example.com","displayName":"Vendor two","managerEmail":"v-only@example.com"},
+                 {"email":"v-three@example.com","displayName":"Vendor three","managerEmail":"v-only@example.com"},
+                 {"email":"v-four@example.com","displayName":"Vendor four","managerEmail":"v-only@example.com"},
+                 {"email":"extra@example.com","displayName":"Extra employee","managerEmail":"v-morgan@example.com"}]}
+                """);
+            return review.CanApply && source.ApplyImport(review.Id);
+        });
+        if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Synchronization.Error);
+        PumpUntil(() => Control<TextBox>("ReportingStructureValue").Text == "4 vendors");
+        Layout(700);
+        ExpectSummary("4 vendors");
+        Select(tree.Items.Cast<ReportingNode>().Single(person => person.Person.Email == "employee-root@example.com"));
+        Layout(700);
+        ExpectSummary("4 employees");
         Activate("v-morgan@example.com");
+        ExpectSummary("4 total, 3 employees, 1 vendor");
         provider.Publish(source => source.EditPersonArchived("leaf@example.com", true) &&
-            source.EditPersonArchived("v-middle@example.com", true) && source.EditPersonArchived("avery@example.com", true));
+            source.EditPersonArchived("v-middle@example.com", true) && source.EditPersonArchived("extra@example.com", true));
+        if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Synchronization.Error);
+        PumpUntil(() => Control<TextBox>("ReportingStructureValue").Text == "1 employee");
+        Layout(700);
+        ExpectSummary("1 employee");
+        provider.Publish(source => source.EditPersonArchived("avery@example.com", true));
         if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Synchronization.Error);
         PumpUntil(() => Control<FrameworkElement>("ReportingStructureSlot").Visibility == Visibility.Collapsed);
         Layout(700);
         ExpectSummary(null);
         provider.Publish(source => source.EditPersonArchived("avery@example.com", false));
         if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Synchronization.Error);
-        PumpUntil(() => Control<TextBox>("ReportingStructureValue").Text == "1 total, 1 Employees, 0 Vendors");
+        PumpUntil(() => Control<TextBox>("ReportingStructureValue").Text == "1 employee");
         Layout(1100);
-        ExpectSummary("1 total, 1 Employees, 0 Vendors");
-        Console.WriteLine("PASS: accepted-search tree echoes preserve the compact overlay; explicit same-Person activation and different-Person navigation still dismiss it; compact zero-inclusive reporting facts refresh/reappear across the size matrix, preserving Team-first geometry and direct-only report destinations.");
+        ExpectSummary("1 employee");
+        Console.WriteLine("PASS: accepted-search tree echoes preserve the compact overlay; explicit same-Person activation and different-Person navigation still dismiss it; concise Employee/Vendor-only, singular, mixed and mixed-pair reporting facts refresh from mixed to single-category and reappear across the size matrix, preserving Team-first geometry and direct-only report destinations.");
     }
 
     private static void VerifyFactRowSpacing(Window window)
