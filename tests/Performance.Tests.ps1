@@ -134,31 +134,52 @@ try {
     @'
 param([string] $Report, [string] $PidFile)
 $ErrorActionPreference = 'Stop'
+Start-Sleep -Seconds 10
 [IO.File]::WriteAllText($PidFile, $PID.ToString())
 New-Item -ItemType Directory -Path "$Report.writing" | Out-Null
 Start-Sleep -Seconds 30
 '@ | Set-Content -LiteralPath $reportFailureProbe
     $reportFailureStarted = $env:SCALE_STARTED_AT
+    $reportFailureStarter = Get-Command Start-Process -CommandType Cmdlet
+    $reportFailureIdentity = $null
+    $reportFailureTarget = $null
+    function Start-Process {
+        param([string]$FilePath, [object[]]$ArgumentList, [switch]$PassThru, [switch]$NoNewWindow,
+            [string]$RedirectStandardOutput, [string]$RedirectStandardError)
+        $process = & $reportFailureStarter @PSBoundParameters
+        $script:reportFailureIdentity = @{ id = $process.Id; startedAt = $process.StartTime.ToUniversalTime() }
+        New-Item -ItemType Directory -Path "$reportFailureTarget.writing" | Out-Null
+        return $process
+    }
     try {
-        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddSeconds(-654).ToString('O')
-        Assert-Rejected {
+        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.ToString('O')
+        $reportRefusal = $null
+        try {
             Invoke-ScaleSuite -Suite contract -Label 'Blocked scale report' `
                 -ResultsDirectory (Join-Path $results 'blocked-report') -Selection @{} -Verify {
                     param($run, $build)
+                    $script:reportFailureTarget = Join-Path $run 'result.json'
                     Invoke-ScaleProcess report-failure pwsh @('-NoProfile', '-File', $reportFailureProbe,
                         (Join-Path $run 'result.json'), $reportFailurePid)
                 }
-        } 'a failed report write'
-        $childId = 0
-        if (![int]::TryParse((Get-Content -LiteralPath $reportFailurePid -Raw), [ref] $childId) -or $childId -le 0) {
-            throw 'The report-failure probe did not identify its owned process.'
+        } catch { $reportRefusal = $_ }
+        if (!$reportRefusal -or !$reportRefusal.ToString().Contains('result.json.writing') -or
+            !$reportFailureIdentity -or $reportFailureIdentity.id -le 0) {
+            throw 'The report-failure probe did not retain an actual launch and reporting refusal.'
         }
+        $childId = $reportFailureIdentity.id
         $child = Get-Process -Id $childId -ErrorAction SilentlyContinue
-        if ($null -ne $child) {
-            Stop-Process -Id $childId -Force
-            throw 'Report writing failure prevented termination of the owned command.'
-        }
-    } finally { $env:SCALE_STARTED_AT = $reportFailureStarted }
+        try {
+            if ($null -ne $child -and !$child.HasExited -and
+                $child.StartTime.ToUniversalTime() -eq $reportFailureIdentity.startedAt) {
+                Stop-Process -Id $childId -Force
+                throw 'Report writing failure prevented termination of the owned command.'
+            }
+        } finally { if ($child) { $child.Dispose() } }
+    } finally {
+        Remove-Item Function:\Start-Process
+        $env:SCALE_STARTED_AT = $reportFailureStarted
+    }
     Write-Host 'PASS: report writing failure cannot prevent owned-command termination.'
     $heartbeatProbe = Join-Path $results 'heartbeat-probe.ps1'
     @'

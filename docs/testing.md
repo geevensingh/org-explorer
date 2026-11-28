@@ -2228,6 +2228,10 @@ Terminal configuration, log collection and reporting remain charged: completion
 cannot pass after safety expires merely because every earlier receipt passed.
 The controlled terminal-overrun case retains those successful receipts while
 requiring a timed-out record and failing exit.
+The blocked-report contract creates its real refusal after the actual native
+launch and identifies the child by that launch PID/creation time, not a readiness
+file the child may never write. Its delayed-child case still requires termination;
+separate exhausted-budget cases remain unchanged.
 
 `DesktopPartitions.json` assigns every existing ordinary scenario exactly once.
 The `people` worker runs profile, draft, Person-note, Team/history and search
