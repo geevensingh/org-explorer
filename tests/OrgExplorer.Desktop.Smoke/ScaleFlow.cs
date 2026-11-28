@@ -327,11 +327,15 @@ internal static partial class Program
         var rowTrace = new TreeItemRealization.ReportingRowTrace<ScaleReportingRowObservation>();
         var ownerProbe = Captured(frame, "Email");
         void ObserveRow(string phase, string requestedEmail, string? expectedParent, AutomationElement? row,
-            bool realizeRequested, ExpandCollapseState? lastAwaitedState)
+            bool realizeRequested, ExpandCollapseState? lastAwaitedState, bool liveLookup = false)
         {
             try
             {
                 using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
+                if (liveLookup)
+                    row = Find(window, "People").FindFirst(TreeScope.Descendants, new AndCondition(
+                        new PropertyCondition(AutomationElement.AutomationIdProperty, requestedEmail),
+                        new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TreeItem)));
                 var cache = new CacheRequest { TreeScope = TreeScope.Element };
                 foreach (var property in new[] { AutomationElement.AutomationIdProperty,
                     AutomationElement.ControlTypeProperty, AutomationElement.BoundingRectangleProperty,
@@ -398,6 +402,7 @@ internal static partial class Program
                     {
                         // This boundary capture is inside the original 180-second observation budget.
                         ObserveRow("after-request", email, expectedParent, row, realizeRequested, lastAwaitedState);
+                        ObserveRow("after-request-live", email, expectedParent, row, realizeRequested, lastAwaitedState, liveLookup: true);
                         afterRecorded = true;
                     }
                     lastAwaitedState = ((ExpandCollapsePattern)row.GetCurrentPattern(ExpandCollapsePattern.Pattern))
@@ -412,6 +417,7 @@ internal static partial class Program
                 if (!afterRecorded)
                     ObserveRow("after-request-failed", email, expectedParent, row, realizeRequested, lastAwaitedState);
                 ObserveRow("final-failed", email, expectedParent, row, realizeRequested, lastAwaitedState);
+                ObserveRow("final-failed-live", email, expectedParent, row, realizeRequested, lastAwaitedState, liveLookup: true);
                 rowTrace.AttemptOutput(primary, () => Console.WriteLine("TREE-SCALE-REALIZATION " +
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
