@@ -96,8 +96,10 @@ these observations contain no editor bodies or backing-store paths. Diagnostic
 write/report failures cannot replace the original case failure.
 
 Startup restore observation likewise accepts an absent/offscreen recovery label
-only after the requested folder, Ready activity and current validation agree;
-no selected Person or visible recovery error is accepted. Its headless replay
+only after the requested folder, Ready activity, current validation and exact
+fixture-expected Person selection agree. No selection is expected only when the
+fixture explicitly requires it; a different selection or visible recovery error
+is not accepted. Its headless replay
 covers the collapsed-label hosted failure and rejects wrong-folder, pending and
 stale observations without retrying Open. Failed-startup smoke still requires
 the actual visible error and enabled Retry/Choose recovery controls.
