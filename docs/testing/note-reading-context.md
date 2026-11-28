@@ -186,7 +186,7 @@ independent Team note's Edit mode, before its reading capture. First-autosave
 external-delivery checks observe the note surface's actual ItemStatus from
 pending-before-delivery through failure, retained typing and explicit retry;
 they never depend on an absent healthy status row.
-The compiled 44-Person wide fixture also observes empty reading before long-note
+The compiled 46-Person wide fixture also observes empty reading before long-note
 setup: the main viewport can fit its complete content and reports no vertical
 scrolling. Scroll-to-top skips that invalid axis; a genuinely scrollable long
 document still receives one real provider action. Provider failures propagate,

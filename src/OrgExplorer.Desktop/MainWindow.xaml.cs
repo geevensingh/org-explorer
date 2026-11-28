@@ -39,6 +39,7 @@ public partial class MainWindow : Window
         InitializeProfileCopyFeedback();
         InitializeOperationalNotices();
         PeopleList.DataContext = workflow;
+        InitializeTreeExpansion();
         PreviewKeyDown += EscapePeople;
         InitializeUpdates();
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
@@ -158,7 +159,9 @@ public partial class MainWindow : Window
         FavoriteButton.IsEnabled = false;
         FavoriteStatus.Text = "Select a Person.";
         expandedPeople.Clear();
+        reportingRows.Clear();
         pendingPeopleRevealEmail = null;
+        ShowTreeExpansion();
         peopleBrowseRequest++;
         workflow.ShowArchivedPeople(ShowArchivedPeople.IsChecked == true);
         loading = true;
@@ -235,7 +238,7 @@ public partial class MainWindow : Window
     }
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        if (loading || e.NewValue is not ReportingNode node) return;
+        if (loading || changingTreePresentation || e.NewValue is not ReportingNode node) return;
         // Realizing the tree can echo a Person already accepted by search.
         if (string.Equals(selectedEmail, node.Person.Email, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(workflow.PeopleNavigation.SelectedEmail, node.Person.Email, StringComparison.OrdinalIgnoreCase))
@@ -283,6 +286,7 @@ public partial class MainWindow : Window
             ShowNavigationBlocked(workflow.Status);
             return false;
         }
+        if (navigation) CancelOutstandingTreeExpansion();
         var changedPerson = !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase);
         if (changedPerson)
         {
@@ -408,12 +412,14 @@ public partial class MainWindow : Window
             RefreshPeople();
             return false;
         }
+        if (searchNavigation) CancelOutstandingTreeExpansion();
         RefreshPeople();
         RestoreRealizedTreeState(PeopleList);
         return true;
     }
     private void ExpandPersonPath(string email)
     {
+        expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
         var context = workflow.GetRelationships(email);
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         while (context is not null && visited.Add(context.Person.Email))
@@ -422,6 +428,7 @@ public partial class MainWindow : Window
             context = context.Manager is { } manager ? workflow.GetRelationships(manager.Email) : null;
         }
         RestoreRealizedTreeState(PeopleList);
+        RememberPeopleBrowsing();
     }
     private void RestoreRealizedTreeState(ItemsControl parent)
     {
@@ -432,7 +439,7 @@ public partial class MainWindow : Window
                 if (current.ItemContainerGenerator.ContainerFromItem(item) is TreeViewItem container)
                 {
                     RestoreTreeItem(container, null!);
-                    if (container.IsExpanded) parents.Push(container);
+                    parents.Push(container);
                 }
     }
     private void RestoreTreeItem(object sender, RoutedEventArgs e)
@@ -441,8 +448,17 @@ public partial class MainWindow : Window
         if (!treeRestorers.TryGetValue(item, out _))
         {
             treeRestorers.Add(item, new object());
-            item.DataContextChanged += (_, _) => RestoreTreeItem(item, null!);
+            item.DataContextChanged += (_, changed) =>
+            {
+                if (changed.OldValue is ReportingNode previous) ForgetReportingItem(item, previous.Person.Email);
+                RestoreTreeItem(item, null!);
+            };
+            item.Unloaded += (_, _) =>
+            {
+                if (item.DataContext is ReportingNode previous) ForgetReportingItem(item, previous.Person.Email);
+            };
         }
+        reportingRows[node.Person.Email] = new(item);
         var wasLoading = loading;
         loading = true;
         try
@@ -452,13 +468,31 @@ public partial class MainWindow : Window
         }
         finally { loading = wasLoading; }
     }
+    private void ForgetReportingItem(TreeViewItem item, string email)
+    {
+        if (reportingRows.TryGetValue(email, out var reference) &&
+            reference.TryGetTarget(out var current) && ReferenceEquals(current, item))
+            reportingRows.Remove(email);
+    }
     private void ExpandPerson(object sender, RoutedEventArgs e)
     {
-        if (!loading && e.OriginalSource is TreeViewItem { DataContext: ReportingNode node }) expandedPeople.Add(node.Person.Email);
+        if (!loading && ReferenceEquals(sender, e.OriginalSource) &&
+            e.OriginalSource is TreeViewItem { DataContext: ReportingNode node })
+        {
+            CancelOutstandingTreeExpansion();
+            expandedPeople.Add(node.Person.Email);
+            RememberPeopleBrowsing();
+        }
     }
     private void CollapsePerson(object sender, RoutedEventArgs e)
     {
-        if (!loading && e.OriginalSource is TreeViewItem { DataContext: ReportingNode node }) expandedPeople.Remove(node.Person.Email);
+        if (!loading && ReferenceEquals(sender, e.OriginalSource) &&
+            e.OriginalSource is TreeViewItem { DataContext: ReportingNode node })
+        {
+            CancelOutstandingTreeExpansion();
+            expandedPeople.Remove(node.Person.Email);
+            RememberPeopleBrowsing();
+        }
     }
     private void EditPersonPhoto(string? localPath)
     {

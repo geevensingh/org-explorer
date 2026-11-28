@@ -34,6 +34,19 @@ returned from normal process death:
   pending; expand/collapse, scroll and select a distant realized tree row;
   current/frozen/deep-chain/final-archived-Person search and Manager navigation;
   actual photo pixels and rendered current/frozen Markdown.
+  The existing `UI-tree` phase also invokes the real Expand subtree menu at
+  the complete rich population, observes useful progress and unrelated focus
+  interaction while expansion is unfinished, enters an actual nonempty query
+  and observes rendered search results while the same expansion remains running,
+  cancels through its still-visible control in search, checks retained partial
+  state through search-clear, then resumes to all 9,900 current People and
+  150 manager rows, including the deep chain and later realization. Profile and
+  target retention are checked at every browsing/action boundary before deliberate
+  distant-row observation. Search-time progress, controls, focus, owner and panel
+  observations share one fresh cached-UIA batch per boundary; no frame is reused
+  across input. These non-atomic caches are not native acceptance by themselves.
+  This coverage remains in the same explicit scale worker/phase and deadlines;
+  local public/compiled checks cannot establish its native responsiveness.
 - `scale-mutation-save-prefix`: repeated normal-executable usable Team editors,
   Person selection and ordinary durable saves while typing continues, followed
   by actual compiled WPF at the same complete rich population during a held real

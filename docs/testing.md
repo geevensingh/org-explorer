@@ -36,6 +36,7 @@ do not mock away the business behavior being asserted.
 | When changing or verifying | Open |
 |---|---|
 | Profile editing, identity, reporting, Team names, photos or Copy | [Person profiles](testing/person-profiles.md) |
+| Reporting-tree subtree actions, progress, cancellation or menu targeting | [Reporting-tree actions](testing/reporting-tree-actions.md) |
 | Preferred-name defaults, Save/Enter, cancellation or stale retries | [Person-text submission](testing/person-text.md) |
 | Person-note/Team-note autosave, immutable drafts, retained writing or independent failures | [Note writing](testing/note-writing.md) |
 | Ongoing/Other selections, Read/Edit, inherited ownership or current/frozen context | [Note reading and context](testing/note-reading-context.md) |

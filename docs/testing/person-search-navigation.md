@@ -201,7 +201,7 @@ a missing-control failure. Headless replay of the shared assertion covers that
 absence and still rejects wrong selections or missing required visible lists;
 hosted WPF supplies the real selection/visibility evidence.
 
-The ordinary (43-Person), responsive and invisible replay (44-Person) browsing
+The ordinary (43-Person), responsive and invisible replay (46-Person) browsing
 paths share only their fixture records and long-note paragraph inputs.
 Expected identities, exact row positions and document/owner assertions remain
 independently literal; the full populations, actions and deadlines are unchanged.

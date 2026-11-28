@@ -121,7 +121,7 @@ bounded readiness wait before any conditional Clear or overlay-open action.
 Its runner replay covers missing-then-present query discovery after Clear,
 without repeating either action; a permanently missing query still fails.
 The later exact-row restoration assertion and its 20-second bound are unchanged.
-The invisible compiled replay additionally drives the 44-Person/long-note
+The invisible compiled replay additionally drives the 46-Person/long-note
 fixture through real tree scrolling with cold virtualization and recorded
 available viewport geometry, grouped-result highlighting/manual clear and wide/compact
 restoration, including recycled tree-item load events. Compact replay establishes

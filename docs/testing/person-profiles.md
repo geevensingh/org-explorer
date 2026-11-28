@@ -131,7 +131,7 @@ and `responsive-workspace` journeys require actual ` > ` separators, duplicate
 mouse/keyboard attribution, segment-only Copy through mouse and keyboard context
 menus, inherited read-only context and owner-only editing.
 The responsive long-duplicate-name checks retain the full original size matrix
-and restore the original 44-Person graph before the remaining reading checks.
+and restore the original reading graph before the remaining reading checks.
 Invisible compiled checks separately cover wrapping, exact segment/separator
 order and live attributed peers through rename, clear, restore and Cancel/resize;
 they are not rendered interaction acceptance.
