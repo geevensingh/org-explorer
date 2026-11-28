@@ -157,14 +157,23 @@ For a Person with at least one current, non-archived direct report, show a
 reporting summary covering all their current, non-archived Reporting descendants
 known to the workspace, at every depth. Exclude the selected manager themselves.
 Count each Person once and follow reporting relationships regardless of category,
-including through Vendor managers. Total is the sum of all category counts;
-display every supported category, including categories with zero descendants.
-Initially these counts are Total, Employees, and Vendors.
+including through Vendor managers. Total is the sum of all category counts.
+Keep Total and every supported category count in the derived summary, including
+zero values; initially these counts are Total, Employees, and Vendors. The
+profile's Reporting structure display omits zero-count categories. When exactly
+one category has descendants, show only its count and category, without an
+explicit total. When multiple categories have descendants, show the total
+followed by each nonzero category count in category-definition order, initially
+Employees before Vendors. Use comma separators, lowercase category nouns, and
+the singular form for a count of one.
 
 For example, a manager with twelve Reporting descendants, nine Employees and
-three Vendors, has Total 12, Employees 9, and Vendors 3, irrespective of that
-manager's own category. A manager with twelve Employee descendants has Total 12,
-Employees 12, and Vendors 0.
+three Vendors, displays `12 total, 9 employees, 3 vendors`, irrespective of that
+manager's own category. A manager with twelve Employee descendants displays
+`12 employees`; twelve Vendor descendants display `12 vendors`. One descendant
+displays `1 employee` or `1 vendor`; a mixed pair displays
+`2 total, 1 employee, 1 vendor`. These wording rules do not change the underlying
+Total or category counts.
 
 These are imported-population counts, not verified company-wide totals. Use
 current relationships, not former reporting chains or historical context;

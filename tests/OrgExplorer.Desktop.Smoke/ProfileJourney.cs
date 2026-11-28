@@ -146,10 +146,10 @@ internal static partial class Program
             AssertReportingStructure(window, null);
             SelectTreePerson(window, "V-reference@example.com");
             AssertPersonCategory(window, "Vendor");
-            AssertReportingStructure(window, 1, 0, 1);
+            AssertReportingStructure(window, "1 vendor");
             NavigateToManager(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
-            AssertReportingStructure(window, 3, 1, 2);
+            AssertReportingStructure(window, "3 total, 1 employee, 2 vendors");
             SelectTreePerson(window, "avery@example.com");
             AssertPhotoVisible(window);
             AssertCompactProfile(window);
@@ -365,7 +365,7 @@ internal static partial class Program
             AssertPhotoVisible(window);
             NavigateToManager(window, "morgan@example.com");
             AssertTeamNamePath(window, "Platform", "Platform");
-            AssertReportingStructure(window, 3, 1, 2);
+            AssertReportingStructure(window, "3 total, 1 employee, 2 vendors");
             SelectTreePerson(window, "avery@example.com");
             ExercisePhotoPresentation(window, root);
             Click(window, "EditPreferredName");
@@ -467,7 +467,7 @@ internal static partial class Program
         Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
         NavigateToManager(window, "rowan@example.com");
         AssertTeamNameReading(window, null);
-        AssertReportingStructure(window, 4, 2, 2);
+        AssertReportingStructure(window, "4 total, 2 employees, 2 vendors");
         BeginProfileEditing(window);
         Set(window, "TeamNameEditor", "Platform");
         SaveProfileEditing(window);
@@ -519,7 +519,7 @@ internal static partial class Program
     private static void AssertTeamNameReading(AutomationElement window, string? expected)
         => AssertTeamNamePath(window, expected is null ? [] : [expected]);
 
-    private static void AssertReportingStructure(AutomationElement window, int? total, int employees = 0, int vendors = 0)
+    private static void AssertReportingStructure(AutomationElement window, string? counts)
     {
         var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
             control => control.Current.IsEnabled && !control.Current.IsOffscreen,
@@ -527,7 +527,7 @@ internal static partial class Program
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
             () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         Await(() => !scroll.Current.VerticallyScrollable || scroll.Current.VerticalScrollPercent == 0);
-        if (total is null)
+        if (counts is null)
         {
             var absent = ControlObservation.Capture(window,
                 "ReportingStructureLabel", "ReportingStructureValue", "ReportingStructureScope");
@@ -536,7 +536,6 @@ internal static partial class Program
                 throw new InvalidOperationException("An ineligible Person retained a visible Reporting structure fact.");
             return;
         }
-        var counts = $"{total} total, {employees} Employees, {vendors} Vendors";
         Await(() =>
         {
             var ready = ControlObservation.Capture(window, "ReportingStructureValue", "ReportingStructureScope");
@@ -572,11 +571,11 @@ internal static partial class Program
                 bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale)
                 throw new InvalidOperationException($"Reporting structure is clipped rather than wrapping compactly: {bounds}; viewport={viewport}.");
         }
+        var finalCategory = counts.Split(", ")[^1];
         if (!value.TryGetCurrentPattern(TextPattern.Pattern, out var text) ||
             ((TextPattern)text).DocumentRange.GetText(-1) != counts ||
-            ((TextPattern)text).DocumentRange.FindText($"{vendors} Vendors", false, false) is not { } end)
-            throw new InvalidOperationException("The final zero-inclusive category count is not actually rendered and readable.");
-        var finalCategory = $"{vendors} Vendors";
+            ((TextPattern)text).DocumentRange.FindText(finalCategory, false, false) is not { } end)
+            throw new InvalidOperationException("The final nonzero category count is not actually rendered and readable.");
         if (end.GetText(-1) != finalCategory)
             throw new InvalidOperationException("The rendered reporting range lost the full final count/category.");
         var cursor = end.Clone();
