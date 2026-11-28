@@ -332,20 +332,15 @@ internal static partial class Program
         var rowTrace = new TreeItemRealization.ReportingRowTrace<ScaleReportingRowObservation>();
         var ownerProbe = Captured(frame, "Email");
         void ObserveRow(string phase, string requestedEmail, string? expectedParent, AutomationElement? row,
-            bool realizeRequested, ExpandCollapseState? lastAwaitedState, bool liveLookup = false)
+            bool realizeRequested, ExpandCollapseState? lastAwaitedState)
         {
             try
             {
                 using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
-                if (liveLookup)
-                    row = Find(window, "People").FindFirst(TreeScope.Descendants, new AndCondition(
-                        new PropertyCondition(AutomationElement.AutomationIdProperty, requestedEmail),
-                        new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TreeItem)));
                 var cache = new CacheRequest { TreeScope = TreeScope.Element };
                 foreach (var property in new[] { AutomationElement.AutomationIdProperty,
                     AutomationElement.ControlTypeProperty, AutomationElement.BoundingRectangleProperty,
                     AutomationElement.IsOffscreenProperty, AutomationElement.ItemStatusProperty,
-                    AutomationElement.HelpTextProperty,
                     AutomationElement.IsVirtualizedItemPatternAvailableProperty,
                     ExpandCollapsePattern.ExpandCollapseStateProperty })
                     cache.Add(property);
@@ -365,9 +360,7 @@ internal static partial class Program
                     rowBounds is System.Windows.Rect rowRect ? rowRect.ToString(System.Globalization.CultureInfo.InvariantCulture) : null,
                     viewportBounds is System.Windows.Rect viewportRect ? viewportRect.ToString(System.Globalization.CultureInfo.InvariantCulture) : null,
                     observedTree.GetCachedPropertyValue(AutomationElement.ItemStatusProperty, true) as string, ownerProbe.Current.Name,
-                    row is null ? "The lookup did not return a row." : null,
-                    observedRow?.GetCachedPropertyValue(AutomationElement.HelpTextProperty, true) as string,
-                    observedTree.GetCachedPropertyValue(AutomationElement.HelpTextProperty, true) as string));
+                    row is null ? "The lookup did not return a row." : null));
             }
             catch (Exception error) when (error is ElementNotAvailableException or InvalidOperationException or
                 ArgumentException or System.Runtime.InteropServices.COMException)
@@ -410,7 +403,6 @@ internal static partial class Program
                     {
                         // This boundary capture is inside the original 180-second observation budget.
                         ObserveRow("after-request", email, expectedParent, row, realizeRequested, lastAwaitedState);
-                        ObserveRow("after-request-live", email, expectedParent, row, realizeRequested, lastAwaitedState, liveLookup: true);
                         afterRecorded = true;
                     }
                     lastAwaitedState = ((ExpandCollapsePattern)row.GetCurrentPattern(ExpandCollapsePattern.Pattern))
@@ -425,7 +417,6 @@ internal static partial class Program
                 if (!afterRecorded)
                     ObserveRow("after-request-failed", email, expectedParent, row, realizeRequested, lastAwaitedState);
                 ObserveRow("final-failed", email, expectedParent, row, realizeRequested, lastAwaitedState);
-                ObserveRow("final-failed-live", email, expectedParent, row, realizeRequested, lastAwaitedState, liveLookup: true);
                 rowTrace.AttemptOutput(primary, () => Console.WriteLine("TREE-SCALE-REALIZATION " +
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
@@ -454,8 +445,7 @@ internal static partial class Program
     private sealed record ScaleReportingRowObservation(long ObservedAt, string Phase, string RequestedEmail,
         string? ExpectedParent, bool RealizeRequested, string? ReturnedEmail, string? ControlType,
         string? ExpansionState, string? LastAwaitedState, bool? VirtualizedPatternAvailable, bool? IsOffscreen,
-        string? RowBounds, string? ViewportBounds, string? Operation, string? CurrentOwner, string? ObservationRefusal,
-        string? RowDiagnostic = null, string? TreeDiagnostic = null);
+        string? RowBounds, string? ViewportBounds, string? Operation, string? CurrentOwner, string? ObservationRefusal);
 
     private static void RunScaleMutationPrefix(string executable, string root)
     {

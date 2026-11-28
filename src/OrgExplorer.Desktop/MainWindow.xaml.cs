@@ -478,9 +478,6 @@ public partial class MainWindow : Window
                 item.IsSelected = string.Equals(node.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase);
         }
         finally { loading = wasLoading; }
-        if (Environment.GetEnvironmentVariable("TREE_DIAGNOSTIC_EMAIL") is { } diagnosticEmail &&
-            node.Person.Email.Equals(diagnosticEmail, StringComparison.OrdinalIgnoreCase))
-            WriteTreeStateDiagnostic(item);
     }
     private void ForgetReportingItem(TreeViewItem item, string email)
     {
@@ -505,10 +502,6 @@ public partial class MainWindow : Window
             e.OriginalSource is TreeViewItem { DataContext: ReportingNode node } item &&
             item.IsDescendantOf(PeopleList))
         {
-            if (Environment.GetEnvironmentVariable("TREE_DIAGNOSTIC_EMAIL") is { } diagnosticEmail &&
-                node.Person.Email.Equals(diagnosticEmail, StringComparison.OrdinalIgnoreCase) &&
-                expandedPeople.Contains(diagnosticEmail))
-                treeDiagnosticCollapse = Environment.StackTrace;
             CancelOutstandingTreeExpansion();
             expandedPeople.Remove(node.Person.Email);
             RememberPeopleBrowsing();
