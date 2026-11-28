@@ -159,6 +159,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
                     ViewRecoveryFeedback = null;
                     if (opened && IsWorkspaceCurrent)
                     {
+                        ResetPeopleTreeExpansion();
                         RestoreRememberedView();
                         EnsurePeopleSelection();
                     }
@@ -261,10 +262,27 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
 
     private T Observe<T>(Func<T> operation)
     {
-        navigationError = null;
-        var result = operation();
-        Notify();
-        return result;
+        // Observed work can publish a new graph; never hold the destination gate across its I/O.
+        lock (destinationGate)
+        {
+            reportingChangeGeneration++;
+            reportingChanges++;
+        }
+        try
+        {
+            navigationError = null;
+            var result = operation();
+            Notify();
+            return result;
+        }
+        finally
+        {
+            lock (destinationGate)
+            {
+                reportingChangeGeneration++;
+                reportingChanges--;
+            }
+        }
     }
 
     private void Notify()

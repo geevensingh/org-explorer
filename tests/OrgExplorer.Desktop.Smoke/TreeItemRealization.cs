@@ -1,7 +1,124 @@
+using System.IO;
+
 namespace OrgExplorer.Desktop.Smoke;
 
 internal static class TreeItemRealization
 {
+    internal enum MenuBranchInput { ExpandCollapseProvider, DisclosureArrow, DisclosureToggle }
+    internal enum MenuRetentionBoundary { Command, OrdinaryFixtureRestoration }
+
+    internal sealed class ReportingRowTrace<T>
+    {
+        private readonly Queue<T> recent = new();
+        private readonly HarnessRuntime.FailureLedger failures = new();
+        internal IReadOnlyList<T> Recent => recent.ToArray();
+        internal HarnessRuntime.FailureSnapshot Failures => failures.Snapshot;
+
+        internal void Retain(T observation)
+        {
+            if (recent.Count == 12) recent.Dequeue();
+            recent.Enqueue(observation);
+        }
+
+        internal void RecordFailure(Exception error) => failures.Record(error);
+
+        internal void AttemptOutput(Exception? primary, Action output)
+        {
+            try { output(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or
+                InvalidOperationException or ArgumentException or NotSupportedException or
+                System.ComponentModel.Win32Exception or System.Runtime.InteropServices.COMException or
+                System.Text.Json.JsonException)
+            {
+                failures.Record(error);
+            }
+            finally
+            {
+                if (primary is not null && failures.Snapshot.Count > 0)
+                    primary.Data["ReportingRowDiagnosticFailures"] = failures.Snapshot;
+            }
+        }
+    }
+
+    internal static bool PrepareArchivedListForMenu(Func<bool> isShown, Action toggle,
+        Func<bool> treeReady, Action<Func<bool>> awaitState)
+    {
+        var initiallyShown = isShown();
+        if (initiallyShown) toggle();
+        awaitState(() => !isShown() && treeReady());
+        return initiallyShown;
+    }
+
+    internal static void RestoreArchivedListAfterMenu(bool initiallyShown, Func<bool> isShown,
+        Action toggle, Action<Func<bool>> awaitState)
+    {
+        if (isShown())
+            throw new InvalidOperationException("The archived list changed during the menu fixture; no restoration input was replayed.");
+        if (initiallyShown) toggle();
+        awaitState(() => isShown() == initiallyShown);
+    }
+
+    internal static void AssertMenuRetention(MenuRetentionBoundary boundary,
+        Action assertContentRetained, Action assertTargetVisible)
+    {
+        assertContentRetained();
+        if (boundary != MenuRetentionBoundary.OrdinaryFixtureRestoration) assertTargetVisible();
+    }
+
+    internal static void AssertMenuRetention<T>(MenuRetentionBoundary boundary, Func<T> capture,
+        Action<T> assertContentRetained, Action<T> assertTargetVisible)
+    {
+        var observation = capture();
+        AssertMenuRetention(boundary, () => assertContentRetained(observation), () => assertTargetVisible(observation));
+    }
+
+    internal static T ReportingTarget<T>(IEnumerable<T> controls, string email,
+        Func<T, string> identity, Func<T, bool> isReportingRow) where T : class =>
+        controls.FirstOrDefault(control => identity(control) == email && isReportingRow(control)) ??
+            throw new InvalidOperationException("Missing actual UI control: " + email);
+
+    internal static Func<string, T> ReportingRows<T>(Func<string, T> find,
+        Func<T, string, bool> isCurrent) where T : class
+    {
+        var rows = new Dictionary<string, T>(StringComparer.Ordinal);
+        return email =>
+        {
+            if (rows.TryGetValue(email, out var retained) && isCurrent(retained, email)) return retained;
+            var row = find(email);
+            if (!isCurrent(row, email)) throw new InvalidOperationException("Missing current reporting row: " + email);
+            rows[email] = row;
+            return row;
+        };
+    }
+
+    internal static void PrepareMenuBranch(Func<bool> isExpanded, Action<MenuBranchInput> requestInput,
+        Action<Func<bool>> awaitState) =>
+        AwaitExpanded(true, isExpanded, () => requestInput(MenuBranchInput.DisclosureToggle), awaitState);
+
+    internal static void PrepareMenuBranches(IEnumerable<string> emails, Func<string, bool> isExpanded,
+        Action<string, MenuBranchInput> requestInput, Action<Func<bool>> awaitState)
+    {
+        foreach (var email in emails)
+            PrepareMenuBranch(() => isExpanded(email), input => requestInput(email, input), awaitState);
+    }
+
+    internal static (double X, double Y) ReportingHeaderPoint(
+        (double Left, double Top, double Width, double Height) row,
+        (double Left, double Top, double Width, double Height) viewport, double scale)
+    {
+        if (!double.IsFinite(scale) || scale <= 0) throw new ArgumentOutOfRangeException(nameof(scale));
+        var left = Math.Max(row.Left + 22 * scale, viewport.Left);
+        var right = Math.Min(row.Left + row.Width, viewport.Left + viewport.Width);
+        var top = Math.Max(row.Top, viewport.Top);
+        // A TreeItem's bounds include its descendants; only the first row is the target header.
+        var bottom = Math.Min(row.Top + Math.Min(row.Height, 28 * scale), viewport.Top + viewport.Height);
+        var x = Math.Floor((left + right) / 2);
+        var y = Math.Floor((top + bottom) / 2);
+        if (!double.IsFinite(x) || !double.IsFinite(y) || x < left || x >= right || y < top || y >= bottom)
+            throw new InvalidOperationException($"The reporting row header has no visible content pixel: row={row}; viewport={viewport}; scale={scale}.");
+        return (x, y);
+    }
+
     internal static bool IsBrowsingPositionRestored(BrowsingPosition original, BrowsingPosition current) =>
         original.Rows.Count > 0 && original.Rows.All(expected => current.Rows.Any(actual =>
             string.Equals(expected.Email, actual.Email, StringComparison.OrdinalIgnoreCase) &&
