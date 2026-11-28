@@ -2224,6 +2224,10 @@ safety cutoff and an eight-minute watchdog for upload/teardown. A complete
 execution above 300s but at or below 420s is yellow and nonblocking for duration
 alone; failures and unfinished checks still block. The independent source
 manifest keeps original `core-original-v1` results at their original 300s limit.
+Terminal configuration, log collection and reporting remain charged: completion
+cannot pass after safety expires merely because every earlier receipt passed.
+The controlled terminal-overrun case retains those successful receipts while
+requiring a timed-out record and failing exit.
 
 `DesktopPartitions.json` assigns every existing ordinary scenario exactly once.
 The `people` worker runs profile, draft, Person-note, Team/history and search

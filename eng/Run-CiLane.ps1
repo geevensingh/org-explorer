@@ -40,6 +40,7 @@ $updateFixture = $null
 $previousUpdateFixture = $env:ORG_EXPLORER_UPDATE_FIXTURE
 $complete = $false
 $executionFailure = $null
+$terminalBudgetFailure = $false
 if ($partition -or $Lane -in @('core', 'filesystem')) {
     $executionRevision = git rev-parse HEAD
     if ($LASTEXITCODE -ne 0 -or ($env:GITHUB_SHA -and $executionRevision -cne $env:GITHUB_SHA)) {
@@ -255,6 +256,11 @@ try {
         }
     }
     $elapsed = ([DateTimeOffset]::UtcNow - $started).TotalSeconds
+    if ($Lane -ceq 'core' -and !$CoreCapacityDiagnostic -and $complete -and $elapsed -gt $ceilingSeconds) {
+        $terminalBudgetFailure = $true
+        $complete = $false
+        $executionFailure = 'Core terminal collection exceeded its source-bound execution safety budget.'
+    }
     @{ lane = $Lane; startedAt = $started.ToString('O'); executionSeconds = $elapsed; targetSeconds = 300;
         ceilingSeconds = $ceilingSeconds; diagnosticOnly = [bool]$CoreCapacityDiagnostic
         steps = @($steps.ToArray()); queuesIncluded = $false; cdIncluded = $false } |
@@ -270,7 +276,7 @@ try {
         } | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $results 'execution.json')
     }
     if ($Lane -in @('core', 'filesystem')) {
-        $outcome = if ($complete) { 'success' } `
+        $outcome = if ($terminalBudgetFailure) { 'timed_out' } elseif ($complete) { 'success' } `
             elseif ($executionFailure -ceq 'The lane budget (including setup) is exhausted.' -or
                 @($steps | Where-Object { $_.outcome -ceq 'timed_out' }).Count) { 'timed_out' } else { 'failure' }
         @{ schemaVersion = 1; lane = $Lane; revision = $executionRevision
@@ -291,4 +297,21 @@ try {
         "### $Lane execution`n$([Math]::Round($elapsed, 2)) seconds including setup, restore, build, tests and fixtures; target 300 s; ceiling $ceilingSeconds s. Queues and later CD excluded." |
             Add-Content $env:GITHUB_STEP_SUMMARY
     }
+    if ($Lane -ceq 'core' -and !$CoreCapacityDiagnostic -and $complete -and
+        ([DateTimeOffset]::UtcNow - $started).TotalSeconds -gt $ceilingSeconds) {
+        $terminalBudgetFailure = $true
+        $complete = $false
+        $executionFailure = 'Core final reporting exceeded its source-bound execution safety budget.'
+        $path = Join-Path $results 'execution.json'
+        $terminal = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+        $terminal.complete = $false; $terminal.outcome = 'timed_out'; $terminal.error = $executionFailure
+        $terminal.finishedAt = [DateTimeOffset]::UtcNow.ToString('O')
+        $terminal.executionSeconds = ([DateTimeOffset]::UtcNow - $started).TotalSeconds
+        $terminal | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $path
+        $timingPath = Join-Path $results 'timing.json'
+        $timing = Get-Content -LiteralPath $timingPath -Raw | ConvertFrom-Json -AsHashtable
+        $timing.executionSeconds = $terminal.executionSeconds
+        $timing | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $timingPath
+    }
+    if ($terminalBudgetFailure) { throw $executionFailure }
 }

@@ -1,4 +1,4 @@
-param([ValidateRange(0, 60000)][int]$HolderStartupDelayMilliseconds = 10000)
+param([ValidateRange(0, 60000)][int]$HolderStartupDelayMilliseconds = 10000, [switch]$TerminalBudgetOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -12,6 +12,18 @@ $names = @('CiGate.Tests.ps1', 'CiRunner.Tests.ps1', 'FilesystemHealth.Tests.ps1
     'Update.TrustLifetime.Tests.ps1', 'ApplicationIcon.Tests.ps1')
 function Assert([bool]$Condition, [string]$Reason) {
     if (!$Condition) { throw $Reason }
+}
+function Assert-TerminalCoreBudget {
+    foreach ($mode in @('terminal-budget', 'terminal-reporting')) {
+        $terminal = Invoke-ControlledCore $mode
+        Assert ($terminal.exitCode -ne 0 -and !$terminal.execution.complete -and
+            $terminal.execution.outcome -ceq 'timed_out') 'Completed core receipts waived terminal safety expiry.'
+        Assert ($terminal.execution.steps.Count -eq 23 -and
+            @($terminal.execution.steps | Where-Object { $_.status -cne 'Passed' }).Count -eq 0) 'Terminal refusal lost earlier complete successful receipts.'
+        $projection = Export-LocalCoreHealth (Join-Path $fixture '.ci-results\core') (Join-Path $fixture 'terminal projection') $terminal.exitCode
+        Assert ($projection.validation -cne 'success') 'Terminal expiry acquired successful local acceptance.'
+    }
+    Write-Host 'PASS: actual successful compiled/companion receipts remain nonaccepting after terminal safety expiry.'
 }
 function Invoke-ControlledCore([string]$Mode = 'overlap', [int]$BudgetUsed = 0,
     [int]$WaitMilliseconds = 60000, [int]$ProcessorCount = 4) {
@@ -67,6 +79,27 @@ if ($env:CORE_CONTRACT_MODE -ceq 'timeout') {
             Invoke-CoreContracts $root $results $artifactBuild $started $ceilingSeconds $steps
 '@
     [IO.File]::WriteAllText($runnerPath, $runner.Replace($queueCall, $controlledQueue))
+    $runner = Get-Content -LiteralPath $runnerPath -Raw
+    $terminalClock = '$elapsed = ([DateTimeOffset]::UtcNow - $started).TotalSeconds'
+    Assert ([regex]::Matches($runner, [regex]::Escape($terminalClock)).Count -eq 1) 'Terminal clock has no unique reporting seam.'
+    $terminalAdvance = @'
+if ($env:CORE_CONTRACT_MODE -ceq 'terminal-budget') {
+        $started = [DateTimeOffset]::UtcNow.AddSeconds(-301)
+    }
+    $elapsed = ([DateTimeOffset]::UtcNow - $started).TotalSeconds
+'@
+    [IO.File]::WriteAllText($runnerPath, $runner.Replace($terminalClock, $terminalAdvance))
+    $runner = Get-Content -LiteralPath $runnerPath -Raw
+    $finalGuard = "if (`$Lane -ceq 'core' -and !`$CoreCapacityDiagnostic -and `$complete -and`n"
+    $normalized = $runner.Replace("`r`n", "`n")
+    Assert ([regex]::Matches($normalized, [regex]::Escape($finalGuard)).Count -eq 1) 'Final reporting budget has no unique clock seam.'
+    $finalAdvance = @'
+if ($env:CORE_CONTRACT_MODE -ceq 'terminal-reporting') {
+        $started = [DateTimeOffset]::UtcNow.AddSeconds(-301)
+    }
+    if ($Lane -ceq 'core' -and !$CoreCapacityDiagnostic -and $complete -and
+'@
+    [IO.File]::WriteAllText($runnerPath, $normalized.Replace($finalGuard, $finalAdvance + "`n"))
     foreach ($name in @('DesktopScenarios.json', 'DesktopPartitions.json')) {
         Copy-Item -LiteralPath (Join-Path $root "tests\$name") (Join-Path $fixture "tests\$name")
     }
@@ -159,6 +192,7 @@ if ($env:CORE_CONTRACT_MODE -ceq 'failure' -and $name -ceq 'FilesystemHealth.Tes
     git -C $fixture -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Controlled runner workload'
     Assert ($LASTEXITCODE -eq 0) 'Controlled source could not be committed.'
     . "$root\eng\LaneHealth.ps1"
+    if ($TerminalBudgetOnly) { Assert-TerminalCoreBudget; return }
     $serial = Invoke-ControlledCore -Mode serial -ProcessorCount 1
     Assert ($serial.exitCode -eq 0 -and $serial.execution.complete -and $serial.execution.outcome -ceq 'success') "One-CPU serial execution failed: $($serial.errors)`n$($serial.output)"
     Assert ($serial.execution.configuration.processors -eq 1 -and
@@ -236,6 +270,7 @@ if ($env:CORE_CONTRACT_MODE -ceq 'failure' -and $name -ceq 'FilesystemHealth.Tes
             @($reportFailure.execution.steps | Where-Object { $_.status -cne 'Passed' }).Count -gt 0) 'Reporting failure lost ordered nonaccepting receipts.'
         Write-Host 'PASS: reporting refusal preserves its initiating error and nonaccepting ordered receipts.'
     } finally { Remove-Item -LiteralPath $blockedLog }
+    Assert-TerminalCoreBudget
     $unrelatedStart = [Diagnostics.ProcessStartInfo]::new((Get-Command pwsh).Source)
     $unrelatedStart.UseShellExecute = $false
     $unrelatedStart.CreateNoWindow = $true
