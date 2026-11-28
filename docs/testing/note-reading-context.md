@@ -8,6 +8,20 @@ Related guidance: [Retained note writing](note-writing.md), [Person search](pers
 
 ## Ongoing and exact selections
 
+Compiled returning-Person cases present exact inherited/frozen note sections after
+Import and refresh while preserving Import, active search, focus and preferences.
+Those same cases retain the exact remembered destination through unrelated search,
+query clearing and the return to browsing; deliberate Person navigation still
+replaces it. Search-match cleanup does not cancel remembered-note reading or reveal.
+The existing Person-note reopen journey additionally observes archived exact-note
+recovery with the remembered Person and actual selected row. The ordinary and
+responsive Team-context journeys observe missing exact-note recovery without
+substitute Person/Team writing, preserving their complete 700/1100 reopen matrix
+and original budgets. The compiled automatic-opening contract covers both note
+scopes and their recovery presentation without showing a native window; it
+does not replace exact-candidate hosted evidence or complete the whole fallback
+design's joint delivery.
+
 Person-note presentation is observed through `WorkspaceViewModel.PersonNotesView`
 and the shared owned-note commands, not a control-specific test adapter.
 Person-note cases cover explicit ambiguous designation, a changed choice without
@@ -73,6 +87,19 @@ It additionally drives actual compiled owned-Team create/read/designate/Other
 controls, an exact empty secondary note, a locked preference rejection and a
 failed secondary-note save with retained writing across ongoing navigation and successful
 retry, then deliberate preference recovery and archived-choice feedback.
+The Team-context designation-refusal assertion observes the actual failed
+preference feedback and exact `Other Team note` kind within one existing
+20-second wait, rather than following feedback readiness with an unguarded
+Kind lookup. The original unchanged-preference-byte assertion remains.
+The compiled owned-Team path replays one unavailable named-control discovery
+using actual BAML, a real preference-file refusal and one Designate action.
+Only that discovery is withheld; the actual secondary note, owner, Read mode
+and original automation identity remain intact afterward. It uses native
+Await's missing-control policy without changing the general dispatcher pump.
+Runner cases require permanently missing/wrong kinds and wrong feedback to
+fail bounded observation. This covers the observation gap in the failed hosted
+context artifact, not the Windows provider's transient-absence actor or a
+causal claim about the remembered-note feature.
 Save completion requires real Ready and note-specific success feedback, not a
 queued task. Failed local I/O still pauses edits until explicit reconciliation.
 The same real controls receive a genuine public note edit through complete

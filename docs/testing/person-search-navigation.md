@@ -24,6 +24,35 @@ canonical per-Workspace identity, interleaved designation/startup writes, unchan
 Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
 These do not prove WPF geometry.
 
+## Automatic selection and accepted refresh
+
+For initial selection and exact remembered destinations at the People-navigation
+seam, read [Workspace opening](workspace-opening-exit.md#startup-preferences-and-exact-remembered-destinations).
+
+Accepted-refresh cases reuse this seam for local reload and synchronous/asynchronous
+snapshot adoption, cross-branch selection, current/Archived exact reading,
+non-activating search/Import, and unchanged saved destinations. Real folders
+retain failed Person/Team writing, profile and Preferred-name drafts and independent
+errors, and refuse invalid, incomplete, deferred, unavailable or stale data.
+Both Person-note and Team-note refresh use that same Workspace selection policy.
+An owned ranking barrier and a reentrant presentation notification prove that
+accepted deliberate navigation wins over automatic selection and records its own
+saved destination; a refused choice does not cancel a valid automatic fallback.
+A Workspace replacement invalidates pending ranking before Open and publishes its
+navigation reset under the same destination gate, without holding that gate over
+storage I/O. The real-folder barrier also switches to an all-archived Workspace
+containing the old candidate email and requires it to remain unselected.
+Ranking also binds the accepted local revision and is superseded by a newer
+selection pass, so an accepted same-Workspace Import that archives the population
+cannot commit an old current candidate afterward.
+
+`--verify-inherited-note-mode` and `--verify-people-opening` isolate the existing
+inherited Edit/Read and automatic-opening cases; both remain in the complete
+profile-refresh selection. The inherited fixture creates and saves its subject
+through the real compiled New-note action before invalid editing, rather than
+assuming a synthetic selection of an already automatically selected Person
+loads a note created directly through the workflow.
+
 ## Grouped Person search and retained writing
 
 The bounded shared-Team-note excerpt regression measures allocations through

@@ -51,6 +51,31 @@ and locked publication are explicit; a failed view write retains valid in-sessio
 reading without creating a designation. Settings-driven existing-only reopen
 cannot replace retained independent drafts or enable unsafe close/restart.
 
+Opening and accepted-Import selection cases use the real WorkspaceViewModel
+People-navigation seam. Independent graphs cover current Direct-report
+eligibility, cross-branch depth, displayed Preferred-name/email ties, input-order
+independence, both fallback levels, current/Archived selection precedence and
+non-activating search with Import retained. Real-folder startup cases independently
+compare preference and Workspace bytes, exact secondary notes, unavailable-Person
+recovery and failed-reopen clearing. A valid remembered Person with an unavailable
+exact owned, inherited or frozen note now opens its normal profile with explicit
+recovery and neither owned-note default selected. Missing/archived Person and
+owned-note cases, unavailable inherited/frozen contexts, deliberate same-Person
+reselection and explicit ongoing access retain independent preference/Workspace
+byte checks. Exact secondary/owned-Team/inherited/frozen restoration and retained
+writing guards remain.
+Real-folder accepted Import and local-refresh cases additionally reopen an
+all-archived Workspace, then reactivate its remembered Person alongside a higher
+qualifying Manager. Both note scopes prove remembered priority, exact secondary
+Read restoration or missing-note suppression of both defaults, unchanged
+preferences and non-activating search. The Import case also retains its screen;
+navigation never creates replacement writing.
+Installed reopening expects the fixture's independently remembered Person, rather
+than incorrectly requiring the empty first-open destination for a populated reopen.
+If isolated app preferences are absent, the populated installer fixture instead
+requires its known shallowest current Person, Casey; only the initial empty
+creation requires no selection.
+
 ## Compiled startup lifecycle and readiness evidence
 
 The exit host's one preparation Open waits for the actual compiled Ready activity

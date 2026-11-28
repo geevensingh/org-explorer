@@ -59,6 +59,25 @@ unrelated real-time stall. Both scopes also run with a continuation delayed past
 three wall-clock seconds; the six-second admission wait and all discard
 assertions stay intact. Production clocks and separate exact three-second
 queue/stall/unknown-outcome regressions remain unchanged.
+The inherited-secondary-Team-note navigation contract uses the same test-only
+request-clock control while a real in-memory workflow's Person-note writer is
+held. Its delayed-continuation case crosses three wall-clock seconds without
+advancing that request clock, retaining the exact captured base, writing, owners,
+secondary-note destination and Team-note nonmutation assertions. The held save
+remains Pending with an unknown outcome until released and actually completed;
+the five-second admission wait and final successful flush stay unchanged.
+Without this fixture control, the delayed case reproduces the genuine
+three-second stall at the flush while the backend is still Ready. This identifies
+the fixture interaction, not the historical hosted scheduler delay or feature
+causality. Production deadlines and separate stall/recovery cases are unchanged.
+The in-memory refresh/error-retention contract controls only its view-model
+request clock. Its two-scope delayed-validation cases hold the real public save
+boundary beyond three wall-clock seconds, then require the actual invalid-title
+failure before refresh and preserve its exact writing/error afterward. With the
+production request clock, that delay reproduces an early `Stalled`/unknown flush
+refusal and a null draft error before refresh while the backend is still Ready.
+This proves the fixture interaction, not the historical delaying actor.
+Production clocks and separate exact three-second stall/outcome checks remain unchanged.
 
 The same normal SQLite format-3 authority retains Person/Team note identities,
 ownership, complete Markdown, timestamps, archival and Team confirmation/context

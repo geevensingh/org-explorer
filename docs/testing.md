@@ -39,7 +39,7 @@ do not mock away the business behavior being asserted.
 | Preferred-name defaults, Save/Enter, cancellation or stale retries | [Person-text submission](testing/person-text.md) |
 | Person-note/Team-note autosave, immutable drafts, retained writing or independent failures | [Note writing](testing/note-writing.md) |
 | Ongoing/Other selections, Read/Edit, inherited ownership or current/frozen context | [Note reading and context](testing/note-reading-context.md) |
-| Search ranking, accepted destinations, keyboard browsing or startup restoration | [Person search and navigation](testing/person-search-navigation.md) |
+| Search ranking, accepted destinations, automatic Person selection or startup restoration | [Person search and navigation](testing/person-search-navigation.md) |
 | Responsive reading, exact-row restoration, editor geometry or dividers | [Person reading layout](testing/person-reading-layout.md) |
 | Workspace Create/Open, remembered views, Settings, close or exit | [Workspace opening and exit](testing/workspace-opening-exit.md) |
 | Local SQLite Commit, WAL readers, receipts, compatibility or crash recovery | [Workspace storage and recovery](testing/workspace-storage-recovery.md) |

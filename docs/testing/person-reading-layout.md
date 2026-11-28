@@ -30,6 +30,64 @@ after that request, a genuinely interior position establishes the recorded row
 baseline; an unchanged endpoint still fails. The later exact-row restoration
 check, not the requested percentage, proves that browsing was preserved.
 
+## Automatic selection and deferred reveal
+
+Existing hosted profile/reopen, archival and search/responsive journeys observe
+the actual profile identity, selected row's rendered text and clickable point
+inside the tree viewport, expanded ancestors and deferred reveal after Import
+or search. The search/responsive journeys also deliver a cross-branch candidate
+while an archived match is highlighted and Import input remains open, then
+observe the matching profile and deferred selected row behind offscreen context.
+This accepted-refresh fixture does not create an unapplied Preview: that is
+protected pending work and must defer snapshot adoption. The existing invisible
+automatic-opening selection also drives these actual compiled 700/1100 refresh
+paths and a separate reviewed-Import refusal, checking the exact delivered
+revision before matching profile/row assertions. Neither path retries, selects
+a corrective destination or discards a review to make refresh succeed.
+The original Import journey and full responsive matrices remain intact.
+The profile fixture places a qualifying Manager behind offscreen
+single-report ancestor context. These assertions do not realize, expand or scroll
+the expected row themselves. Existing scenario selections, full responsive
+matrices and budgets remain; compiled invisible checks are not hosted evidence.
+The clickable target is the rendered header text, not an expanded TreeViewItem's
+whole-subtree centre. The latter can lie below the viewport while the entire
+selected header is visible. The compiled automatic-opening case exercises this
+same late-branch layout and actual named/selected header without a native window;
+the hosted check remains responsible for screen coordinates and clickable points.
+Logical TreeViewItem `IsOffscreen` metadata is not an additional visibility
+requirement for its selected header. The shared observation still requires the
+actual selected row, an available named header whose own provider is onscreen,
+the original viewport geometry and a real in-viewport clickable point.
+Missing/unselected rows, missing/offscreen headers and rejected geometry/points
+retain the same bounded failure. The compiled case also exercises this selection
+and header observation through actual BAML/provider state, not only a fake identity.
+The real-folder compiled opening case also replays failed Apply, Import discard,
+local reconciliation, accepted re-preview/Apply and Back to People at the ordinary
+viewport width. It compares the remembered browse offset with the settled actual
+TreeView offset, alongside the exact profile, selected header and expanded ancestor.
+BringIntoView requests are asynchronous: the adapter records browsing at context
+idle after queued scroll/layout effects, guarded by the accepted request and owner.
+It does not issue a second reveal, restore an earlier offset, change any deadline
+or bypass active search/Import or retained writing.
+Cold virtualization coverage observes the extent at the one actual reveal request
+and compares it with the settled real TreeView extent. The adapter first realizes
+and expands the path, then defers that original request to guarded context idle
+so pending layout/scroll-extent publication can finish before MakeVisible clamps
+the offset. It never repairs a clamped request with a second scroll.
+The compiled fixture services the staged request and its existing post-scroll
+snapshot before asserting exact selected-header geometry and browsing position.
+The compiled opening case also changes the workflow-selected owner after the
+single actual reveal request but before its queued browsing snapshot. The
+accepted-request guard rejects that stale snapshot, retaining the new owner's
+browsing; all three phases share current-Workspace, owner and browsing-context
+checks. The original header/extent geometry and one-request assertions remain.
+After Import, the search journey deliberately resumes compact People and focuses
+the unchanged query before its existing highlight/geometry/focus assertions.
+It does not assume that clicking Back to People is a query-field focus gesture.
+Reading checks retain the successful text observation for both required and
+forbidden writing, rather than making an unguarded second UIA lookup after
+readiness. Runner cases preserve the same bounded missing/wrong-text failures.
+
 ## Responsive reading and retained drafts
 
 The explicitly selected high-resolution `responsive-workspace` journey measures the adaptive host at

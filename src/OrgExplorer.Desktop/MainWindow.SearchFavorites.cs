@@ -118,7 +118,7 @@ public partial class MainWindow
         UpdatePeopleNavigation();
         if (!wasBrowsing && workflow.PeopleNavigation.IsBrowsing)
         {
-            if (pendingSearchRevealEmail is not null) RevealAcceptedSearchPerson();
+            if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
             else RestorePeopleBrowsing();
         }
         if (workflow.PeopleNavigation.IsBrowsing)
@@ -126,7 +126,7 @@ public partial class MainWindow
             refreshingQueries = true;
             SearchResults.SelectedItem = null;
             refreshingQueries = false;
-            ClearSearchContext();
+            ClearSearchContext(preserveRememberedNote: true);
         }
         RefreshSearchAndFavorites();
     }
@@ -173,7 +173,7 @@ public partial class MainWindow
             if (selectedMatch is not null)
             {
                 var match = results.FirstOrDefault(r => r.Matches.Any(m => SameSearchDestination(m, selectedMatch)));
-                if (match is null) ClearSearchContext();
+                if (match is null) ClearSearchContext(preserveRememberedNote: true);
             }
             var favorites = snapshot.Favorites.Select(p => new FavoriteRow(p,
                 (snapshot.Current ? "" : "STALE retained — ") +
@@ -237,17 +237,30 @@ public partial class MainWindow
             SearchQuery.Clear();
             ShowArchivedPeople.IsChecked = workflow.PeopleNavigation.ArchivedPeopleVisible;
             expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
-            pendingSearchRevealEmail = result.Person.Email;
+            pendingPeopleRevealEmail = result.Person.Email;
             peopleBrowseRequest++;
             UpdatePeopleNavigation();
-            if (wideWorkspace) RevealAcceptedSearchPerson();
+            if (wideWorkspace) RevealSelectedPerson();
             else FocusPeopleEntry();
             ShowStatus();
         }
         finally { activatingSearch = false; }
     }
 
-    private void ShowSearchContext(SearchResult result)
+    private SearchResult? pendingPreparedContext;
+
+    private bool CanRevealPreparedContext => ExplorerPanel.Visibility == Visibility.Visible &&
+        !workflow.IsImportOpen && workflow.PeopleNavigation.IsBrowsing && !workflow.PeopleNavigation.OverlayOpen;
+
+    private void RevealPreparedContext()
+    {
+        if (!CanRevealPreparedContext || pendingPreparedContext is not { } result) return;
+        pendingPreparedContext = null;
+        if (selectedMatch is not null && SameSearchDestination(result, selectedMatch))
+            ShowSearchContext(result, deferUntilBrowsing: true);
+    }
+
+    private void ShowSearchContext(SearchResult result, bool deferUntilBrowsing = false)
     {
         var target = SearchDestinationSurface(result);
         Block? readingBlock = null;
@@ -289,10 +302,20 @@ public partial class MainWindow
                     $"{result.Label}; capture {result.HistoricalContextId}; note {result.NoteId}");
                 break;
         }
+        if (deferUntilBrowsing && !CanRevealPreparedContext)
+        {
+            pendingPreparedContext = result;
+            return;
+        }
         _ = Dispatcher.BeginInvoke(() =>
         {
             if (ExplorerPanel.Visibility != Visibility.Visible || workflow.PeopleNavigation.OverlayOpen ||
                 selectedMatch is null || !SameSearchDestination(result, selectedMatch)) return;
+            if (deferUntilBrowsing && !CanRevealPreparedContext)
+            {
+                pendingPreparedContext = result;
+                return;
+            }
             FocusManager.SetFocusedElement(this, target);
             if (IsVisible) target.Focus();
             if (readingBlock is not null) readingBlock.BringIntoView();
@@ -319,9 +342,28 @@ public partial class MainWindow
         }
     };
 
-    private void ClearSearchContext(bool clearSelection = true)
+    private bool HasRememberedNoteContext =>
+        selectedMatch is { Source: SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote } result &&
+        workflow.PeopleNavigation.LastValidView is { } remembered &&
+        remembered.PersonEmail.Equals(result.Person.Email, StringComparison.OrdinalIgnoreCase) &&
+        remembered.Source == result.Source && remembered.NoteId == result.NoteId &&
+        remembered.HistoricalContextId == result.HistoricalContextId &&
+        string.Equals(remembered.NoteOwnerEmail, result.NoteOwner?.Email, StringComparison.OrdinalIgnoreCase) &&
+        (result.Source == SearchSource.InheritedTeamNote
+            ? workflow.GetInheritedTeamNotes(result.Person.Email).Any(note => note.Note.Id == result.NoteId &&
+                note.Owner.Email.Equals(remembered.NoteOwnerEmail, StringComparison.OrdinalIgnoreCase))
+            : workflow.GetHistoricalTeamContexts(result.Person.Email).Any(capture => capture.Id == result.HistoricalContextId &&
+                capture.TeamNotes.Any(note => note.Id == result.NoteId &&
+                    note.OwnerEmail.Equals(remembered.NoteOwnerEmail, StringComparison.OrdinalIgnoreCase))));
+
+    private void ClearSearchContext(bool clearSelection = true, bool preserveRememberedNote = false)
     {
-        if (clearSelection) workflow.CloseSearchContext();
+        var retained = preserveRememberedNote && HasRememberedNoteContext;
+        if (!retained)
+        {
+            pendingPreparedContext = null;
+            if (clearSelection) workflow.CloseSearchContext();
+        }
         if (matchedProfileValue == PersonArchivalStatus && selectedEmail is { } email &&
             workflow.GetRelationships(email)?.Person is { Archived: false })
         {
@@ -336,7 +378,7 @@ public partial class MainWindow
         matchedProfileHelp = null;
         if (matchedFormerFact?.Parent is Section section) section.Blocks.Remove(matchedFormerFact);
         matchedFormerFact = null;
-        System.Windows.Automation.AutomationProperties.SetHelpText(HistoricalTeamReading, "");
+        if (!retained) System.Windows.Automation.AutomationProperties.SetHelpText(HistoricalTeamReading, "");
     }
 
     private void SelectFavoritePerson(object sender, SelectionChangedEventArgs e)

@@ -203,6 +203,11 @@ Each explicit Save pattern is prepared through the existing bounded
 `ControlReadiness` wait, tolerating transient missing/disabled providers without
 repeating the request. Preparation remains before the original native
 Save-to-reopen clock; no time is deducted from its samples or deadline.
+The explicit profile-Save fixture obtains the actual Workspace path through
+the existing bounded control-readiness observation before invoking Save once.
+It retains that successful metadata value for independent reopening; persistently
+missing or blank metadata still fails, without an unguarded second lookup, action replay,
+changed completion assertions or increased CI/Save observation deadlines.
 These focused two-Person checks do not establish rich-scale/background-export,
 stalled-save orchestration or hosted acceptance before the required lane runs.
 

@@ -157,7 +157,7 @@ internal static partial class Program
 
             process = Launch(executable);
             window = Window(process);
-            AwaitUnavailableView(window, workspace);
+            AwaitUnavailableView(window, workspace, "alex@example.com");
             EnsurePeopleBrowsing(window);
             ((TogglePattern)Find(window, "ShowArchivedPeople").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectArchivedPerson(window, "avery@example.com");

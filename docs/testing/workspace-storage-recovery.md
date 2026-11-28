@@ -82,8 +82,50 @@ controlled request clocks and held/lost return boundaries. They prove the oldest
 queued three-second deadline, never-returning admission, explicit edit pause,
 continued arbitrary Person browsing, exact independent drafts/Team-name profiles,
 late accepted generations and real committed-state reconciliation before retry.
-Lost acknowledgment cannot create another note. `OrgExplorer.Storage.ProcessFixture`
-is an owned, non-UI child killed at the existing storage observer's actual
+Lost acknowledgment cannot create another note. The real-file lost-note-acknowledgment
+reconciliation fixture controls only its view-model request clock,
+using the existing `SaveClock`; real autosave cadence, admission, SQLite Commit
+and storage clocks remain unchanged. Both scopes also delay the successful
+postcommit return by 3.2 wall-clock seconds before creating the actual
+lost-acknowledgment exception. An independent public reopen first proves the exact
+committed GUID/title/body and wrong-owner absence. While held, the original
+immutable base and writing remain Pending with an unknown outcome and an
+unfinished flush; release produces Indeterminate with the actual acknowledgment
+error. Explicit real-store reconciliation must account for that same note before
+retry, and another public reopen still finds exactly one GUID and the exact
+title/body. The original five-second outer flush wait and all original recovery
+assertions remain. The original-clock counterexample failed twice in both scopes:
+it reported Stalled before the exception was created despite an exact committed
+reopen. This confirms the non-timing fixture's interaction with the request
+deadline, not a production-storage failure or the cause of the historical hosted
+continuation delay. Separate exact three-second queued/stalled/unknown-outcome
+contracts and production deadlines are unchanged.
+The bounded persistence held-save audit extends this fixture isolation only to
+three demonstrated non-timing contracts in `SqliteWorkspaceTests`: cancelled
+durability observation during a real Commit, newer typing during a successful
+public save return, and stale-base refusal after public save admission. Each
+delayed regression reuses its complete original scenario with a 3.2-second
+wall-clock continuation delay, retaining the original admission/outer waits,
+actual held work, cancellation, exact immutable bases and writing, public
+independent reopen, ownership and final flush/refusal assertions.
+The successful-return and stale-base fixtures control only the VM request clock;
+real backend clocks are unchanged. The cancelled-observation fixture must use
+the same existing `SaveClock` at both public workflow and VM dependencies,
+following `Held_bulk_Import`: the held real Commit spans both request lifetimes.
+The original-clock cancellation counterexample failed twice at final flush;
+VM-only control still failed, while both-clock control preserves Pending/Unknown
+until actual release and commit. Original-clock delayed variants in both note
+scopes also rejected newer typing or replaced the required external-base error
+with Stalled; VM-only control preserves their intended outcomes. These prove
+fixture/deadline interactions, not the historical hosted scheduling cause.
+Autosave cadence, real storage/observation clocks, three-second production
+budgets and all intentional queue/stall/unknown-outcome timing tests remain.
+No blanket clock change is made to unproven candidates, including independent
+profile/Preferred-name Cancel behind a held note Commit, direct retained-base
+saving, lost-return reconciliation during snapshot I/O, or pending creation
+behind a competing SQLite transaction.
+`OrgExplorer.Storage.ProcessFixture` is an owned, non-UI child killed at the
+existing storage observer's actual
 SQLite pre/post-Commit boundaries for both note scopes and complete profiles.
 Reopening uses the normal validating reader; neither Dispose nor private-table
 inspection supplies crash evidence. The child identifies its actual PID, observed
@@ -94,7 +136,7 @@ revision/error and read-only Windows Restart Manager owner snapshots for only th
 owned receipt paths. These non-atomic snapshots never shut down/restart an owner,
 force-delete evidence, inventory unrelated processes or log note contents. Missing
 owners at observation do not establish that no earlier holder existed.
-Five focused `SqliteShmRecoveryTests` cases retain the original owned child and
+Seven focused `SqliteShmRecoveryTests` cases retain the original owned child and
 public validating Open. The test host explicitly maps that child's existing
 physical SHM file at its current length, without taking a SQLite DMS lock or
 resizing it. After actual Commit Begin/End admission and death within the
@@ -106,6 +148,17 @@ bytes under an actual older public read snapshot, releases that reader, kills
 the writer, and only then restores those bytes into the original held section.
 Hashes require original database/WAL bytes to remain unchanged; no live
 database/WAL copy, deletion or backup protocol is introduced.
+Two controlled cases retain a nonwriting read/write database or WAL handle from
+the paused child through death, both raw hashes and public reopen. Hash streams
+keep read-only access and share read/write/delete, so observation does not exclude
+held write-capable resources. The stable Commit boundaries, original byte
+comparison, held SHM and complete resource assertions remain; this neither
+authorizes concurrent writing nor identifies the historical hosted holder.
+Temporary raw-WAL/revision/native diagnostics were removed after the bounded
+investigation. The historical shipping committed-next/public-base failure is
+still unexplained; passing rebuilt diagnostic/control cases do not waive it.
+Their retained source, manifests and hosted artifacts are investigation evidence,
+not normal CI acceptance or a production recovery correction.
 The original nine death cases and healthy public WAL-reader controls remain.
 The causal 3.53.4 RED is `SQLITE_IOERR_TRUNCATE` (10/1546) in the first public
 Open; supported native `SQLite` 3.54.1 must turn it GREEN without an Open retry

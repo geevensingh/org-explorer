@@ -37,6 +37,22 @@ It performs no live WorkIQ reads or desktop automation.
 
 ## Failed Apply, explicit discard and scoped reentry
 
+The invisible compiled recovery/Import probe admits one preview from the actual
+ready-control event and pumps a nested dispatcher while that original handler
+is still active. Recovery finishes its refresh before exposing Ready controls,
+without a duplicate caller refresh invalidating the next applicable review.
+Status-only finalization keeps a failed retry visibly failed, retryable and
+read-only with its exact profile draft while the original file remains held.
+Ordinary Preview/Apply refresh remains deferred. The existing twenty-second
+observations, one request and genuinely changed-revision invalidation case remain.
+The automatic-opening recovery fixture requests its one new Preview at the
+actual reenabled Open control boundary, then requires Apply to remain enabled
+after queued recovery presentation settles within the same 20-second observation.
+Recovery drains its pending refresh before returning, rather than leaving an old
+invalidation behind the new applicable review. An independent real-folder case
+adopts a genuinely different revision after that review and still requires Apply
+to become disabled; no stale review is accepted or replayed.
+
 Import navigation permits returning to its own failed Apply recovery view without
 clearing the retained Import error or claiming safe close. Independent note,
 quick-action and dirty-profile writing still block entry. A real-folder case holds

@@ -33,6 +33,14 @@ hosted rich-scale acceptance or attribution of the historical runner's exact pha
 
 ## Complete snapshots, retained writing and adoption admission
 
+The incoming-adoption draft-retention fixture holds the existing actual validation
+phase until the Preferred-name/profile/note draft is retained, rather than racing
+a competing SQLite writer's busy failure after a directory-watcher signal.
+Immediate and delayed continuations require validation still active and editing
+available before retention, then the original refusal, revision and exact-draft
+assertions. Natural scheduling delay counts toward the controlled delay; the
+five-second entry and ten-second completion waits and production clocks remain.
+
 `WorkspaceSnapshotTests` covers #96 through two independent real SQLite
 workflow/view-model stores and controlled copying of actual `.oesnapshot`
 artifacts. It observes complete logical publication/fresh identity join, selected
