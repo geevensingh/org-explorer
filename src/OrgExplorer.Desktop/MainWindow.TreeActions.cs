@@ -25,6 +25,7 @@ public partial class MainWindow
 
     private void InitializeTreeExpansion()
     {
+        PeopleList.RestoreItem = item => RestoreTreeItem(item, null!);
         treeExpansionTimer.Tick += (_, _) =>
         {
             var added = workflow.ContinuePeopleTreeExpansion();

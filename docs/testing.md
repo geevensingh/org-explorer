@@ -229,6 +229,15 @@ preparation after a recycled row's DataContext is restored. Stale cached
 recursively collapsed branch. Restoration synchronizes only that item's cached
 expansion value with the current logical state; selection, other
 stored properties, native inputs and the full scale deadlines are unchanged.
+Cold regeneration also creates a genuinely new, not-yet-loaded container after
+logical expansion completes. The reporting tree restores both root and nested
+containers at actual WPF preparation, before cached values are applied; Loaded
+alone cannot initialize a virtualized row. The same compiled replay retains
+the fresh-container identity and exact logical/rendered expansion checks.
+That correct initial expansion can virtualize the unrelated root used by the
+compiled search fixture. When absent, the fixture makes one real data-item
+ScrollIntoView request before its original selection, without another Expand,
+corrective navigation or a native window.
 
 ## Placement
 

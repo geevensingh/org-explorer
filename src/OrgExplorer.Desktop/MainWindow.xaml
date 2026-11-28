@@ -770,7 +770,7 @@
             </ListBox.ItemContainerStyle>
           </ListBox>
         </StackPanel>
-        <TreeView x:Name="PeopleList" AutomationProperties.AutomationId="People" AutomationProperties.Name="Imported reporting population"
+        <local:ReportingTreeView x:Name="PeopleList" AutomationProperties.AutomationId="People" AutomationProperties.Name="Imported reporting population"
                   Background="Transparent" BorderThickness="0"
                   VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                   ScrollViewer.CanContentScroll="True"

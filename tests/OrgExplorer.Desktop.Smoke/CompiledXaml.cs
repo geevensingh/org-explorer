@@ -4469,6 +4469,17 @@ internal static partial class Program
         var tree = Control<TreeView>("PeopleList");
         var model = (WorkspaceViewModel)tree.DataContext;
         var owner = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "owner@example.com");
+        if (tree.ItemContainerGenerator.ContainerFromItem(owner) is not TreeViewItem)
+        {
+            var ownerPeer = new TreeViewDataItemAutomationPeer(owner,
+                (ItemsControlAutomationPeer)UIElementAutomationPeer.CreatePeerForElement(tree), null!);
+            ((IScrollItemProvider)ownerPeer).ScrollIntoView();
+            PumpUntil(() =>
+            {
+                Layout(1100, 900);
+                return tree.ItemContainerGenerator.ContainerFromItem(owner) is TreeViewItem;
+            });
+        }
         ((ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(
             (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(owner)).GetPattern(PatternInterface.SelectionItem)).Select();
         var ownerRevealSettled = false;
