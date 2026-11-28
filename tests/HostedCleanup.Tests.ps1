@@ -185,6 +185,52 @@ try {
     }
     Write-Host 'PASS: complete public result reader retains failed housekeeping and validates all raw counts with candidate A/controller B.'
     $original = Get-Content -LiteralPath (Join-Path $results 'result.json') -Raw
+    $missingDrive = @([char[]](90..68) | Where-Object {
+        !(Get-PSDrive -Name ([string]$_) -ErrorAction SilentlyContinue)
+    }) | Select-Object -First 1
+    if (!$missingDrive) { throw 'Historical cleanup readback requires an unavailable drive for its regression.' }
+    $historicalResults = Join-Path $source '.results\historical-drive'
+    Copy-ScaleEvidenceDirectory $results $historicalResults
+    $historicalReport = $original | ConvertFrom-Json -AsHashtable -DateKind String -Depth 40
+    $historicalProof = $historicalReport.cleanup.proof | ConvertFrom-Json -AsHashtable -DateKind String -Depth 40
+    $historicalProof.cleanup.remainingBuild.root = [string]$missingDrive +
+        $historicalProof.cleanup.remainingBuild.root.Substring(1)
+    $historicalProof.cleanup.path = [IO.Path]::Combine($historicalProof.cleanup.remainingBuild.root,
+        $historicalProof.cleanup.native.relativePath)
+    $historicalProof.cleanup.native.path = $historicalProof.cleanup.path
+    $historicalReport.cleanup.path = $historicalProof.cleanup.path
+    $historicalReport.cleanup.remainingBuild.root = $historicalProof.cleanup.remainingBuild.root
+    $historicalReport.cleanup.proof = $historicalProof | ConvertTo-Json -Depth 40
+    $historicalRun = Join-Path $historicalResults $historicalReport.runDirectory
+    foreach ($directory in @($historicalResults, $historicalRun)) {
+        [IO.File]::WriteAllText((Join-Path $directory 'cleanup-proof.json'), $historicalReport.cleanup.proof)
+    }
+    $originalTrust = Get-Content -LiteralPath $trust -Raw
+    try {
+        Add-Type -Path "$root\tests\CleanupProvenanceFixture.cs" -ReferencedAssemblies `
+            System.Security.Cryptography.Pkcs,System.Security.Cryptography,System.Formats.Asn1,System.Text.Json,System.Runtime,System.Runtime.Numerics,System.Collections
+        $historicalBundle = Join-Path $historicalRun 'cleanup-attestation.json'
+        [CleanupProvenanceFixture]::Sign((Join-Path $historicalRun 'cleanup-proof.json'),
+            $historicalBundle, $trust, $controllerRevision, '321', '1')
+        $historicalReport.cleanup.attestation = Get-Content -LiteralPath $historicalBundle -Raw
+        $completed = [DateTimeOffset]::UtcNow
+        $historicalReport.completedAt = $completed.ToString('O')
+        $historicalReport.executionSeconds = ($completed - [DateTimeOffset]$historicalReport.startedAt).TotalSeconds
+        $historicalText = $historicalReport | ConvertTo-Json -Depth 40
+        foreach ($directory in @($historicalResults, $historicalRun)) {
+            [IO.File]::WriteAllText((Join-Path $directory 'result.json'), $historicalText)
+        }
+        $historicalSample = @{ number = 1; diagnostics = @(); validation = 'incomplete' }
+        Read-NonUiCohortSample $historicalSample $historicalResults $revision "$revision-321-1" '321' '1' `
+            -RequirePairedReport -ExpectedPolicyVersion ci-timing-v4
+        if ($historicalSample.validation -cne 'success' -or !$historicalSample.runnerReport.cleanup.warning -or
+            $historicalSample.runnerReport.cleanup.path -cne $historicalReport.cleanup.path -or
+            $historicalSample.measurements.phasesMs.Count -ne 21 -or
+            $historicalSample.measurements.profile.samplesMs.Count -ne 21) {
+            throw 'Historical readback lost the signed original path, failed housekeeping or complete raw work.'
+        }
+    } finally { [IO.File]::WriteAllText($trust, $originalTrust) }
+    Write-Host 'PASS: signed historical cleanup validates complete raw evidence without the original hosted drive.'
     foreach ($mutation in @(
         { param($data) $data.cleanup.path = 'C:\wrong\e_sqlite3.dll' },
         { param($data) $data.cleanup.errorType = 'System.IO.IOException' },

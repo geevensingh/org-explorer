@@ -154,6 +154,10 @@ The controlled native holder receives ordinary drive-letter paths and applies
 extended-length syntax only at the Windows loader boundary. Recorded cleanup
 paths and signed evidence remain unchanged. A holder/setup failure is reported
 separately from a failed assertion about legacy policy preservation.
+Signed historical build paths are compared as metadata without requiring the
+original hosted drive on the reader. A separately signed absent-drive fixture
+crosses the public paired-report reader, raw inventory and signature checks;
+the original failed-housekeeping path and complete raw counts remain intact.
 The supervisor retains actual script exit failure separately from saved results.
 For signing between workflow steps, verification prepares a non-accepting proof
 and exits first. Start waits for the actual process exit and retains both its

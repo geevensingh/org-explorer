@@ -166,7 +166,7 @@ function Assert-ScaleCleanupDisposition($Report, [string]$ExpectedPolicyVersion,
     if (!(Test-ScaleNativeBuildPath $proof.cleanup.native.relativePath $report.suite) -or
         $proof.cleanup.remainingBuild.root -cnotlike "*\$($report.runDirectory)\build" -or
         $proof.cleanup.native.path -cne $proof.cleanup.path -or
-        [IO.Path]::GetFullPath((Join-Path $proof.cleanup.remainingBuild.root $proof.cleanup.native.relativePath)) -cne $report.cleanup.path) {
+        [IO.Path]::GetFullPath([IO.Path]::Combine($proof.cleanup.remainingBuild.root, $proof.cleanup.native.relativePath)) -cne $report.cleanup.path) {
         throw 'Cleanup proof is outside the allocated compiled native build scope.'
     }
     $remaining = @($proof.cleanup.remainingBuild.files | Sort-Object path)
