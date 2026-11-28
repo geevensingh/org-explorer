@@ -19,15 +19,18 @@ internal static partial class Program
         Directory.CreateDirectory(producer);
         CreatePhotoFixture(Path.Combine(producer, "avery.png"));
         var import = Path.Combine(producer, "import.json");
-        File.WriteAllText(import, """
+        File.WriteAllText(import, $$"""
             {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
              "observedAt":"2026-11-01T17:00:00Z","people":[
              {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"007B",
               "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
               "managerEmail":"morgan@example.com","photoPath":"avery.png"},
-             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
+             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"z-context@example.com"},
              {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
-             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"}]}
+             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+             {"email":"z-context@example.com","displayName":"Z single-report ancestor","managerEmail":null},
+             {{string.Join(",", Enumerable.Range(0, 24).Select(i =>
+                 $$"""{"email":"context{{i:00}}@example.com","displayName":"A context {{i:00}}","managerEmail":null}"""))}}]}
             """);
         var workspace = Path.Combine(root, "workspace");
         Directory.CreateDirectory(workspace);
@@ -135,16 +138,18 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
             Await(() => Status(window).Contains("Import applied"));
+            AssertAutomaticImportContext(window, preferencePath);
             ReturnToPeople(window);
+            AssertSelectedPeopleRow(window, "morgan@example.com", "z-context@example.com");
             OpenPerson(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
             AssertReportingStructure(window, null);
             SelectTreePerson(window, "V-reference@example.com");
             AssertPersonCategory(window, "Vendor");
-            AssertReportingStructure(window, 1, 0, 1);
+            AssertReportingStructure(window, "1 vendor");
             NavigateToManager(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
-            AssertReportingStructure(window, 3, 1, 2);
+            AssertReportingStructure(window, "3 total, 1 employee, 2 vendors");
             SelectTreePerson(window, "avery@example.com");
             AssertPhotoVisible(window);
             AssertCompactProfile(window);
@@ -193,8 +198,32 @@ internal static partial class Program
                 throw new InvalidOperationException("Rejected import did not show a concrete error with Apply disabled.");
             ReturnToPeople(window);
             AssertPreferredNameReading(window, "", "Add preferred name");
+            foreach (var dismissal in new[] { "cancel", "escape", "outside" })
+            {
+                Click(window, "EditPreferredName");
+                var defaultEntry = PreferredNameEntry(window);
+                AssertValue(defaultEntry, "PreferredName", "Avery Example");
+                Await(() => Find(defaultEntry, "PreferredName").Current.HasKeyboardFocus);
+                if (dismissal == "cancel") Click(defaultEntry, "CancelPreferredName");
+                else if (dismissal == "escape") PressCopyKey(0x1B);
+                else PrimaryClick(() => Find(window, "SearchQuery"));
+                AssertPreferredNameReading(window, "", "Add preferred name");
+                Await(() => Find(window, dismissal == "outside" ? "SearchQuery" : "EditPreferredName").Current.HasKeyboardFocus);
+                AssertSavedPersonNames(workspace, "avery@example.com", null, "Avery Example",
+                    "Dismissing the untouched Directory-name default changed durable names: " + dismissal);
+            }
             Click(window, "EditPreferredName");
             var entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Avery Example");
+            Await(() => Find(entry, "PreferredName").Current.HasKeyboardFocus);
+            PrimaryClick(() => Find(entry, "SavePreferredName"));
+            Await(() => Status(window) == "Saved locally.");
+            AssertPreferredNameReading(window, "", "Add preferred name");
+            AssertSavedPersonNames(workspace, "avery@example.com", null, "Avery Example",
+                "Physical Save of the unchanged Directory-name default created an override.");
+            Click(window, "EditPreferredName");
+            entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Avery Example");
             Set(entry, "PreferredName", "Unconfirmed name");
             Find(entry, "PreferredName").SetFocus();
             PressCopyKey(0x09);
@@ -235,10 +264,27 @@ internal static partial class Program
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             AssertPersonCategory(window, "Employee");
             AssertPreferredNameReading(window, "Ave", "Edit");
+            Click(window, "EditPreferredName");
+            entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Ave");
+            Set(entry, "PreferredName", "  aVeRy ExAmPlE  ");
+            Find(entry, "PreferredName").SetFocus();
+            Await(() => Find(entry, "PreferredName").Current.HasKeyboardFocus);
+            PressCopyKey(0x0D);
+            AssertPreferredNameReading(window, "", "Add preferred name");
+            AssertSavedPersonNames(workspace, "avery@example.com", null, "Avery Example",
+                "Physical Enter did not clear an equivalent Preferred name while preserving Directory name.");
+            Click(window, "EditPreferredName");
+            entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Avery Example");
+            Set(entry, "PreferredName", "Ave");
+            PrimaryClick(() => Find(entry, "SavePreferredName"));
+            AssertPreferredNameReading(window, "Ave", "Edit");
             foreach (var dismissal in new[] { "cancel", "escape", "outside" })
             {
                 Click(window, "EditPreferredName");
                 entry = PreferredNameEntry(window);
+                AssertValue(entry, "PreferredName", "Ave");
                 Set(entry, "PreferredName", "Must not save " + dismissal);
                 if (dismissal == "cancel") Click(entry, "CancelPreferredName");
                 else if (dismissal == "escape")
@@ -305,6 +351,7 @@ internal static partial class Program
             process = Launch(executable);
             window = Window(process);
             AwaitRestoredWorkspace(window, workspace, "avery@example.com");
+            AssertSelectedPeopleRow(window, "avery@example.com");
             AssertImportHidden(window);
             OpenPerson(window, "rowan@example.com", "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
@@ -318,7 +365,7 @@ internal static partial class Program
             AssertPhotoVisible(window);
             NavigateToManager(window, "morgan@example.com");
             AssertTeamNamePath(window, "Platform", "Platform");
-            AssertReportingStructure(window, 3, 1, 2);
+            AssertReportingStructure(window, "3 total, 1 employee, 2 vendors");
             SelectTreePerson(window, "avery@example.com");
             ExercisePhotoPresentation(window, root);
             Click(window, "EditPreferredName");
@@ -330,6 +377,15 @@ internal static partial class Program
             ClosePublishedWorkspace(process, workspace);
         }
         finally { if (process is not null) StopApplication(process); }
+    }
+
+    private static void AssertSavedPersonNames(string workspace, string email,
+        string? expectedPreferredName, string? expectedDirectoryName, string failureMessage)
+    {
+        using var saved = OpenSmokeWorkspace(workspace);
+        var person = saved.GetRelationships(email)!.Person;
+        if (person.PreferredName != expectedPreferredName || person.DirectoryName != expectedDirectoryName)
+            throw new InvalidOperationException(failureMessage);
     }
 
     private static void BeginProfileEditing(AutomationElement window)
@@ -411,7 +467,7 @@ internal static partial class Program
         Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
         NavigateToManager(window, "rowan@example.com");
         AssertTeamNameReading(window, null);
-        AssertReportingStructure(window, 4, 2, 2);
+        AssertReportingStructure(window, "4 total, 2 employees, 2 vendors");
         BeginProfileEditing(window);
         Set(window, "TeamNameEditor", "Platform");
         SaveProfileEditing(window);
@@ -463,7 +519,7 @@ internal static partial class Program
     private static void AssertTeamNameReading(AutomationElement window, string? expected)
         => AssertTeamNamePath(window, expected is null ? [] : [expected]);
 
-    private static void AssertReportingStructure(AutomationElement window, int? total, int employees = 0, int vendors = 0)
+    private static void AssertReportingStructure(AutomationElement window, string? counts)
     {
         var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
             control => control.Current.IsEnabled && !control.Current.IsOffscreen,
@@ -471,7 +527,7 @@ internal static partial class Program
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
             () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         Await(() => !scroll.Current.VerticallyScrollable || scroll.Current.VerticalScrollPercent == 0);
-        if (total is null)
+        if (counts is null)
         {
             var absent = ControlObservation.Capture(window,
                 "ReportingStructureLabel", "ReportingStructureValue", "ReportingStructureScope");
@@ -480,7 +536,6 @@ internal static partial class Program
                 throw new InvalidOperationException("An ineligible Person retained a visible Reporting structure fact.");
             return;
         }
-        var counts = $"{total} total, {employees} Employees, {vendors} Vendors";
         Await(() =>
         {
             var ready = ControlObservation.Capture(window, "ReportingStructureValue", "ReportingStructureScope");
@@ -516,11 +571,11 @@ internal static partial class Program
                 bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale)
                 throw new InvalidOperationException($"Reporting structure is clipped rather than wrapping compactly: {bounds}; viewport={viewport}.");
         }
+        var finalCategory = counts.Split(", ")[^1];
         if (!value.TryGetCurrentPattern(TextPattern.Pattern, out var text) ||
             ((TextPattern)text).DocumentRange.GetText(-1) != counts ||
-            ((TextPattern)text).DocumentRange.FindText($"{vendors} Vendors", false, false) is not { } end)
-            throw new InvalidOperationException("The final zero-inclusive category count is not actually rendered and readable.");
-        var finalCategory = $"{vendors} Vendors";
+            ((TextPattern)text).DocumentRange.FindText(finalCategory, false, false) is not { } end)
+            throw new InvalidOperationException("The final nonzero category count is not actually rendered and readable.");
         if (end.GetText(-1) != finalCategory)
             throw new InvalidOperationException("The rendered reporting range lost the full final count/category.");
         var cursor = end.Clone();
@@ -1090,7 +1145,9 @@ internal static partial class Program
     private static void SaveProfileEditing(AutomationElement window, PersonProfile? submittedProfile = null)
     {
         var owner = Find(window, "Email").Current.Name;
-        var workspace = Find(window, "WorkspaceName").Current.HelpText;
+        var workspace = ControlReadiness.AwaitControl(
+            () => Find(window, "WorkspaceName").Current.HelpText,
+            path => !string.IsNullOrWhiteSpace(path), Await);
         var submittedText = SmokeProfileTextFields.Select(field =>
             (field.Control, Value: Value(window, field.Control) is { Length: > 0 } value ? value : null)).ToArray();
         var hasTeamName = IsVisible(window, "TeamNameEditor");

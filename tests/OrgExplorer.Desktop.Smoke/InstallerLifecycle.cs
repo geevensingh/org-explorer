@@ -16,7 +16,8 @@ internal static partial class Program
         try
         {
             process = Launch(executable);
-            var window = OpenInstalledWorkspace(process, executable, workspace, args[3]);
+            var window = OpenInstalledWorkspace(process, executable, workspace, args[3],
+                create ? "" : "casey@example.com");
             CaptureWindowIconEvidence(window, executable, create ? "installed-create" : "installed-reopen");
             if (create)
             {
@@ -54,7 +55,7 @@ internal static partial class Program
                 process = null;
                 Directory.Delete(producer, true);
                 process = Launch(executable);
-                window = OpenInstalledWorkspace(process, executable, workspace, args[3]);
+                window = OpenInstalledWorkspace(process, executable, workspace, args[3], "casey@example.com");
             }
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertInstallerWorkspace(window);
@@ -97,7 +98,8 @@ internal static partial class Program
         }
     }
 
-    private static AutomationElement OpenInstalledWorkspace(Process process, string executable, string workspace, string version)
+    private static AutomationElement OpenInstalledWorkspace(Process process, string executable, string workspace, string version,
+        string fallbackEmail)
     {
         var window = Window(process);
         if (!window.Current.Name.Contains($"Org explorer {version} (Windows x64 / win)"))
@@ -116,7 +118,8 @@ internal static partial class Program
         Directory.CreateDirectory(workspace);
         SetSettingsVisible(window, true);
         PickWorkspaceFolder(window, workspace);
-        AwaitRestoredWorkspace(window, workspace);
+        AwaitRestoredWorkspace(window, workspace,
+            ReadSmokeWorkspacePreferences().GetLastView(workspace)?.PersonEmail ?? fallbackEmail);
         return window;
     }
 

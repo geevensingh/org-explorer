@@ -27,6 +27,31 @@ public sealed class ControlReadinessTests
 
     [Fact]
     [Trait("Category", "Runner")]
+    public void Selected_visible_header_is_observed_even_when_the_logical_row_reports_offscreen()
+    {
+        var header = new Reading("Morgan Example", false);
+        var row = new ControlReadiness.SelectedRowHeader<Reading>(true, true, header);
+        var observed = ControlReadiness.AwaitSelectedHeader(() => row,
+            current => !current.Offscreen && current.Name == "Morgan Example", AwaitReady);
+        Assert.Same(header, observed);
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData(false, false, true)]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
+    public void Unselected_offscreen_or_missing_header_still_fails_bounded_row_observation(
+        bool selected, bool headerOffscreen, bool headerPresent)
+    {
+        var row = new ControlReadiness.SelectedRowHeader<Reading>(false, selected,
+            headerPresent ? new Reading("Morgan Example", headerOffscreen) : null);
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitSelectedHeader(() => row,
+            current => !current.Offscreen, AwaitReady));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Permanently_missing_capture_evidence_fails_without_reexpanding()
     {
         var expansions = 0;
@@ -44,6 +69,34 @@ public sealed class ControlReadinessTests
 
     [Fact]
     [Trait("Category", "Runner")]
+    public void Missing_row_and_rejected_header_geometry_or_click_point_remain_bounded_failures()
+    {
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitSelectedHeader<Reading>(
+            () => null, _ => true, AwaitReady));
+        var row = new ControlReadiness.SelectedRowHeader<Reading>(true, true, new Reading("Morgan Example", false));
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitSelectedHeader(
+            () => row, _ => false, AwaitReady));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Historical_reading_retains_the_successful_text_observation_without_an_unguarded_second_lookup()
+    {
+        var observations = 0;
+        var text = ControlReadiness.AwaitReading(
+            () => ++observations switch
+            {
+                1 => throw new InvalidOperationException("Missing actual UI control: HistoricalTeamReading"),
+                2 => "Original direct - preserved frozen writing",
+                _ => throw new InvalidOperationException("Missing actual UI control: HistoricalTeamReading")
+            }, "Original direct", AwaitReady);
+        Assert.Equal("Original direct - preserved frozen writing", text);
+        Assert.DoesNotContain("Later writing", text);
+        Assert.Equal(2, observations);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Capture_expansion_failure_propagates_before_any_evidence_read()
     {
         var reads = 0;
@@ -54,6 +107,51 @@ public sealed class ControlReadinessTests
 
         Assert.Same(failure, observed);
         Assert.Equal(0, reads);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Wrong_or_permanently_missing_Historical_reading_still_fails_the_existing_bounded_observation()
+    {
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitReading(
+            () => throw new InvalidOperationException("Missing actual UI control: HistoricalTeamReading"),
+            "Original direct", AwaitReady));
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitReading(
+            () => "Later writing", "Original direct", AwaitReady));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Failed_Team_designation_observes_feedback_and_exact_secondary_kind_within_one_wait()
+    {
+        var feedbackReads = 0;
+        var kindReads = 0;
+        var kind = ControlReadiness.AwaitFailedTeamDesignation(
+            () => ++feedbackReads == 1 ? "Saving preference" : "Preference was NOT saved",
+            () => ++kindReads switch
+            {
+                1 => throw new InvalidOperationException("Missing actual UI control: TeamNoteKind"),
+                2 => "Other Team note",
+                _ => throw new InvalidOperationException("No unguarded second kind lookup is allowed")
+            }, AwaitReady);
+
+        Assert.Equal("Other Team note", kind);
+        Assert.Equal(3, feedbackReads);
+        Assert.Equal(2, kindReads);
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData("missing-kind")]
+    [InlineData("wrong-kind")]
+    [InlineData("wrong-feedback")]
+    public void Failed_Team_designation_keeps_missing_or_wrong_controls_as_bounded_failures(string failure)
+    {
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitFailedTeamDesignation(
+            () => failure == "wrong-feedback" ? "Preference saved" : "Preference was NOT saved",
+            () => failure == "missing-kind"
+                ? throw new InvalidOperationException("Missing actual UI control: TeamNoteKind")
+                : failure == "wrong-kind" ? "Ongoing Team note" : "Other Team note", AwaitReady));
     }
 
     [Fact]

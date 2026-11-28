@@ -13,5 +13,5 @@ public sealed partial class WorkspaceViewModel
     public bool ConfirmTeamNote(Guid noteId) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.ConfirmTeamNote(noteId));
     public bool ArchiveTeamNote(Guid noteId, bool archived = true) =>
         CanSubmitLocalSave() && ObserveLocalSave(() => workflow.ArchiveTeamNote(noteId, archived));
-    public bool RefreshTeamNotes() => Observe(workflow.RefreshTeamNotes);
+    public bool RefreshTeamNotes() => RefreshWorkspace();
 }

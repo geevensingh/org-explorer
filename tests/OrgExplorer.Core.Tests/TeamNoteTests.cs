@@ -6,6 +6,11 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class TeamNoteTests
 {
+    private sealed class NavigationContractClock : TimeProvider
+    {
+        public override long GetTimestamp() => 0;
+    }
+
     public const string Population = """
         {"schemaVersion":1,"batchId":"90000000-0000-4000-8000-000000000001",
         "observedAt":"2026-11-01T17:00:00Z","people":[
@@ -16,9 +21,9 @@ public sealed class TeamNoteTests
         {"email":"lead@example.com","displayName":"Project Lead","jobTitle":"Informal lead","managerEmail":null}]}
         """;
 
-    private static IApplicationWorkflow Open(IApplicationWorkflow? backend = null)
+    private static IApplicationWorkflow Open(IApplicationWorkflow? backend = null, TimeProvider? timeProvider = null)
     {
-        IApplicationWorkflow app = new WorkspaceViewModel(backend ?? ApplicationWorkflow.CreateInMemory());
+        IApplicationWorkflow app = new WorkspaceViewModel(backend ?? ApplicationWorkflow.CreateInMemory(), timeProvider: timeProvider);
         Assert.True(app.OpenWorkspace("fictitious"));
         Assert.True(app.ApplyImport(app.PreviewImport(Population).Id), app.Status);
         return app;
@@ -47,15 +52,25 @@ public sealed class TeamNoteTests
         Assert.Equal("Saved writing", Assert.Single(app.GetTeamNotes(note.OwnerEmail)).Markdown);
     }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(4000)]
-    public async Task Inherited_secondary_notes_reach_their_exact_owner_while_retaining_Person_writing(int continuationDelayMilliseconds)
+    [Fact]
+    public Task Inherited_secondary_notes_reach_their_exact_owner_while_retaining_Person_writing() =>
+        VerifyInheritedSecondaryNavigation(TimeSpan.Zero);
+
+    [Fact]
+    public Task Inherited_secondary_navigation_is_independent_of_delayed_test_continuations() =>
+        VerifyInheritedSecondaryNavigation(TimeSpan.FromMilliseconds(3200));
+
+    [Fact]
+    public Task Inherited_secondary_navigation_waits_for_the_original_save_after_a_four_second_continuation() =>
+        VerifyInheritedSecondaryNavigation(TimeSpan.FromSeconds(4));
+
+    private static async Task VerifyInheritedSecondaryNavigation(TimeSpan continuationDelay)
     {
         var proxy = DispatchProxy.Create<IApplicationWorkflow, PersonNoteTests.NoteSaveBoundary>();
         var boundary = (PersonNoteTests.NoteSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateInMemory();
-        using var app = (WorkspaceViewModel)Open(proxy);
+        // This navigation contract holds a writer; real request-deadline behavior is verified separately.
+        using var app = (WorkspaceViewModel)Open(proxy, new NavigationContractClock());
         var root = app.CreateTeamNote("root@example.com", "Root ongoing", "Root writing")!;
         var secondary = app.CreateTeamNote("root@example.com", "Root secondary", "")!;
         var manager = app.CreateTeamNote("manager@example.com", "Manager ongoing", "Manager writing")!;
@@ -91,14 +106,21 @@ public sealed class TeamNoteTests
                 PersonNoteTests.ReportAdmissionRefusal(failure, () => System.Text.Json.JsonSerializer.Serialize(new
                 {
                     scenario = nameof(Inherited_secondary_notes_reach_their_exact_owner_while_retaining_Person_writing),
-                    continuationDelayMilliseconds, admitted = admitted.Task.IsCompleted,
+                    continuationDelayMilliseconds = continuationDelay.TotalMilliseconds, admitted = admitted.Task.IsCompleted,
                     completion = completed.Task.IsCompleted, retained = app.GetRetainedNoteDraft(NoteScope.Person, person.Id)?.IsSaving,
                     localSave = app.LocalSave, app.Status, workers = PersonNoteTests.WorkerSnapshot(),
                     calls = boundary.Snapshot()
                 }), Console.WriteLine);
                 throw;
             }
-            if (continuationDelayMilliseconds > 0) await Task.Delay(continuationDelayMilliseconds);
+            var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(NoteScope.Person, person.Id));
+            Assert.True(retained.IsSaving);
+            Assert.Equal(NoteScope.Person, retained.Basis.Scope);
+            Assert.Equal(person.Id, retained.Basis.Id);
+            Assert.Equal(person.OwnerEmail, retained.Basis.OwnerEmail);
+            Assert.Equal(person.Title, retained.Basis.Title);
+            Assert.Equal("Saved", retained.Basis.Markdown);
+            if (continuationDelay > TimeSpan.Zero) await Task.Delay(continuationDelay);
             Assert.True(app.NavigateInheritedTeamNote(secondary.Id), app.Status);
             Assert.Equal(root.OwnerEmail, app.PeopleNavigation.SelectedEmail);
             Assert.Equal(secondary.Id, app.TeamNotesView.SelectedNote!.Id);
@@ -117,6 +139,10 @@ public sealed class TeamNoteTests
             Assert.False(app.TeamNotesView.IsEditing);
             Assert.Equal("", app.TeamNotesView.SelectedNote.Markdown);
             Assert.Equal(before, app.GetTeamNotes(root.OwnerEmail));
+            Assert.Equal(retained, app.GetRetainedNoteDraft(NoteScope.Person, person.Id));
+            Assert.False(app.LocalSave.EditsPaused, app.LocalSave.Message);
+            Assert.Equal(LocalSavePhase.Pending, app.LocalSave.Phase);
+            Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
         }
         finally { boundary.BeforeSave = null; release.Set(); }
         await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));

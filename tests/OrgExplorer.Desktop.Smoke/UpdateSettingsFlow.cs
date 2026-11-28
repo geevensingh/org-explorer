@@ -38,10 +38,12 @@ internal static partial class Program
                 if (Find(window, "CheckForUpdates").Current.IsEnabled)
                     throw new InvalidOperationException("A duplicate manual check was enabled during the in-flight startup request.");
                 PickWorkspaceFolder(window, workspace);
-                AwaitRestoredWorkspace(window, workspace);
+                AwaitRestoredWorkspace(window, workspace, "casey@example.com");
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 Click(window, "EditPreferredName");
                 var entry = PreferredNameEntry(window);
+                AssertValue(entry, "PreferredName", "Ave");
+                Await(() => Find(entry, "PreferredName").Current.HasKeyboardFocus);
                 Set(entry, "PreferredName", "Editable during update check");
                 Click(entry, "SavePreferredName");
                 Await(() => Status(window) == "Saved locally.");
@@ -98,11 +100,12 @@ internal static partial class Program
             Click(window, "CheckForUpdates");
             AwaitUpdateFailure(window, "offline");
             PickWorkspaceFolder(window, workspace);
-            AwaitRestoredWorkspace(window, workspace);
+            AwaitRestoredWorkspace(window, workspace, "avery@example.com");
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertPreferredNameReading(window, "Editable during update check", "Edit");
             Click(window, "EditPreferredName");
             var entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Editable during update check");
             Set(entry, "PreferredName", "Editable after update failure");
             Click(entry, "SavePreferredName");
             Await(() => Activity(window) == "Ready" &&
@@ -163,7 +166,7 @@ internal static partial class Program
     {
         SetSettingsVisible(window, true);
         PickWorkspaceFolder(window, workspace);
-        AwaitRestoredWorkspace(window, workspace);
+        AwaitRestoredWorkspace(window, workspace, "avery@example.com");
         OpenPerson(window, "casey@example.com", "alex@example.com");
         Click(window, "NewPersonNote");
         Set(window, "PersonNoteTitle", "Automatic update writing");

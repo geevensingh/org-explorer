@@ -261,23 +261,80 @@ public sealed partial class SqliteWorkspaceTests
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
-    public async Task Lost_note_acknowledgment_reconciles_real_committed_content_before_retry_without_duplicate_creation(NoteScope scope)
+    public Task Lost_note_acknowledgment_reconciles_real_committed_content_before_retry_without_duplicate_creation(NoteScope scope) =>
+        VerifyLostNoteAcknowledgment(scope, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public Task Lost_note_acknowledgment_reconciliation_survives_delayed_after_commit_return(NoteScope scope) =>
+        VerifyLostNoteAcknowledgment(scope, TimeSpan.FromMilliseconds(3200));
+
+    private async Task VerifyLostNoteAcknowledgment(NoteScope scope, TimeSpan acknowledgmentDelay)
     {
         var proxy = DispatchProxy.Create<IApplicationWorkflow, NoteSaveBoundary>();
         var boundary = (NoteSaveBoundary)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
-        using var app = new WorkspaceViewModel(proxy);
+        using var release = new ManualResetEventSlim();
+        var committed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Reconciliation is not a request-deadline contract; autosave and real storage still use wall time.
+        using var app = new WorkspaceViewModel(proxy, timeProvider: new SaveClock());
         Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var once = 0;
         boundary.AfterSuccessfulSave = _ =>
         {
-            if (Interlocked.Exchange(ref once, 1) == 0) throw new IOException("The acknowledgment boundary was unavailable.");
+            if (Interlocked.Exchange(ref once, 1) != 0) return;
+            committed.TrySetResult();
+            if (acknowledgmentDelay > TimeSpan.Zero && !release.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The committed note acknowledgment was not released.");
+            throw new IOException("The acknowledgment boundary was unavailable.");
         };
         var note = app.CreateOwnedNoteDraft(scope, "manager@example.com")!;
         app.UpdateNoteDraft(scope, note.Id, "One exact title", "One exact committed body");
-        Assert.False(await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+        Task<bool> flushing;
+        try
+        {
+            if (acknowledgmentDelay > TimeSpan.Zero)
+            {
+                await committed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                using (var reading = ApplicationWorkflow.CreateFileBacked())
+                {
+                    Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+                    var saved = reading.BeginNoteDraft(scope, "manager@example.com", note.Id)!;
+                    Assert.Equal(note.Id, saved.Id);
+                    Assert.Equal("One exact title", saved.Title);
+                    Assert.Equal("One exact committed body", saved.Markdown);
+                    Assert.Null(reading.BeginNoteDraft(scope, "report@example.com", note.Id));
+                }
+                await Task.Delay(acknowledgmentDelay);
+            }
+            flushing = app.FlushNoteDraftsAsync();
+            if (acknowledgmentDelay > TimeSpan.Zero)
+            {
+                var retained = app.GetRetainedNoteDraft(scope, note.Id)!;
+                Assert.Same(note, retained.Basis);
+                Assert.Equal("One exact committed body", retained.Markdown);
+                Assert.True(retained.IsSaving);
+                Assert.Null(retained.Error);
+                Assert.Equal(LocalSavePhase.Pending, app.LocalSave.Phase);
+                Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
+                Assert.False(flushing.IsCompleted);
+                Assert.False(app.CanSafelyClose);
+            }
+        }
+        finally
+        {
+            release.Set();
+            if (acknowledgmentDelay > TimeSpan.Zero)
+                Assert.True(SpinWait.SpinUntil(() => app.GetRetainedNoteDraft(scope, note.Id)?.IsSaving != true,
+                    TimeSpan.FromSeconds(5)), "The released real note save did not finish.");
+        }
+        Assert.False(await flushing.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(LocalSavePhase.Indeterminate, app.LocalSave.Phase);
+        Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
+        Assert.Contains("The acknowledgment boundary was unavailable.", app.LocalSave.Error);
+        Assert.Same(note, app.GetRetainedNoteDraft(scope, note.Id)!.Basis);
         Assert.Equal("One exact committed body", app.GetRetainedNoteDraft(scope, note.Id)!.Markdown);
         Assert.False(app.CanEditLocalWorkspace);
         Assert.True(app.ReconcileLocalSaves(), app.Status);
@@ -287,6 +344,7 @@ public sealed partial class SqliteWorkspaceTests
         Assert.True(await app.RetryNoteDraftAsync(scope, note.Id), app.Status);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("One exact title", reopened.BeginNoteDraft(scope, "manager@example.com", note.Id)!.Title);
         Assert.Equal("One exact committed body", reopened.BeginNoteDraft(scope, "manager@example.com", note.Id)!.Markdown);
         Assert.Equal(note.Id, Assert.Single(scope == NoteScope.Person
             ? reopened.GetPersonNotes("manager@example.com").Select(n => n.Id)
@@ -360,7 +418,7 @@ public sealed partial class SqliteWorkspaceTests
 
     private async Task AssertAbruptCommitRecovery(
         string boundary, string mutation, bool unresolvedEvidence, bool receiptHeld, bool retainShmMapping = false,
-        bool restoreStaleShmIndex = false, bool retainResources = false)
+        bool restoreStaleShmIndex = false, bool retainResources = false, string? retainedCommittedFile = null)
     {
         Guid? retainedTeamNote = null;
         string? retainedHistory = null;
@@ -399,6 +457,7 @@ public sealed partial class SqliteWorkspaceTests
         byte[]? staleShmIndex = null;
         var processStarted = false;
         FileStream? receiptHolder = null;
+        FileStream? committedFileHolder = null;
         OwnedShmMapping? shmMapping = null;
         try
         {
@@ -448,9 +507,18 @@ public sealed partial class SqliteWorkspaceTests
                 Assert.Null(oldReader.GetRelationships("manager@example.com")!.Person.TeamName);
                 oldReader.Dispose();
             }
+            if (retainedCommittedFile is not null)
+            {
+                // Retain write access without writing, while the actual SQLite writer is still paused.
+                committedFileHolder = new FileStream(Path.Combine(Workspace, retainedCommittedFile),
+                    FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+                Assert.False(process.HasExited);
+                Console.WriteLine($"SQLITE-CRASH-COMMITTED-FILE-HOLDER writerProcessId={process.Id}; holderProcessId={Environment.ProcessId}; file={retainedCommittedFile}; access=ReadWrite; share=ReadWrite,Delete; noBytesWritten=true");
+            }
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             shmMapping?.AssertHeld();
+            if (committedFileHolder is not null) Assert.False(committedFileHolder.SafeFileHandle.IsClosed);
             if (staleShmIndex is not null)
             {
                 var committedFiles = new[] { "workspace.sqlite", "workspace.sqlite-wal" }
@@ -584,6 +652,7 @@ public sealed partial class SqliteWorkspaceTests
             Assert.Equal(expectedRevision, reopened.LocalSave.CommittedRevision);
             AssertCommittedWriting();
             shmMapping?.AssertHeld();
+            if (committedFileHolder is not null) Assert.False(committedFileHolder.SafeFileHandle.IsClosed);
             if (receiptHeld)
             {
                 var receipt = Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json"));
@@ -650,6 +719,7 @@ public sealed partial class SqliteWorkspaceTests
             finally
             {
                 receiptHolder?.Dispose();
+                committedFileHolder?.Dispose();
                 shmMapping?.Dispose();
             }
             var receipts = Directory.GetFiles(Workspace, "local-write-*.json");
@@ -665,7 +735,8 @@ public sealed partial class SqliteWorkspaceTests
 
         static string HashCommittedFile(string path)
         {
-            using var file = File.OpenRead(path);
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
             return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file));
         }
     }
