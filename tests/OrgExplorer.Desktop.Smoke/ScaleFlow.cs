@@ -179,7 +179,7 @@ internal static partial class Program
             ScaleFixture.Measure("UI-mutation-open", () =>
             {
                 PickWorkspaceFolder(window, fixture.Workspace);
-                AwaitRestoredWorkspace(window, fixture.Workspace, awaitState: AwaitScale);
+                AwaitRestoredWorkspace(window, fixture.Workspace, "person00000@example.com", AwaitScale);
             });
             Set(window, "SearchQuery", "handle01000");
             AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("People found: 1 "));

@@ -420,7 +420,7 @@ internal static partial class Program
                 try
                 {
                     var window = Window(process);
-                    AwaitRestoredWorkspace(window, oldWorkspace);
+                    AwaitRestoredWorkspace(window, oldWorkspace, "casey@example.com");
                     SetSettingsVisible(window, true);
                     Click(window, "CreateLocalSqliteWorkspace");
                     Await(() => Status(window) == "SQLite Workspace created and saved locally.");

@@ -14,7 +14,7 @@ public sealed record OwnedNotesView(
 public sealed partial class WorkspaceViewModel
 {
     private sealed record NoteView(string? Owner = null, Guid? Selected = null, bool Editing = false,
-        bool OtherNotes = false, string? Error = null, bool Exact = false);
+        bool OtherNotes = false, string? Error = null, bool Exact = false, bool RememberedRecovery = false);
     private readonly Dictionary<NoteScope, NoteView> noteViews = [];
     private readonly Dictionary<(NoteScope Scope, string Owner), NoteView> retainedNoteViews = [];
     private readonly Dictionary<(string Workspace, NoteScope Scope, string Owner), Guid> ongoingNotes = [];
@@ -60,9 +60,9 @@ public sealed partial class WorkspaceViewModel
         var selected = notes.FirstOrDefault(n => n.Id == selectedId && (view.Exact || !n.Archived));
         var ownerUnavailable = view.Owner is not null && workflow.GetRelationships(view.Owner) is null;
         var empty = view.Owner is not null && notes.Count == 0 && ongoing is null && view.Selected is null &&
-            !ownerUnavailable && view.Error is null && ongoingPreferenceError is null &&
+            !ownerUnavailable && !view.RememberedRecovery && view.Error is null && ongoingPreferenceError is null &&
             settings is not { HasValidPreferenceSnapshot: false } && IsWorkspaceCurrent && LocalSaveError is null;
-        var feedback = view.Error ?? ongoingPreferenceError ??
+        var feedback = view.Error ?? (view.RememberedRecovery ? ViewRecoveryFeedback : null) ?? ongoingPreferenceError ??
             (settings is { HasValidPreferenceSnapshot: false } ? settings.PreferenceError : null) ?? (view.Owner is null ? "" :
             ownerUnavailable ? "That Person is unavailable. No replacement was opened." :
             ongoing is { } id && !notes.Any(n => n.Id == id && !n.Archived)
@@ -112,7 +112,10 @@ public sealed partial class WorkspaceViewModel
             noteViews[scope] = view with { Error = "That note is unavailable. No replacement was opened." };
             return false;
         }
-        noteViews[scope] = view with { Selected = id, Editing = editing && !note.Archived, Error = null, Exact = true };
+        noteViews[scope] = view with
+        {
+            Selected = id, Editing = editing && !note.Archived, Error = null, Exact = true, RememberedRecovery = false
+        };
         if (!note.Archived) RememberCurrentView(scope);
         return true;
     });
@@ -125,7 +128,7 @@ public sealed partial class WorkspaceViewModel
         noteViews[scope] = view with
         {
             Selected = notes.FirstOrDefault(n => n.Id == id && !n.Archived)?.Id,
-            Editing = false, OtherNotes = false, Error = null, Exact = false
+            Editing = false, OtherNotes = false, Error = null, Exact = false, RememberedRecovery = false
         };
         var opened = GetOwnedNotesView(scope).SelectedNote is not null;
         if (opened) RememberCurrentView(scope);
@@ -183,7 +186,10 @@ public sealed partial class WorkspaceViewModel
         if (Compatibility.SupportsNonblockingNoteAutosave &&
             !string.Equals(view.Owner, owner, StringComparison.OrdinalIgnoreCase))
             return true;
-        noteViews[scope] = view with { Selected = id, Editing = false, OtherNotes = false, Error = null, Exact = false };
+        noteViews[scope] = view with
+        {
+            Selected = id, Editing = false, OtherNotes = false, Error = null, Exact = false, RememberedRecovery = false
+        };
         RememberCurrentView(scope);
         return true;
     }

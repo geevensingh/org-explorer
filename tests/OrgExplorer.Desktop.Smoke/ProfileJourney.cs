@@ -13,16 +13,19 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
-    private const string ProfileJourneyInitialImport = """
+    private static readonly string ProfileJourneyInitialImport = $$"""
         {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
          "observedAt":"2026-11-01T17:00:00Z","people":[
          {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"007B",
           "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
           "managerEmail":"morgan@example.com","photoPath":"avery.png"},
-         {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
+         {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"z-context@example.com"},
          {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
          {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
-         {"email":"archived.reference@example.com","displayName":"Archived reference","managerEmail":null,"archived":true}]}
+         {"email":"archived.reference@example.com","displayName":"Archived reference","managerEmail":null,"archived":true},
+         {"email":"z-context@example.com","displayName":"Z single-report ancestor","managerEmail":null},
+         {{string.Join(",", Enumerable.Range(0, 24).Select(i =>
+             $$"""{"email":"context{{i:00}}@example.com","displayName":"A context {{i:00}}","managerEmail":null}"""))}}]}
         """;
 
     private const string ProfileJourneyInheritedImport = """
@@ -116,7 +119,7 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             if (!Find(window, "Preview").Current.Name.Contains("avery@example.com"))
                 throw new InvalidOperationException("The real import preview omitted the new Person.");
-            AssertImportBatchImpact(window, "People added: 5; Existing people changed: 0; No Person changes: 0");
+            AssertImportBatchImpact(window, "People added: 30; Existing people changed: 0; No Person changes: 0");
             AssertGroupedImportDisclosure(window, "avery@example.com", "Add",
                 ["Directory name: Avery Example", "Manager: morgan@example.com", "Photo: Supplied local image"]);
             CaptureVisualEvidence(window, "settings-import-enter-preview");
@@ -148,12 +151,14 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
             Await(() => Status(window).Contains("Import applied"));
+            AssertAutomaticImportContext(window, preferencePath);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             AssertImportDiagnostic(window, "Already applied: exact replay is a no-op.");
             AssertImportHasNoImpact(window);
             CaptureVisualEvidence(window, "import-replay-status");
             ReturnToPeople(window);
+            AssertSelectedPeopleRow(window, "morgan@example.com", "z-context@example.com");
             OpenPerson(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
             AssertReportingStructure(window, null);
@@ -401,6 +406,7 @@ internal static partial class Program
             process = Launch(executable);
             window = Window(process);
             AwaitRestoredWorkspace(window, workspace, "avery@example.com");
+            AssertSelectedPeopleRow(window, "avery@example.com");
             AssertImportHidden(window);
             OpenPerson(window, "rowan@example.com", "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
@@ -1190,7 +1196,9 @@ internal static partial class Program
     private static void SaveProfileEditing(AutomationElement window, PersonProfile? submittedProfile = null)
     {
         var owner = Find(window, "Email").Current.Name;
-        var workspace = Find(window, "WorkspaceName").Current.HelpText;
+        var workspace = ControlReadiness.AwaitControl(
+            () => Find(window, "WorkspaceName").Current.HelpText,
+            path => !string.IsNullOrWhiteSpace(path), Await);
         var submittedText = SmokeProfileTextFields.Select(field =>
             (field.Control, Value: Value(window, field.Control) is { Length: > 0 } value ? value : null)).ToArray();
         var hasTeamName = IsVisible(window, "TeamNameEditor");

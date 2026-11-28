@@ -99,6 +99,203 @@ public class ReportingImportTests
     }
 
     [Fact]
+    public void Accepted_Import_selects_a_branching_Manager_without_leaving_Import_or_remembering_navigation()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.True(app.TryOpenImport());
+        var preview = app.PreviewImport(Batch("""
+            {"email":"root@example.com","displayName":"Ancestor","managerEmail":null},
+            {"email":"single@example.com","displayName":"Single report","managerEmail":"root@example.com"},
+            {"email":"useful@example.com","displayName":"Useful Manager","managerEmail":"single@example.com"},
+            {"email":"first@example.com","displayName":"First","managerEmail":"useful@example.com"},
+            {"email":"second@example.com","displayName":"Second","managerEmail":"useful@example.com"},
+            {"email":"former@example.com","displayName":"Former","managerEmail":"root@example.com","archived":true}
+            """));
+        Assert.True(preview.CanApply, app.Status);
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.True(app.ApplyImport(preview.Id), app.Status);
+        Assert.Equal("useful@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Equal("useful@example.com", app.PersonNotesView.OwnerEmail);
+        Assert.Equal("useful@example.com", app.TeamNotesView.OwnerEmail);
+        Assert.Null(app.ProfileEdit);
+        Assert.False(app.PersonNotesView.IsEditing);
+        Assert.False(app.TeamNotesView.IsEditing);
+        Assert.Null(app.PersonNotesView.SelectedNote);
+        Assert.Null(app.TeamNotesView.SelectedNote);
+        Assert.Null(app.PeopleNavigation.LastValidView);
+        Assert.True(app.IsImportOpen);
+        Assert.Contains("root@example.com", app.PeopleNavigation.ExpandedPeople);
+        Assert.Contains("single@example.com", app.PeopleNavigation.ExpandedPeople);
+        Assert.Contains("useful@example.com", app.PeopleNavigation.ExpandedPeople);
+        Assert.Equal(6, app.People.Count);
+        Assert.Empty(app.GetPersonNotes("useful@example.com", true));
+        Assert.Empty(app.GetTeamNotes("useful@example.com", true));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Automatic_Import_compares_depth_across_all_reporting_branches(bool reverse)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        string[] records =
+        [
+            """{"email":"a-root@example.com","displayName":"A root","managerEmail":null}""",
+            """{"email":"a-one@example.com","displayName":"A one","managerEmail":"a-root@example.com"}""",
+            """{"email":"a-two@example.com","displayName":"A two","managerEmail":"a-one@example.com"}""",
+            """{"email":"deep@example.com","displayName":"A deep Manager","managerEmail":"a-two@example.com"}""",
+            """{"email":"deep-one@example.com","displayName":"Deep one","managerEmail":"deep@example.com"}""",
+            """{"email":"deep-two@example.com","displayName":"Deep two","managerEmail":"deep@example.com"}""",
+            """{"email":"z-root@example.com","displayName":"Z root","managerEmail":null}""",
+            """{"email":"shallow@example.com","displayName":"Z shallow Manager","managerEmail":"z-root@example.com"}""",
+            """{"email":"shallow-one@example.com","displayName":"Shallow one","managerEmail":"shallow@example.com"}""",
+            """{"email":"shallow-two@example.com","displayName":"Shallow two","managerEmail":"shallow@example.com"}"""
+        ];
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch(string.Join(",", reverse ? records.Reverse() : records))).Id), app.Status);
+        Assert.Equal("shallow@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Equal("shallow@example.com", app.PersonNotesView.OwnerEmail);
+        Assert.Null(app.PeopleNavigation.LastValidView);
+    }
+
+    [Theory]
+    [InlineData(false, false, "Z@example.com")]
+    [InlineData(false, true, "Z@example.com")]
+    [InlineData(true, false, "a@example.com")]
+    [InlineData(true, true, "a@example.com")]
+    public void Automatic_Import_uses_displayed_Preferred_names_then_email_not_larger_team_or_input_order(
+        bool sameName, bool reverse, string expected)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        var first = sameName ? "Same" : "Zulu";
+        var second = sameName ? "Same" : "Alpha";
+        string[] records =
+        [
+            $$"""{"email":"Z@example.com","displayName":"Zebra","preferredName":"{{second}}","managerEmail":null}""",
+            $$"""{"email":"a@example.com","displayName":"Aardvark","preferredName":"{{first}}","managerEmail":null}""",
+            """{"email":"a-one@example.com","displayName":"A one","managerEmail":"a@example.com"}""",
+            """{"email":"a-two@example.com","displayName":"A two","managerEmail":"a@example.com"}""",
+            """{"email":"a-three@example.com","displayName":"A three","managerEmail":"a@example.com"}""",
+            """{"email":"z-one@example.com","displayName":"Z one","managerEmail":"Z@example.com"}""",
+            """{"email":"z-two@example.com","displayName":"Z two","managerEmail":"Z@example.com"}"""
+        ];
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch(string.Join(",", reverse ? records.Reverse() : records))).Id), app.Status);
+        Assert.Equal(expected, app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(expected, app.TeamNotesView.OwnerEmail);
+        Assert.Null(app.ProfileEdit);
+    }
+
+    [Theory]
+    [InlineData("""{"email":"only@example.com","displayName":"Only","managerEmail":null}""", "only@example.com")]
+    [InlineData("""
+        {"email":"leaf@example.com","displayName":"A leaf","managerEmail":"middle@example.com"},
+        {"email":"middle@example.com","displayName":"Middle","managerEmail":"root@example.com"},
+        {"email":"root@example.com","displayName":"Z root","managerEmail":null}
+        """, "root@example.com")]
+    [InlineData("""
+        {"email":"z@example.com","displayName":"Same","managerEmail":null},
+        {"email":"A@example.com","displayName":"Same","managerEmail":null},
+        {"email":"former@example.com","displayName":"A former","managerEmail":null,"archived":true}
+        """, "A@example.com")]
+    [InlineData("""{"email":"former@example.com","displayName":"Former","managerEmail":null,"archived":true}""", null)]
+    [InlineData("", null)]
+    public void Automatic_Import_uses_the_shallowest_current_Person_when_no_Manager_qualifies(string records, string? expected)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        if (records.Length > 0)
+            Assert.True(app.ApplyImport(app.PreviewImport(Batch(records)).Id), app.Status);
+        Assert.Equal(expected, app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(expected, app.PersonNotesView.OwnerEmail);
+        Assert.Equal(expected, app.TeamNotesView.OwnerEmail);
+        Assert.Null(app.ProfileEdit);
+        Assert.Null(app.PeopleNavigation.LastValidView);
+    }
+
+    [Fact]
+    public void Later_accepted_Import_prepares_selection_without_activating_search_or_losing_Import_context()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch("""
+            {"email":"former@example.com","displayName":"Needle","managerEmail":null,"archived":true}
+            """)).Id));
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        app.ChangePeopleQuery("Needle");
+        app.ShowPeopleOverlay(true);
+        var highlight = app.PeopleNavigation.HighlightedResult;
+        Assert.Equal("former@example.com", highlight!.Person.Email);
+        Assert.True(app.TryOpenImport());
+        var preview = app.PreviewImport(Batch("""
+            {"email":"manager@example.com","displayName":"Useful","managerEmail":null},
+            {"email":"first@example.com","displayName":"First","managerEmail":"manager@example.com"},
+            {"email":"second@example.com","displayName":"Second","managerEmail":"manager@example.com"}
+            """, 2));
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.True(app.ApplyImport(preview.Id), app.Status);
+        Assert.Equal("manager@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Equal("Needle", app.PeopleNavigation.Query);
+        Assert.Same(highlight, app.PeopleNavigation.HighlightedResult);
+        Assert.True(app.PeopleNavigation.OverlayOpen);
+        Assert.True(app.IsImportOpen);
+        Assert.Null(app.PeopleNavigation.SelectedResult);
+        Assert.Null(app.PeopleNavigation.LastValidView);
+        app.ShowPeople();
+        Assert.Equal("Needle", app.PeopleNavigation.Query);
+        app.ChangePeopleQuery("");
+        Assert.Contains("manager@example.com", app.PeopleNavigation.ExpandedPeople);
+        Assert.Equal("manager@example.com", app.PersonNotesView.OwnerEmail);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Accepted_Import_preserves_deliberate_current_or_Archived_Person_reading(bool archived)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch("""
+            {"email":"reader@example.com","displayName":"Reader","managerEmail":null},
+            {"email":"former@example.com","displayName":"Former","managerEmail":null,"archived":true}
+            """)).Id));
+        var email = archived ? "former@example.com" : "reader@example.com";
+        var note = app.CreatePersonNote(email, "Exact reading", "Owner's writing")!;
+        Assert.True(app.NavigatePerson(email));
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, note.Id));
+        var view = app.PeopleNavigation.LastValidView;
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch("""
+            {"email":"higher@example.com","displayName":"A higher Manager","managerEmail":null},
+            {"email":"first@example.com","displayName":"First","managerEmail":"higher@example.com"},
+            {"email":"second@example.com","displayName":"Second","managerEmail":"higher@example.com"}
+            """, 2)).Id), app.Status);
+        Assert.Equal(email, app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(note.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.Equal("Owner's writing", app.PersonNotesView.SelectedNote.Markdown);
+        Assert.Equal(view, app.PeopleNavigation.LastValidView);
+        Assert.Equal(archived, app.GetRelationships(email)!.Person.Archived);
+    }
+
+    [Fact]
+    public void Rejected_or_cancelled_Import_does_not_select_a_preview_Person()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        var preview = app.PreviewImport(Batch("""{"email":"preview@example.com","displayName":"Preview","managerEmail":null}"""));
+        Assert.True(preview.CanApply);
+        app.DiscardImportChanges();
+        Assert.False(app.ApplyImport(preview.Id));
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        var invalid = app.PreviewImport(Batch("""{"email":"invalid@example.com","managerEmail":"missing@example.com"}""", 2));
+        Assert.False(invalid.CanApply);
+        Assert.False(app.ApplyImport(invalid.Id));
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.Empty(app.People);
+    }
+
+    [Fact]
     public void Preview_groups_complete_changed_fields_once_per_Person_in_input_order()
     {
         using var app = Open();
