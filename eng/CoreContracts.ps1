@@ -27,7 +27,8 @@ function Get-CoreContractManifest([string]$ArtifactBuild) {
 
 function Get-CoreContractConfiguration {
     return @{ scheduling = 'bounded-process-queue-v1'; maxParallelism = [Math]::Min(4, [Environment]::ProcessorCount)
-        manifest = 'core-contracts-v1'; process = 'pwsh-no-profile'; ownership = 'windows-job-admission-v1' }
+        manifest = 'core-contracts-v1'; process = 'pwsh-no-profile'; ownership = 'windows-job-admission-v1'
+        reporting = 'per-companion-github-files-v1' }
 }
 
 function New-CoreContractProcessScope {
@@ -104,7 +105,7 @@ function Invoke-CoreContracts([string]$Root, [string]$Results, [string]$Artifact
     $records = @($manifest | ForEach-Object {
         @{ name = $_.name; status = 'NotStarted'; outcome = 'not_started'; seconds = 0
             startedAt = $null; finishedAt = $null; exitCode = $null; processId = $null
-            stdout = $null; stderr = $null; error = $null }
+            stdout = $null; stderr = $null; reporting = @{}; error = $null }
     })
     $next = 0
     $expired = $false
@@ -132,6 +133,13 @@ function Invoke-CoreContracts([string]$Root, [string]$Results, [string]$Artifact
                 $start.RedirectStandardOutput = $true
                 $start.RedirectStandardError = $true
                 $start.WorkingDirectory = $Root
+                foreach ($channel in @('GITHUB_STEP_SUMMARY', 'GITHUB_OUTPUT', 'GITHUB_ENV')) {
+                    $path = "$($next + 2)-$($entry.name)-$channel.log"
+                    $record.reporting[$channel] = $path
+                    $destination = Join-Path $Results $path
+                    [IO.File]::WriteAllText($destination, '')
+                    $start.Environment[$channel] = $destination
+                }
                 $gateName = 'Local\OrgExplorer.CoreContract.' + [guid]::NewGuid().ToString('N')
                 $gate = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::AutoReset, $gateName)
                 $remaining = $CeilingSeconds - ([DateTimeOffset]::UtcNow - $Started).TotalSeconds

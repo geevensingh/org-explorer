@@ -85,6 +85,14 @@ param([string]$Assembly)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $name = Split-Path $PSCommandPath -Leaf
+foreach ($channel in @('GITHUB_STEP_SUMMARY', 'GITHUB_OUTPUT', 'GITHUB_ENV')) {
+    $path = [Environment]::GetEnvironmentVariable($channel)
+    if (!$path -or !$path.StartsWith((Join-Path $root '.ci-results\core') + [IO.Path]::DirectorySeparatorChar,
+        [StringComparison]::OrdinalIgnoreCase) -or !(Split-Path $path -Leaf).Contains($name)) {
+        throw "A companion inherited the outer workflow's $channel channel."
+    }
+    [IO.File]::AppendAllText($path, "$name`n")
+}
 if (!(Get-ChildItem -LiteralPath (Join-Path $root '.ci-results\core') -Filter *.trx)) {
     throw 'A companion started before compiled test completion.'
 }
@@ -146,6 +154,10 @@ if ($env:CORE_CONTRACT_MODE -ceq 'failure' -and $name -ceq 'FilesystemHealth.Tes
     for ($index = 2; $index -lt $serial.execution.steps.Count; $index++) {
         $record = $serial.execution.steps[$index]
         Assert ($record.status -ceq 'Passed' -and $record.exitCode -eq 0) 'A serial companion did not complete successfully.'
+        foreach ($channel in @('GITHUB_STEP_SUMMARY', 'GITHUB_OUTPUT', 'GITHUB_ENV')) {
+            $path = Join-Path $fixture ".ci-results\core\$($record.reporting.$channel)"
+            Assert ((Get-Content -LiteralPath $path -Raw).Trim() -ceq $record.name) 'A companion lost or shared its owned workflow reporting channel.'
+        }
         if ($index -gt 2) {
             Assert ([DateTimeOffset]$record.startedAt -ge [DateTimeOffset]$serial.execution.steps[$index - 1].finishedAt) 'The one-worker queue overlapped companion executions.'
         }

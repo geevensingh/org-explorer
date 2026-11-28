@@ -1948,7 +1948,8 @@ matrix belongs to its separate required smoke suite, not a substitute for comple
 ## Required PR/main execution
 
 The explicit default-off `core_capacity_diagnostic` dispatch observes the full
-unfiltered core selection and all 21 companions on one hosted worker, with a
+unfiltered core selection and all 21 companions in three fresh, sequential
+hosted observations, with a
 bounded 900-second observation window and 16-minute upload watchdog. Normal
 lanes and aggregate acceptance are skipped only for this diagnostic dispatch.
 Its separate `core-capacity` artifacts always declare `complete=false`,
@@ -2037,7 +2038,11 @@ exited; unrelated processes are not selected by name or terminated. Output drain
 remain deadline-bound. Receipts retain manifest order, including native-cleanup
 conformance, while actual start/finish clocks may overlap or finish out of order.
 Stdout/stderr logs, exit codes, failed assertions and unfinished/not-started
-receipts remain visible. A failed companion does not discard other completed
+receipts remain visible. GitHub summary, output and environment file channels
+are separately allocated per companion and retained as logs. Companion reporting
+cannot overflow or mutate the outer workflow's shared files; the reporting
+configuration participates in timing compatibility. A failed companion does
+not discard other completed
 receipts or turn the original execution into success.
 Scheduling, resolved parallelism and ownership configuration join the existing
 source-bound fixture identity in timing-series compatibility. The original

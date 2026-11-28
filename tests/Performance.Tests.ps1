@@ -311,12 +311,13 @@ Write-Output 'captured-diagnostic-deadline'
         throw 'Performance must be nightly/manual, with diagnostic artifacts even after failure.'
     }
     $ci = Get-Content "$root\.github\workflows\ci.yml" -Raw
-    if ($ci -notmatch '(?s)  workflow_dispatch:\s+inputs:\s+run_scale_verification:\s+description:[^\r\n]+\s+required: false\s+default: false\s+type: boolean') {
+    $scaleInput = [regex]::Match($ci, '(?ms)^      run_scale_verification:\r?\n(?<body>.*?)(?=^      [\w-]+:|^permissions:|\z)').Groups['body'].Value
+    if ($scaleInput -notmatch '(?s)description:[^\r\n]+\s+required: false\s+default: false\s+type: boolean') {
         throw 'Registered CI must expose an opt-in Boolean scale verification input, defaulting to false.'
     }
     $bridge = [regex]::Match($ci, '(?ms)^  scale-verification:\r?\n(?<body>.*?)(?=^  [\w-]+:|\z)').Groups['body'].Value
     foreach ($required in @(
-        'if: ${{ github.event_name == ''workflow_dispatch'' && inputs.run_scale_verification && !inputs.run_release_verification }}',
+        'if: ${{ github.event_name == ''workflow_dispatch'' && !inputs.core_capacity_diagnostic && inputs.run_scale_verification && !inputs.run_release_verification }}',
         'uses: ./.github/workflows/scale-verification.yml',
         'revision: ${{ github.sha }}'
     )) {

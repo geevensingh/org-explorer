@@ -21,7 +21,7 @@ if (!$ci.Contains('inputs.run_scale_verification && !inputs.run_release_verifica
     throw 'Selecting both manual verification options must run scale only through release verification, without duplicate artifact names.'
 }
 if ($ci -notmatch '(?s)run_release_verification:\s+description:[^\r\n]+\s+required: false\s+default: false\s+type: boolean' -or
-    !$ci.Contains('github.event_name == ''workflow_dispatch'' && inputs.run_release_verification') -or
+    !$ci.Contains('github.event_name == ''workflow_dispatch'' && !inputs.core_capacity_diagnostic && inputs.run_release_verification') -or
     !$ci.Contains('uses: ./.github/workflows/release-verification.yml')) { throw 'PR-safe release verification must be a default-off manual bridge.' }
 $verification = Get-Content "$root\.github\workflows\release-verification.yml" -Raw
 foreach ($required in @('workflow_call:', 'uses: ./.github/workflows/scale-verification.yml', 'revision: ${{ inputs.revision }}',
