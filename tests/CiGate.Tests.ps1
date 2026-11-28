@@ -25,7 +25,7 @@ foreach ($lane in @('core', 'filesystem', 'desktop', 'high-resolution', 'ci')) {
     $minutes = [regex]::Match($job, 'timeout-minutes:\s*(\d+)').Groups[1].Value
     if (!$minutes) { throw "Missing execution deadline for $lane" }
     $budget += [int]$minutes
-    $expected = if ($lane -eq 'core') { 5 } elseif ($lane -eq 'ci') { 2 } `
+    $expected = if ($lane -eq 'core') { 8 } elseif ($lane -eq 'ci') { 2 } `
         elseif ($lane -in @('desktop', 'high-resolution')) { 15 } else { 11 }
     if ([int]$minutes -ne $expected) { throw "Required lane $lane changed its established execution deadline." }
     if ($lane -ne 'ci' -and $job -match '(?m)^\s+needs:') { throw "Required lane $lane was serialized" }
@@ -42,7 +42,7 @@ foreach ($lane in @('core', 'filesystem', 'desktop', 'high-resolution', 'ci')) {
         $budget += [int]$minutes
     }
 }
-if ($budget -ne 78) { throw "The partitioned four-lane execution ceiling must total seventy-eight minutes: $budget" }
+if ($budget -ne 81) { throw "The partitioned four-lane workflow ceiling must total eighty-one minutes: $budget" }
 if (!$workflow.Contains('needs: [core, filesystem, desktop, high-resolution]') -or
     !$workflow.Contains('HIGH_RESOLUTION_RESULT: ${{ needs.high-resolution.result }}') -or
     !$workflow.Contains('$env:HIGH_RESOLUTION_RESULT')) {
@@ -61,3 +61,4 @@ if (!$workflow.Contains('high-resolution-${{ matrix.partition }}-attempt-${{ git
 }
 if ($workflow -match '(?m)^\s+paths(?:-ignore)?:') { throw 'Required CI cannot disappear on docs/test-only changes' }
 Write-Host "PASS: four required logical lanes include two ordinary and two high-resolution workers; summed ceiling $budget minutes."
+& "$PSScriptRoot\CoreTimingPolicy.Tests.ps1"

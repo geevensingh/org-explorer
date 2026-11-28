@@ -5,7 +5,10 @@ param(
     [string] $RunId = $env:GITHUB_RUN_ID,
     [string] $RunAttempt = $env:GITHUB_RUN_ATTEMPT,
     [string] $ResultsDirectory = '.ci-results\ui-scale',
-    [switch] $ExtendedObservation
+    [ValidatePattern('^[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*$')][string] $CohortId,
+    [ValidateRange(1, 5)][int] $Sample,
+    [switch] $ExtendedObservation,
+    [switch] $PrepareCleanupAuthentication
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -15,12 +18,23 @@ $root = Split-Path $PSScriptRoot -Parent
 if (!$Worker) { throw 'Select prefix or tail; complete UI-scale acceptance requires both isolated workers and Assert-UiScaleUnion.ps1.' }
 $plan = Get-UiScalePlan
 $required = @($plan.workers[$Worker])
-$observation = if ($ExtendedObservation) { 900 } else { 660 }
+$sourceRevision = (& git -C $root rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'UI-scale source revision is unavailable.' }
+$policy = Get-ApprovedTimingPolicy (Get-SourceTimingPolicyVersion $sourceRevision)
+$observation = if ($ExtendedObservation -or $Worker -ceq 'prefix') { 900 } else { 660 }
 $selection = @{ selector = "--ui-scale-$Worker"; worker = $Worker; requiredScenarios = $required
     runId = $RunId; runAttempt = $RunAttempt; completedPhases = @() }
+if ($CohortId) {
+    if (!$ExpectedRevision -or $Sample -lt 1 -or $CohortId -cne "$ExpectedRevision-$RunId-$RunAttempt") {
+        throw 'Rich cohort execution requires exact candidate, sample and run/attempt.'
+    }
+    $selection.cohortId = $CohortId; $selection.sample = $Sample
+} elseif ($PSBoundParameters.ContainsKey('Sample')) { throw 'A rich sample requires its cohort identity.' }
 
 Invoke-ScaleSuite -Suite ui-scale -Label 'UI scale' `
     -ResultsDirectory $ResultsDirectory -ExpectedRevision $ExpectedRevision -ObservationSeconds $observation `
+    -ExpectedPolicyVersion $policy.version -DiagnosticOnly:$ExtendedObservation `
+    -PrepareCleanupAuthentication:$PrepareCleanupAuthentication `
     -Selection $selection -Verify {
         param($run, $build)
         if (![Environment]::UserInteractive) {
@@ -37,7 +51,7 @@ Invoke-ScaleSuite -Suite ui-scale -Label 'UI scale' `
             $handoff = Join-Path $run 'handoff'
             if ($Worker -eq 'tail') {
                 if (!$PrefixResultsDirectory) { throw 'The tail requires the current successful prefix worker artifact.' }
-                $prefix = Get-UiScaleWorkerResult $PrefixResultsDirectory prefix $ExpectedRevision $RunId $RunAttempt
+                $prefix = Get-UiScaleWorkerResult $PrefixResultsDirectory prefix $ExpectedRevision $RunId $RunAttempt $CohortId $Sample $policy.version
                 $handoff = [IO.Path]::GetFullPath((Join-Path $prefix.run 'handoff'))
             }
             $env:UI_SCALE_HANDOFF_DIRECTORY = $handoff

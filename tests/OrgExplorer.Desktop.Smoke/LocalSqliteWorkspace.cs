@@ -879,8 +879,8 @@ internal static partial class Program
         var expansion = (ExpandCollapsePattern)disclosure.GetCurrentPattern(ExpandCollapsePattern.Pattern);
         if (expansion.Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
             throw new InvalidOperationException("SQLite Capture details must remain collapsed before explicit reading.");
-        expansion.Expand();
-        var capturedEvidence = Find(disclosure, $"HistoricalCaptureEvidence-{frozen.Id}");
+        var capturedEvidence = ControlReadiness.AwaitExpandedPattern(expansion.Expand,
+            () => Find(disclosure, $"HistoricalCaptureEvidence-{frozen.Id}"), Await);
         capturedEvidence.SetFocus();
         Await(() => capturedEvidence.Current.HasKeyboardFocus && !capturedEvidence.Current.IsOffscreen);
         var copyable = ((ValuePattern)capturedEvidence.GetCurrentPattern(ValuePattern.Pattern)).Current.Value;
@@ -999,7 +999,7 @@ internal static partial class Program
         var ownerEmail = richFixture is null ? "morgan@example.com" : ScaleFixture.Email(11);
         var reportEmail = richFixture is null ? "avery@example.com" : ScaleFixture.Target;
         const int durabilityGoalMs = 1000;
-        var durabilityCeilingMs = richFixture is null ? durabilityGoalMs : 1050;
+        var durabilityCeilingMs = richFixture is null ? durabilityGoalMs : 1500;
         var ownerHeading = richFixture is null ? "Morgan Example" : "Reference 00011";
         var reportHeading = richFixture is null ? "Avery Example" : "Reference 01000";
         var continuedEdits = richFixture is null ? NoteCommitObservation.ContinuedEditCount : 6;
@@ -1309,7 +1309,8 @@ internal static partial class Program
                 goalMet = P95(durability) <= durabilityGoalMs,
                 budgetMs = durabilityCeilingMs,
                 budgetEnforced = true,
-                temporaryCeiling = richFixture is not null,
+                temporaryCeiling = false,
+                policyVersion = richFixture is null ? "ordinary-note-original-v1" : "ci-timing-v4",
                 timingUse = "acceptance",
                 independentVerificationMs,
                 requestToPostCommitAcknowledgmentMs = richFixture is null ? null : durability,
@@ -1340,12 +1341,12 @@ internal static partial class Program
         if (P95(durability) > durabilityCeilingMs || committedDuringTyping.Any(value => !value))
             throw new InvalidOperationException($"Hosted ordinary note durability budget failed: local durability={P95(durability):F1} ms, " +
                 $"goal={durabilityGoalMs} ms ({(P95(durability) <= durabilityGoalMs ? "met" : "NOT met")}), " +
-                $"acceptance ceiling={durabilityCeilingMs} ms ({(richFixture is null ? "enforced" : "temporary, enforced")}), " +
+                $"acceptance ceiling={durabilityCeilingMs} ms ({(richFixture is null ? "enforced" : "approved, enforced")}), " +
                 $"editor/navigation informational p95={P95(editors):F1}/{P95(navigation):F1} ms, " +
                 $"all commits observed during typing={committedDuringTyping.All(value => value)}. See {resultPath}.");
         Console.WriteLine($"PASS: hosted SQLite note durability p95={P95(durability):F1} ms during continued typing; " +
             $"goal={durabilityGoalMs} ms ({(P95(durability) <= durabilityGoalMs ? "met" : "NOT met")}); " +
-            $"acceptance ceiling={durabilityCeilingMs} ms ({(richFixture is null ? "enforced" : "temporary, enforced")}); " +
+            $"acceptance ceiling={durabilityCeilingMs} ms ({(richFixture is null ? "enforced" : "approved, enforced")}); " +
             $"informational usable Team-editor/Person-navigation p95={P95(editors):F1}/{P95(navigation):F1} ms; exact note/owner drafts retained.");
         return saved;
     }

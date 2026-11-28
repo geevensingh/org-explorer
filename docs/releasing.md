@@ -82,16 +82,53 @@ verification, packaging and publication. Every product attempt calls the same
 `scale-verification.yml` used by nightly/manual checks, at the exact candidate.
 That workflow runs non-UI performance, two isolated rich UI workers and their
 strict union collector. The tail joins the prefix's actual complete logical
-snapshot; it does not reseed equivalent data. Each execution retains its own
-660-second budget. See the [canonical commands and artifact contract](testing.md#separate-scale-commands-and-results);
+snapshot; it does not reseed equivalent data. Source-bound `ci-timing-v2`,
+`ci-timing-v3` and `ci-timing-v4` use900s prefix safety/30m watchdog, while tail/non-UI keep660s/13m. Original candidate
+sources retain their original660s/1050ms policy; artifacts cannot grant a newer
+or higher ceiling. See the [canonical commands and artifact contract](testing.md#separate-scale-commands-and-results);
 one rich worker cannot establish complete verification.
 
-Rich ordinary note durability retains its 1,000-ms goal with the owner-approved
-temporary enforced 1,050-ms p95 ceiling in both normal and held-export phases.
+V4 changes only narrowly scoped post-verification native build-housekeeping
+disposition: actual cleanup stays failed and may warn on an authenticated
+disposable GitHub-hosted worker with intact raw/source proof and budget.
+Fresh signed invocation provenance distinguishes checked-out candidate A from
+its actual signer/controller B. Missing or rejected signatures, local/shared/
+self-hosted scope, failed work, malformed artifacts and exhausted budgets still
+fail. Signing overhead is not subtracted or given extra accepting time.
+Build/DLL bytes are excluded from evidence; raw TRX, metrics, phases, lifecycle
+and logical snapshots, cleanup errors and signed provenance remain.
+No historical failure or release verdict is rewritten. See the
+[exact scoped policy](ci-timing-policy-proposal.md).
+
+The independent `lane-health.yml` observer reports release/renewal job phases
+and available exact-attempt scale evidence after the source run completes.
+Its history/comparisons never replace these fresh gates, delay publication or
+rewrite a release verdict. A planning success with skipped scale/publication
+remains a no-op, not executed release verification.
+
+Current rich ordinary note durability retains its1,000-ms goal with the
+owner-approved enforced1,500-ms inclusive p95 ceiling in both normal and held-export phases.
 The collector requires honest goal/ceiling metadata and every original
-during-typing/functional assertion. Profile and small-fixture one-second gates,
-three-second stall and same-held capture proof remain unchanged; see
+during-typing/functional assertion. V3/v4 native rich-profile Save in both
+phases also uses a1,000-ms goal/1,500-ms inclusive enforced p95 ceiling.
+Historical v2 native-profile verdicts, ordinary/small-fixture and non-UI profile/
+note one-second gates,
+three-second stall and same-held capture proof remain unchanged. A known goal
+miss within1,500ms is yellow even without a reference, not an absolute failure.
+The release gate retains separate active timing records; no comparison or
+collection availability replaces fresh proof or introduces a wait. See
 [the exact result contract](testing.md#separate-scale-commands-and-results).
+
+For active sources, `timing-comparison.json` retains the single fresh execution,
+the already available compatible canonical reference (or explicit absence/read
+error), policy, history snapshot and metric-specific envelope/headroom. Its one
+execution cannot manufacture five-run serious-relative evidence. If a matching
+complete five-execution cohort has already established approved serious red
+against its pinned predecessor, the gate retains its evidence link and blocks
+before publication. A running collection is never awaited. Later findings do
+not rewrite earlier release artifacts or publication provenance. The ordinary
+lane observer uses the same execution builder/evaluator for complete scale
+unions; transfer/collection cost is not substituted for worker duration.
 
 All jobs must succeed now. Publication downloads only this run/attempt's named
 artifacts, verifies clean exact source and execution times, and revalidates the
@@ -129,6 +166,9 @@ reference and signing explanation. Subjects come from local Git at these exact
 sources, never the checkout's HEAD, full commit bodies or fetched PR descriptions.
 Padded inline code spans keep every subject's Unicode and Markdown-significant
 punctuation literal, including embedded backticks, mentions and emoji syntax.
+Git's UTF-8 history output is decoded explicitly, independently of the caller's
+console code page; console replacement characters or mojibake are not valid
+substitutes for the original subject.
 
 Missing or shallow history, a non-ancestor/off-first-parent app baseline, an
 empty range, or any empty/control-character subject stops publication explicitly

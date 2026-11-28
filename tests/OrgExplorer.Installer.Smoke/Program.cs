@@ -43,6 +43,8 @@ internal static partial class Program
             ["runnerImage"] = Environment.GetEnvironmentVariable("ImageOS") ?? "Windows Sandbox",
             ["runnerImageVersion"] = Environment.GetEnvironmentVariable("ImageVersion") ?? "not-provided",
             ["sourceCommit"] = Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local-sandbox-input",
+            ["runId"] = Environment.GetEnvironmentVariable("GITHUB_RUN_ID") ?? "local",
+            ["runAttempt"] = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT") ?? "local",
             ["trustLimitations"] = "Unsigned fixture installers; ephemeral project-key update authorization only when explicitly provisioned for this hosted run. No Windows trust bypass, production publication, production signing key, or Windows publisher certification.",
             ["uninstallCompletions"] = UninstallCompletions,
             ["result"] = "failed"
@@ -178,6 +180,7 @@ internal static partial class Program
         }
         finally
         {
+            evidence["executionSeconds"] = Execution.Elapsed.TotalSeconds;
             Directory.CreateDirectory(Results);
             var result = Path.Combine(Results, "result.json");
             File.WriteAllText(result + ".next", JsonSerializer.Serialize(evidence, new JsonSerializerOptions { WriteIndented = true }));

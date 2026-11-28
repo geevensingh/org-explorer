@@ -14,6 +14,11 @@ permissions:
 
 jobs:
   scale:
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ inputs.revision }}
@@ -64,6 +69,7 @@ jobs:
         if: ${{ always() }}
         with:
           name: secret-free-release-evidence-${{ inputs.revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
           if-no-files-found: error
           path: |
             .artifacts/release-verification/result.json

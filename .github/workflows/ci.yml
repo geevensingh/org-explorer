@@ -6,6 +6,11 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      core_capacity_diagnostic:
+        description: Nonaccepting complete core calibration; retain 300s goal, no native lanes or release
+        required: false
+        default: false
+        type: boolean
       run_scale_verification:
         description: Run separate scale verification at this dispatch commit
         required: false
@@ -22,9 +27,10 @@ permissions:
 
 jobs:
   core:
+    if: ${{ !inputs.core_capacity_diagnostic }}
     name: Core and view models
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Start execution budget before setup
         run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
@@ -38,13 +44,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: core-timings
+          name: core-attempt-${{ github.run_attempt }}
+          retention-days: 30
           path: |
             .ci-results/core/*.json
             .ci-results/core/*.log
             .ci-results/core/*.trx
 
   filesystem:
+    if: ${{ !inputs.core_capacity_diagnostic }}
     name: Real filesystem persistence
     runs-on: windows-latest
     timeout-minutes: 11
@@ -61,13 +69,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: filesystem-timings
+          name: filesystem-attempt-${{ github.run_attempt }}
+          retention-days: 30
           path: |
             .ci-results/filesystem/*.json
             .ci-results/filesystem/*.log
             .ci-results/filesystem/*.trx
 
   desktop:
+    if: ${{ !inputs.core_capacity_diagnostic }}
     name: Actual Windows desktop smoke (${{ matrix.partition }})
     runs-on: windows-latest
     timeout-minutes: 15
@@ -89,12 +99,14 @@ jobs:
         if: ${{ always() }}
         with:
           name: desktop-${{ matrix.partition }}-attempt-${{ github.run_attempt }}
+          retention-days: 30
           path: |
             .ci-results/desktop-${{ matrix.partition }}/*.json
             .ci-results/desktop-${{ matrix.partition }}/*.log
             .ci-results/desktop-${{ matrix.partition }}/*.png
 
   high-resolution:
+    if: ${{ !inputs.core_capacity_diagnostic }}
     name: High-resolution Windows smoke (${{ matrix.partition }})
     runs-on: windows-latest
     timeout-minutes: 15
@@ -116,6 +128,7 @@ jobs:
         if: ${{ always() }}
         with:
           name: high-resolution-${{ matrix.partition }}-attempt-${{ github.run_attempt }}
+          retention-days: 30
           path: |
             .ci-results/high-resolution-${{ matrix.partition }}/*.json
             .ci-results/high-resolution-${{ matrix.partition }}/*.log
@@ -123,7 +136,7 @@ jobs:
 
   ci:
     name: CI
-    if: ${{ always() }}
+    if: ${{ always() && !inputs.core_capacity_diagnostic }}
     needs: [core, filesystem, desktop, high-resolution]
     runs-on: windows-latest
     timeout-minutes: 2
@@ -152,17 +165,56 @@ jobs:
 
   scale-verification:
     name: Optional manual scale verification
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification && !inputs.run_release_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.core_capacity_diagnostic && inputs.run_scale_verification && !inputs.run_release_verification }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ github.sha }}
 
   release-verification:
     name: Optional product release rehearsal
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.core_capacity_diagnostic && inputs.run_release_verification }}
     permissions:
       contents: read
       actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/release-verification.yml
     with:
       revision: ${{ github.sha }}
+
+  core-capacity:
+    name: Nonaccepting core capacity calibration (${{ matrix.sample }})
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.core_capacity_diagnostic }}
+    runs-on: windows-latest
+    timeout-minutes: 16
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        sample: [1, 2, 3]
+    steps:
+      - name: Start bounded diagnostic observation before setup
+        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Observe original compiled selection and all required companions
+        run: .\eng\Run-CiLane.ps1 core -CoreCapacityDiagnostic
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: core-capacity-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.sample }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            .ci-results/core-capacity/*.json
+            .ci-results/core-capacity/*.log
+            .ci-results/core-capacity/*.trx

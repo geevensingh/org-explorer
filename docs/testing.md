@@ -5,6 +5,23 @@ and agents ([approved spec #21](https://github.com/geevensingh/org-explorer/issu
 Choose the lowest-cost agreed surface that can prove the behavior, not a project
 name. A desktop click alone does not establish a successful navigation or save.
 
+The v2/v3 CI reliability implementation is integrated, retaining its failed
+full-cohort results. #164's approved source-bound `ci-timing-v4` cleanup policy
+is under public-contract verification; it changes no numerical threshold.
+Exact-candidate hosted results and remaining
+integration/joint `main` delivery gates are recorded on #133, without editing
+the tested source afterward. The [approved policy](ci-timing-policy-proposal.md) distinguishes
+current 900s/30m rich-prefix and 1000ms/1500ms rich-note rules from original
+660s/1050ms results. Only native rich-profile Save in the held-export prefix and
+normal-executable tail also uses a1000ms goal/1500ms inclusive ceiling under v3;
+ordinary/small-fixture and non-UI profile/note1000ms limits are unchanged.
+Legacy observation/preview sections retain their original
+scope, not a claim that current complete-cohort gates are inactive.
+Pre-delivery full pilots are read-only, baseline-ineligible measurements; their
+three complete accepted executions cannot establish canonical `main` authority.
+Default-branch automatic workflow activation and production history are separate
+from isolated public-contract fixtures and remain pending joint delivery.
+
 Visual-refresh journeys can capture named, already-observed states through the
 shared `CaptureVisualEvidence` harness helper. It reads actual desktop pixels
 without opening, focusing, resizing or repairing a view. The existing hosted
@@ -225,6 +242,161 @@ unchanged, including diagnostic overhead. This is not a repair or native proof.
 
 ## Placement
 
+The #130 staged diagnostic uses the registered Scale verification workflow's
+`prefix_only_diagnostic` manual input at its exact workflow-source SHA. Only one
+rich prefix runs: 900 seconds of observation, a 17-minute hosted watchdog, and
+the observation deadline inherited by the held publisher. Normal executions at that original diagnostic source
+still inherit 660 seconds. Both absolute deadlines are retained in runner JSON;
+cleanup still enforces the original 660-second verdict even if diagnostic work
+finishes later. Diagnostic artifacts cannot accept a candidate or supply a
+baseline; there is no diagnostic tail/union or production publication. This
+capture is separately approved, not approval of numerical timing policy.
+
+The #130 `TimingPolicyPreview` switch on the existing cohort/all-lane observer
+CLIs emits read-only `policyPreview` records and summary Markdown. It preserves
+the source validation, policies, individual attempts and canonical history.
+Preview plus publication/planning is rejected; sample4/5 suggestions are data,
+not dispatches. Public contracts use real validators and isolated Git with only
+external GitHub/hosted effects faked, including complete659/661s observations,
+noise, low headroom, serious five-execution separation, hard failures and
+incomplete/no-reference states. See the
+[versioned policy](ci-timing-policy-proposal.md). Owner-approved
+`ci-timing-preview-v2` uses a30-minute prefix watchdog with unchanged900s safety,
+rich-note1000ms goal/1500ms ceiling in both phases, and BOTH20%/100ms latency or
+20%/30s duration practical floors on top of the full five-run relative rule.
+`TimingPolicyVersion ci-timing-preview-v1` retains read-only old17-minute/1050ms
+preview behavior. Preview selection never activates a gate. #131 separately
+activates source-bound `ci-timing-v2`; original1050ms/660s results remain under
+their original validation. Public checks include inclusive
+1500ms and practical boundaries, missing/zero-median uncertainty and the
+nonblocking1000→1050 example. They do not establish hosted speed or rollout.
+
+Active public contracts additionally cover scoped release/renewal collection,
+real-Git source selection through spaced bare-repository paths, malformed policy
+metadata, source-read refusal and canonical reference consumption. The
+`AutomaticBaselines.Tests.ps1 -GateSnapshotDirectory <isolated-output>` fixture
+builder exports real publisher-produced snapshots and synthetic raw bundles.
+Pass its `metadata.json` to `Release.Gates.Tests.ps1 -TimingFixtureMetadata`
+or `LaneHealth.Tests.ps1 -TimingFixtureMetadata` for the focused shared gate
+checks. Release succeeds before/while collection is incomplete, uses an already
+available reference, and rejects only established complete five-run serious
+evidence after collection; the earlier saved result is unchanged. These are
+non-UI contract fixtures, not actual hosted measurements or production history.
+
+`AutomaticBaselines.Tests.ps1 -RichIdentityOnly` is the explicit non-UI
+comparison-availability selection for #167. Complete normal-cleanup-success v4
+fixtures cross the actual planner, raw result validators, immutable publisher,
+history reader and release gate. Null, missing, partial and malformed actual
+display/DPI or loaded-native metadata in either rich worker retain successful
+workload validation, but cannot establish comparison eligibility, request
+replacement samples or promote. Each negative uses isolated history retaining
+the same prior reference and original attempt; cached hashes/eligibility flags
+cannot bypass actual configuration. Complete identity and older source-policy
+controls preserve new-series bootstrap and original hard limits. These are
+synthetic public contracts, never desktop evidence or production references;
+the required core smoke selection is unchanged.
+`-RichIdentitySourceOnly` selects the same complete/unknown release and publisher
+controls plus older-source refusal and distinct-environment checks without the
+full malformed-field matrix. Older-policy sample successes remain intact;
+the existing current-policy collection refusal is asserted, not relaxed.
+`-RichNativeIdentityOnly` is the bounded native-tuple selection. All three
+prefix or tail configurations are independently changed to unknown values or
+well-formed version/source/hash mismatches while the validated handoff/receipt
+stays intact. Actual collector, publisher, history and release consumers retain
+successful raw work, null comparison keys and the prior immutable reference.
+Tuple equality to that independently validated binding, not a string blacklist,
+establishes native comparison availability.
+
+The existing required `LaneHealth.Tests.ps1` surface includes representative
+standalone prefix/tail native negatives; `-NativeIdentityOnly` runs that focused
+subset without the full cohort matrix. It uses real observation publication and
+history replay with complete normal-cleanup-success v4 worker fixtures.
+The required selection reuses its existing v2 raw worker fixtures for two
+unknown-identity checks; it does not run the full standalone-history subset or
+the 401-second full-cohort native matrix.
+Repeated unknown claims and well-formed mismatches preserve raw success and
+all attempts but cannot supply a comparison key or prior reference. The same
+shared native-tuple matcher serves lane and full-cohort comparison. Lane history
+retains the validated actual binding; older records lacking it keep their
+original verdict/hash and bytes, but are not upgraded into comparable native
+observations through cached keys or source-eligibility flags.
+`-LegacyNativeOnly` exports immutable `2555cc9` source and its original fixture
+catalogs. That source's real public publisher creates successful records with
+the original width/height-only display and a partial native tuple. Current
+read/publication/reference/release consumers must preserve those original
+verdicts, hashes and Git blob bytes without treating the old configuration as
+current comparison evidence. Retention verifies the original generic hash
+contract, separately from current display/native availability checks.
+
+V4 adds scoped failed build-housekeeping warnings, separate from verification
+and timing health. `HostedCleanup.Tests.ps1` holds a real x64 native image in a
+controlled external process after completed work and drives the public result
+flow. Controlled certificate/TSA and GitHub/process inputs replace only external
+hosting effects; the actual CLI signature verifier and result validators run.
+No desktop opens. Source A/controller B, complete raw counts, failed work,
+scope/host/proof forgery, original budgets and legacy refusal remain covered.
+The controlled native holder receives ordinary drive-letter paths and applies
+extended-length syntax only at the Windows loader boundary. Recorded cleanup
+paths and signed evidence remain unchanged. A holder/setup failure is reported
+separately from a failed assertion about legacy policy preservation.
+Signed historical build paths are compared as metadata without requiring the
+original hosted drive on the reader. A separately signed absent-drive fixture
+crosses the public paired-report reader, raw inventory and signature checks;
+the original failed-housekeeping path and complete raw counts remain intact.
+The supervisor retains actual script exit failure separately from saved results.
+For signing between workflow steps, verification prepares a non-accepting proof
+and exits first. Start waits for the actual process exit and retains both its
+native exit status and the worker's matching receipt before returning. Complete
+requires those original records and the verified attestation within the unchanged
+deadline before finalizing acceptance; a live process is never expected to
+survive the workflow step boundary. Missing receipts, failed work, unsigned proof
+and expired authentication still fail. `ScaleWorkerStep.Tests.ps1` exercises
+separate controllers with explicitly non-accepting data; HostedCleanup invokes
+that contract and tests real signed preparation/completion separately.
+`CleanupRecord.Tests.ps1`, also run by that suite, covers the public sample
+reader's mandatory v4 cleanup metadata and rejects artifact-supplied collection
+verification modes on worker records. Union collectors validate housekeeping
+through their independently selected prefix and tail workers.
+Accepted v4 history also requires the original non-UI verification/cleanup
+report; deleting or nulling it cannot discard the signed warning proof.
+`CleanupHistory.Tests.ps1 -TimingFixtureMetadata <v4-export>\metadata.json`
+checks the actual publisher-produced history and preserves legacy v2 behavior.
+
+The focused signed-history/release/lane flow uses new isolated publisher output:
+
+```powershell
+.\tests\CleanupRecord.Tests.ps1
+.\tests\HostedCleanup.Tests.ps1
+.\tests\AutomaticBaselines.Tests.ps1 -GatePolicyVersion ci-timing-v4 -GateSnapshotDirectory .ci-results\cleanup-gates
+.\tests\Release.Gates.Tests.ps1 -TimingFixtureMetadata .ci-results\cleanup-gates\metadata.json
+.\tests\LaneHealth.Tests.ps1 -TimingFixtureMetadata .ci-results\cleanup-gates\metadata.json
+```
+
+These fixtures preserve failed housekeeping in immutable records and exercise
+qualified-main eligibility without making cleanup warnings a reason for more
+samples. They do not establish a real hosted cohort. `actions/attest@v4` signs
+only a fresh post-verification proof; preparation and completion count
+signing/verification in its original budget. Positive verified certificate
+hosting, authenticated run/workflow source and intact raw hashes are required;
+environment or artifact fields alone cannot authorize acceptance. Upload and
+union selection exclude only the allocated compiled build subtree while keeping
+raw metrics/TRX/phases, snapshots, PNGs and cleanup/provenance diagnostics.
+Normal disposable-VM teardown remains the only deferred cleanup.
+
+The default-off `cleanup_signing_probe` input on Scale verification is a
+signing-only integration check, not workload or canonical evidence. It skips
+every performance, native, pilot/cohort and union job. Its single Windows worker
+has a five-minute watchdog, read-only contents/actions and narrowly scoped
+id-token/attestation signing permissions. An immutable controller B prepares a
+fresh nonce/component-hash manifest for immutable candidate A and invokes A's
+unchanged shared signature verifier. It retains the real standard-root bundle,
+verified hosted certificate/timestamps, exact negative-context/hash refusals
+and honest setup/execution timing. It never waits in the worker for certificate
+expiry; later read-only verification uses the original trusted witnessed time.
+The public `tests\CleanupSigning.Tests.ps1` fixture exercises that harness with
+controlled external certificate/TSA/GitHub adapters and the actual CLI verifier;
+controlled trust roots are confined to the external test adapter.
+
 | Category | Observes | Examples and limits |
 |---|---|---|
 | Workflow / view model | The real shared `IApplicationWorkflow` and observable `WorkspaceViewModel`, primarily in memory | Identity, every textual field, import omission/null/false, whole graphs, inheritance, frozen context, dates, query permutations, favorite state and safe-close errors. In-memory success is not durability or WPF evidence. |
@@ -233,7 +405,7 @@ unchanged, including diagnostic overhead. This is not a repair or native proof.
 | High-resolution smoke | Normal WPF executable on a separate disposable hosted 1920 x 1080 desktop | Required responsive geometry/type/width/divider/overlay/search/rejection and Team/history matrices; ordinary fixtures, not the 10,000-Person UI-scale suite. |
 | Non-UI performance | Complete real-file 10,000-Person operations | Load/reopen, search, durable mutations, reviewed imports, refresh and full rich semantic assertions. Targeted large-graph correctness remains in ordinary workflow coverage. |
 | UI scale | Real WPF at the full rich population | Tree realization/scrolling, large-population search/navigation, actual photo/Markdown rendering and responsive Settings while real load/mutation is pending. Neither smaller fixtures nor view-model substitutes prove these risks. |
-| Runner / CI contract | Observable execution and saved result contracts | Named results, sequential isolation, failure diagnostics, required selection, deadlines, required-lane failure matrix and product-output isolation. |
+| Runner / CI contract | Observable execution and saved result contracts | Named results, process isolation and bounded core overlap, failure diagnostics, required selection, deadlines, required-lane failure matrix and product-output isolation. |
 
 `OrgExplorer.Core.Tests` is **not synonymous with isolated unit tests**. Its two
 file-backed `WorkspaceCompatibilityTests` carry `Category=Filesystem` and still
@@ -428,7 +600,7 @@ assertions stay intact. Production clocks and separate exact three-second
 queue/stall/unknown-outcome regressions remain unchanged.
 The inherited-secondary-Team-note navigation contract uses the same test-only
 request-clock control while a real in-memory workflow's Person-note writer is
-held. Its delayed-continuation case crosses three wall-clock seconds without
+held. Its delayed-continuation cases cross three wall-clock seconds without
 advancing that request clock, retaining the exact captured base, writing, owners,
 secondary-note destination and Team-note nonmutation assertions. The held save
 remains Pending with an unknown outcome until released and actually completed;
@@ -437,6 +609,31 @@ Without this fixture control, the delayed case reproduces the genuine
 three-second stall at the flush while the backend is still Ready. This identifies
 the fixture interaction, not the historical hosted scheduler delay or feature
 causality. Production deadlines and separate stall/recovery cases are unchanged.
+The integration also observes the original save's public completion notification
+after releasing its deliberately held writer before asserting close/flush
+readiness, including its four-second continuation case. No save is retried or
+pending outcome called successful.
+Its unchanged five-second admission refusal also reuses the bounded
+`NOTE-SAVE-CORE-ENTRY-REFUSAL` reporter and public-proxy observations, recording
+signal state, pending save status and non-atomic worker-pool counts before release.
+This capture does not diagnose or extend admission, and preserves the original
+timeout rather than retrying the writer.
+The small-fixture continuous-typing test keeps its one-second first-commit
+assertion, all 25 edits/60-ms waits, repeated durable progress and exact final
+reopen. A refusal emits `NOTE-FIRST-COMMIT-REFUSAL` with the existing edit/read
+request and return clocks for those 25 samples, without note bodies or paths.
+Its boundary is a completed independent Open/BeginNoteDraft read, not an
+instrumented physical Commit. No observer/proxy, added delay, retry, status query
+or I/O probe enters the measured path. Serialization runs only after the original
+assertion fails; reporting faults remain secondary to that failure. This is
+bounded capture for the unresolved hosted refusal, not a latency fix or waiver.
+The admitted-work Preferred-name retention case emits
+`PREFERRED-DRAFT-RETIREMENT-REFUSAL` only if its original retained-draft assertion
+fails. It records existing admission/retention/completion clocks, the held basis
+and value, and the later saved name/status from the fictitious fixture. Additional
+state reads and serialization occur only after refusal, with diagnostic faults
+secondary to the original assertion. This is capture for an unresolved hosted
+failure, not a fix, retry or amendment of draft-retirement semantics.
 Preferred-name Save/Enter submits the displayed field's immutable Person base
 through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
@@ -527,6 +724,13 @@ missing or blank metadata still fails, without an unguarded second lookup, actio
 changed completion assertions or increased CI/Save observation deadlines.
 Responsive editor checks acquire the displayed identity inside the existing
 readiness poll, so a transient post-resize absence cannot bypass that wait.
+Historical Capture evidence likewise requests each disclosure expansion once,
+then discovers its exact child/provider inside the existing 20-second readiness
+wait. A delayed child cannot trigger an unguarded immediate lookup; permanently
+missing evidence and expansion failures remain failures. The full read-only
+capture/batch/version assertions and actual clipboard checks are unchanged.
+Controlled non-UI cases cover delayed discovery, permanent absence and provider
+refusal; they are not substitutes for the hosted native journey.
 File-backed profile-session cases cover complete publication and reopening,
 Cancel nonmutation, real locks and missing photos, Manager/history consistency,
 independent quick changes, same-record/different-field stale saves and retries,
@@ -2287,6 +2491,18 @@ matrix belongs to its separate required smoke suite, not a substitute for comple
 
 ## Required PR/main execution
 
+The explicit default-off `core_capacity_diagnostic` dispatch observes the full
+unfiltered core selection and all 21 companions in three fresh, sequential
+hosted observations, with a
+bounded 900-second observation window and 16-minute upload watchdog. Normal
+lanes and aggregate acceptance are skipped only for this diagnostic dispatch.
+Its separate `core-capacity` artifacts always declare `complete=false`,
+`diagnosticOnly=true` and a diagnostic policy/outcome, even if all observed
+checks pass. The 300-second goal remains; 900 seconds is only a capture bound.
+Normal source-bound core acceptance uses the separately approved policy below. No production
+latency, coverage or baseline authority is amended. The focused non-UI
+`CoreCapacity.Tests.ps1` checks exhausted-window refusal and dispatch isolation.
+
 Every PR and `main` commit, including docs/test-only changes, retains four
 required logical lanes: workflow/view-model, filesystem, ordinary desktop,
 and high-resolution desktop. Ordinary desktop uses two parallel, isolated
@@ -2298,19 +2514,31 @@ Each native worker has its own disposable desktop; UI automation never runs
 concurrently on one desktop.
 The stable aggregate `CI` requires all four lanes, including both ordinary
 and both high-resolution desktop workers. Failure, required skip,
-cancellation, missing result and timeout cannot pass. Preserve the 5-minute
-workflow/view-model, 11-minute filesystem, 15-minute limit for each ordinary
+cancellation, missing result and timeout cannot pass. Preserve the 8-minute
+workflow/view-model watchdog, 11-minute filesystem, 15-minute limit for each ordinary
 desktop worker, 15-minute limit for each high-resolution worker and 2-minute aggregate
-deadlines: 78 minutes
+deadlines: 81 minutes
 summed, at most 17 minutes on the parallel critical path, excluding queues and
 later CD. All four native desktop workers enforce matching 900-second whole-execution
 budgets, including setup, temporarily raised with owner approval on 2026-11-15.
 Both full scenario/size/assertion matrices, including profile-copy and SQLite
-save coverage, remain required. Core/filesystem deadlines, separate scale-suite
+save coverage, remain required. Filesystem deadlines, separate scale-suite
 budgets and save-latency targets are unchanged. If fifteen minutes is insufficient,
 investigate rather than automatically extending it again.
-The five-minute target includes setup, restore, build, fixtures, tests and cleanup;
-passing a hard deadline does not claim that target or a new latency SLA.
+The five-minute core goal includes setup, restore, build, fixtures, tests and
+cleanup. Approved `core-goal-safety-v2` enforces a separate 420-second execution
+safety cutoff and an eight-minute watchdog for upload/teardown. A complete
+execution above 300s but at or below 420s is yellow and nonblocking for duration
+alone; failures and unfinished checks still block. The independent source
+manifest keeps original `core-original-v1` results at their original 300s limit.
+Terminal configuration, log collection and reporting remain charged: completion
+cannot pass after safety expires merely because every earlier receipt passed.
+The controlled terminal-overrun case retains those successful receipts while
+requiring a timed-out record and failing exit.
+The blocked-report contract creates its real refusal after the actual native
+launch and identifies the child by that launch PID/creation time, not a readiness
+file the child may never write. Its delayed-child case still requires termination;
+separate exhausted-budget cases remain unchanged.
 
 `DesktopPartitions.json` assigns every existing ordinary scenario exactly once.
 The `people` worker runs profile, draft, Person-note, Team/history and search
@@ -2351,6 +2579,33 @@ scoped idle discard preserving independent unsubmitted input. Filesystem cases
 remain responsible for SQLite durability and actual effect barriers.
 
 Each runner isolates build artifacts. They may run in independent processes.
+After the complete unfiltered compiled core selection passes, the core worker
+runs all 21 existing mandatory companions exactly once through the shared
+`eng\CoreContracts.ps1` manifest. The queue owns at most four companion processes,
+capped by the resolved processor count, on the same worker. Separate no-profile
+PowerShell processes isolate environment, fake external bindings and current
+directories. Draft-discard receives its existing named `-Assembly` parameter
+with the already-built core DLL; the default icon contract remains invisible
+and read-only. Optional executable icon verification still belongs to desktop.
+
+Each companion is admitted to its own Windows job before its script can execute.
+Closing the owned job terminates descendants even if their original parent has
+exited; unrelated processes are not selected by name or terminated. Output drains
+remain deadline-bound. Receipts retain manifest order, including native-cleanup
+conformance, while actual start/finish clocks may overlap or finish out of order.
+Stdout/stderr logs, exit codes, failed assertions and unfinished/not-started
+receipts remain visible. GitHub summary, output and environment file channels
+are separately allocated per companion and retained as logs. Companion reporting
+cannot overflow or mutate the outer workflow's shared files; the reporting
+configuration participates in timing compatibility. A failed companion does
+not discard other completed
+receipts or turn the original execution into success.
+Scheduling, resolved parallelism and ownership configuration join the existing
+source-bound fixture identity in timing-series compatibility. The original
+setup-inclusive 300-second goal and six-worker/four-lane topology are unchanged;
+source-bound `core-goal-safety-v2` has the separately approved 420s safety limit.
+This capacity repair does not establish hosted speed or relabel prior results.
+
 The filesystem runner excludes only `Category=Performance`; ordinary persistence,
 delivery, recovery and watcher coverage remains required. The core runner also
 checks the CI gate, separate-suite selection/results and named desktop-result
@@ -2358,6 +2613,8 @@ contracts without launching WPF.
 It also runs `DocumentationHandoff.Tests.ps1` against isolated local Git
 repositories and a bare remote, including a source branch that advances beyond
 the approved documentation commit. Local path/file fixtures explicitly opt in.
+CI companion callbacks retain their caller-owned published-component folder
+while successful and failed timing receipts use a separate collection.
 Credential-route cases disable all transports and check rejection of SSH,
 plain HTTP, embedded credentials and applicable Authorization headers, while
 allowing harmless/unrelated headers without disclosing credential values.
@@ -2370,6 +2627,10 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 ```powershell
 .\tests\CiGate.Tests.ps1
 .\tests\CiRunner.Tests.ps1
+.\tests\CoreContracts.Tests.ps1
+.\tests\FilesystemHealth.Tests.ps1
+.\tests\LaneHealth.Tests.ps1
+.\tests\MixedHealth.Tests.ps1
 .\tests\ImplementationBaseline.Tests.ps1
 .\tests\DraftDiscard.Tests.ps1
 .\tests\Performance.Tests.ps1
@@ -2382,6 +2643,38 @@ dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- `
   src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --verify-xaml
 ```
 
+`CoreContracts.Tests.ps1`, also called by the existing CiRunner companion,
+uses real controlled process workloads, actual compiled test/TRX output and
+the public local result projection. It checks bounded overlap, ordered complete
+receipts, caller paths with spaces, named assembly arguments, environment/
+function/directory isolation, compiled and companion failure, mandatory cleanup
+selection, and deadline termination of an exited parent's descendant while an
+unrelated holder survives. Owned descendant identity comes from the actual
+parent `Process.Start` receipt (PID and native creation time), not a readiness
+file that may never be written before expiry. The default controlled holder
+delays its own readiness beyond the remaining fixture deadline; the parent must
+have launched and exited, and that exact descendant must be gone. Missing launch
+receipts still fail explicitly; no startup or execution budget is extended.
+The controlled ownership-deadline case completes real restore/build/test setup
+before allocating its synthetic eight-second queue remainder. Its original
+300s synthetic ceiling and 20s watchdog remain; other controls still reject
+expired whole-execution setup. Normal core setup remains charged to the actual
+source-bound safety deadline. No missing launch receipt is synthesized.
+Creation-time matching prevents cleanup of an unrelated process reusing a PID.
+The overlap child explicitly resolves four CPUs;
+a separate one-CPU child must complete all 21 companions serially, without
+overlapping receipts. Both cases run even when the caller resolves only one CPU;
+inherited `DOTNET_PROCESSOR_COUNT` cannot make the mandatory fixture demand
+impossible overlap. Production scheduling remains capped by its actual resolved
+processor count. Its small compiled workload is an isolated contract
+fixture, not a replacement for the full core selection or hosted acceptance.
+The publication contract also checks complete literal Unicode mainline subjects
+under a Windows-1252 console. Git history is decoded as UTF-8 independently of
+the caller's console encoding, with real Git and only GitHub effects replaced.
+Lane-health contracts retain immutable history and distinguish serial versus
+different resolved parallelism series. No desktop automation or hosted dispatch
+is part of these focused commands.
+
 `ImplementationBaseline.Tests.ps1` runs in the core lane and invokes the real
 preflight in child PowerShell processes against isolated local Git repositories
 and bare remotes. It checks fetched versus stale local refs, divergence, failed
@@ -2390,6 +2683,167 @@ Local remotes require the harness's explicit fixture opt-in. Credential-route
 cases reject matching configured Authorization headers without contacting GitHub
 or printing header values.
 It needs no GitHub credentials, network or desktop.
+
+### Filesystem timing observation tracer
+
+`Run-CiLane.ps1 filesystem` also emits versioned `execution.json`: exact Git
+candidate and run/attempt, original `Category!=Performance` selection and
+`filesystem-original-v1` policy, terminal outcome, command phases, whole-execution
+seconds and resolved test-tree/SDK/runtime/runner configuration. The original
+660-second execution budget, 300-second target, assertions and exit behavior
+remain unchanged. Configuration capture is counted in elapsed time; setup and
+cleanup are not subtracted. Missing configuration prevents comparison, not
+execution of the existing checks.
+
+CI retains filesystem JSON/log/TRX evidence for 30 days in
+`filesystem-attempt-<runAttempt>`. The separate `lane-health.yml` observer
+runs after CI completes; it is not a dependency of `CI`, scale or release.
+Its code comes from the trusted controller's `github.workflow_sha`, never the
+observed candidate or its artifact. It reads only data from the source attempt.
+Candidate PR/manual/fork code remains read-only. Under the
+[maintainer's observation-history checkpoint](https://github.com/geevensingh/org-explorer/issues/127#issuecomment-7173207158),
+the authenticated trusted controller also retains these attempts in a separate
+baseline-ineligible namespace on `ci-health-data`. Qualified main observations
+include authenticated repository main pushes, scheduled scale and release
+controllers; canonical baseline qualification remains main-only and separately
+calibrated.
+Failed, cancelled, skipped
+and interrupted main attempts remain beside successes. Source run/attempt and
+artifact bindings are verified again by the public collector.
+
+`Invoke-FilesystemHealth.ps1` saves `record.json` and `summary.md` in its explicit
+working directory and appends the summary to the observer's GitHub step summary.
+The dedicated data branch retains the legacy `filesystem/<runId>/<attempt>.json`
+records, qualified `lanes/<runId>/<attempt>/<lane>.json` records and ineligible
+`observations/<runId>/<attempt>/<lane>.json` records, not executable
+files, release metadata or product commits. A non-force Git
+append preserves the pinned history snapshot and comparison across up to three
+concurrent-update reconciliation attempts. Duplicate attempts are immutable;
+different data cannot overwrite them. Read/write failures fail the observer
+explicitly and appear in its summary without changing the original CI verdict.
+
+Comparisons use a prior compatible **observation**, not an approved healthy
+baseline. The key includes workload/test-tree and linked-fixture identity,
+selector, metric/policy definition, resolved SDK/runtime, OS/architecture/processors, runner image/version,
+PowerShell and setup scope; application revision is provenance, not an equality
+key. A candidate's own observations are excluded, resolving an available older
+compatible predecessor instead. The summary separates validation and
+`observation`/`unbaselined`/`inconclusive` timing, whole/command seconds, original
+budget headroom, reference revision/age, difference and an explicitly descriptive
+cross-revision range where supported. No warning bands, cohort eligibility,
+canonical reference promotion or new blocking policy is active.
+
+Compact numeric inputs, original test/outcome counts, comparison and evidence
+expiry survive raw artifact deletion. Expired links are labeled; no old metric
+record can replace fresh exact-candidate release acceptance. Missing/malformed
+TRX, nonnumeric durations, incomplete commands or unavailable evidence stay
+explicit, never zero or green.
+
+`FilesystemHealth.Tests.ps1`, also run by core CI, drives this public collector
+with representative artifacts, real TRX validation and isolated Git repositories.
+It checks independent saved values, failed/cancelled/interrupted history,
+non-self/configuration comparisons, expired raw evidence, publication refusal,
+candidate-data nonexecution and a genuine competing data-branch append. It also
+invokes the real public filesystem runner with an already exhausted budget and
+feeds that terminal result through history/summary, preserving the failing gate.
+Only GitHub transport is faked; no internal classifier or validator is replaced.
+These non-UI contracts are not hosted timing or release acceptance evidence.
+
+### All-lane observation and evidence boundaries
+
+`Invoke-LaneHealth.ps1` extends that same public result/history flow to core,
+filesystem, both ordinary and both high-resolution partitions, explicit non-UI
+performance, rich prefix/tail/union, installer and release/renewal/rehearsal
+jobs. Reusable scale jobs keep their calling scope and exact tested candidate
+separate from the workflow controller revision. Unknown jobs are explicitly
+job-only observations, not guessed product acceptance. Optional skips and
+release-planning no-ops do not certify executed scale or publication.
+
+Core preserves its unfiltered selection and emits the original terminal outcome
+plus timings for every existing mandatory companion and the health contracts.
+Raw local runner success/completed correctness checks are separate from
+original-policy acceptance: on `core-original-v1`, execution beyond 300 seconds
+is a reported budget failure, not a within-budget/healthy sample, even where the
+preexisting local companion execution returns success. Reporting does not
+change that raw exit. New core source policies are validated independently,
+never substituted into these historical outcomes.
+Partitions retain their original required command/scenario matrices; named
+compiled trust/icon/output checks are additional observations, not substituted
+native proof. Core/filesystem TRX retains workload-family outcome counts,
+including concurrent-reader, repeated-write, recovery and producer families.
+Case-duration sums may overlap and are never lane wall time or inner-operation
+latency. Missing duration fields remain unavailable.
+
+The adapters use the real desktop, performance and rich-union validators.
+The accepting union still requires both actual workers, original ordered phases,
+20/42/21 note samples, both 21-sample profile phases and exact logical/native/
+product handoff. A worker alone is not a complete accepting union.
+Interrupted prefixes retain safe candidate/run/attempt-bound numeric samples
+even before final handoff capture, explicitly labeling reported product hashes
+as unverified against that missing handoff. Stale metric identities are rejected.
+No process is restarted or repaired to collect a measurement.
+
+Resolved workload/linked-fixture identity, SDK/runtimes, runner image/version,
+OS/architecture/processors, actual display and available rich loaded-native
+identity determine comparison availability. Application revision remains
+provenance, not a cross-revision equality key. Nested configuration is hashed
+canonically. Missing relevant configuration, clocks or raw evidence stays
+inconclusive; advertised metadata does not prove identical physical host load.
+Setup/configuration/cleanup costs are not subtracted. Terminal serialization
+follows the runner's existing elapsed measurement; API job/step wall durations
+include outer setup/post/upload and are labeled separately. Invalid or skipped
+API clocks never become zero-duration passing work.
+
+The observer saves `records.json` and `summary.md`, appends the GitHub summary,
+and publishes a complete observed attempt in one immutable data-branch append.
+Its existing bounded reconciliation preserves simultaneous attempts and pinned
+comparisons. Both public CLIs validate mixed legacy/lane history.
+`Open-HealthHistory -RecordTypes` accepts namespace/path/validator descriptors
+only from trusted controller code; retrieved data cannot register or execute
+validators. Failed schema/provenance/history reads and publications remain
+explicit observer failures without changing original CI/release verdicts.
+
+CI and scale JSON/log/TRX/native evidence and secret-free rehearsal artifacts
+have explicit 30-day retention; installer evidence keeps seven days.
+The controller retains PR/manual/fork attempts, including the installer's
+path-filtered/manual runs, in `observations/`, with `baselineEligible=false` and
+`comparisonInputEligible=false`. It derives source eligibility from authenticated
+run provenance, never an artifact claim. Only the trusted controller receives
+write credentials; `-PublishObservations` verifies its repository-main
+`workflow_run`, committed clean code and pinned workflow SHA before writing.
+The normal public CLI remains read-only unless the appropriate publication mode
+is explicitly selected. The legacy filesystem CLI cannot grant PR/fork authority.
+Qualified main observations alone can provide prior comparison inputs; no
+single lane record becomes a canonical baseline before calibration/cohort
+qualification. Both namespaces retain compact numeric/provenance records after
+raw expiry. Reference availability is retained
+metadata plus expiry, not a new download or fresh release acceptance.
+
+Summaries separate validation, timing observation, original policy/metric
+ceilings, reference age/revision, differences, descriptive variability/headroom,
+all-attempt reliability and recent individual outcomes. They activate no
+numerical bands, cohort eligibility, promotion or comparative blockers.
+The observer is not a CI, cohort or release dependency. Ordinary PR selection,
+current budgets, actual product assertions and fresh release gates are unchanged.
+
+`LaneHealth.Tests.ps1` and `MixedHealth.Tests.ps1` run in core without native UI.
+They drive representative complete/broken artifacts through the public CLI,
+real validators and isolated Git: missing compiled companions, stale metrics,
+interrupted prefix measurements, absent actual handoff, installer trust/platform
+limits, skipped release clocks, failed/cancelled/rerun history, non-self
+comparison, atomic publication, malformed series and immutable mixed history,
+source-derived ineligible publication, forged artifact eligibility, nonexecution
+and exclusion of PR/manual observations from comparison/baseline inputs.
+These fixtures establish result contracts, not hosted speed, Windows 11 client
+coverage, real desktop acceptance or production publication.
+
+`Export-LocalCoreHealth -Directory .ci-results\core -WorkingDirectory <folder>
+-ObservedExitCode <observed-code>` projects an actual local result through that
+same public validation/summary flow. It saves `record.json` and `summary.md`,
+retaining raw runner outcome, completed checks, original-policy acceptance and
+negative headroom without inventing a GitHub run. Local projections are never
+published or baseline/comparison inputs. This can explain a shared-local
+overrun; it cannot establish hosted CI capacity.
 
 `--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.
 It constructs the actual compiled MainWindow BAML and event connectors on STA
@@ -3186,6 +3640,179 @@ hosted WPF supplies the real selection/visibility evidence.
 
 ## Separate scale commands and results
 
+### Automatic complete performance/scale cohorts
+
+The existing collector now selects complete cohorts (`rich_scale=true`) after
+successful authenticated main-push required CI. Its first three independent
+samples each own four fresh hosted jobs: the complete named non-UI workload,
+original rich prefix, its actual-snapshot public Join/tail, and strict union.
+Samples execute sequentially, including after a previous sample fails; at most
+the non-UI and prefix measurement workers overlap within one sample. Each
+native job has its own disposable hosted Windows desktop. No repeated native
+work runs on a shared local desktop.
+
+`rich-cohort-sample.yml` preserves all original selectors, fixture/size matrices,
+both 20/42/21 rich phases, all raw note/profile samples and nearest-rank p95,
+continued-typing durability, rendering/navigation and publication/reopen proof.
+Optional cohort/sample runner bindings supplement, never replace, the existing
+same-candidate source/product/native and run/attempt identities. A tail cannot
+consume another sample's prefix, and the collector revalidates both original
+artifacts and the union's owned copies. Each measurement worker retains its own
+source-bound setup-through-cleanup safety limit: prefix900 seconds/30-minute
+watchdog; tail and non-UI660 seconds/thirteen-minute watchdog.
+Worker durations are separate; their sum is not one 660-second execution.
+Rich note durability uses the approved enforced1,500-ms ceiling and1,000-ms
+goal under `ci-timing-v2` and `ci-timing-v3`; original sources retain1,050ms.
+Native rich-profile p95 uses a1,000-ms goal and1,500-ms inclusive ceiling only
+under v3, in both phases. V2 native profiles and all ordinary/non-UI profiles
+keep their1,000-ms hard limit.
+
+Raw evidence has exact candidate/cohort/run/attempt/sample/worker names and
+30-day retention. Repeated collector downloads use fresh physical directories.
+The shared immutable trusted history descriptor stores schema-2 complete-cohort
+records under `rich-scale-cohorts/<revision>/<run>/<attempt>.json`; legacy schema-1
+`performance-cohorts` remains non-UI-only and cannot qualify as complete rich
+acceptance or its comparison reference. PR/manual lane observations remain
+baseline-ineligible and are not cohort comparison inputs. Every original worker name/outcome,
+unavailable/expired/rejected artifact, raw latency series, handoff/receipt,
+individual measurement and descriptive median/range survives in compact history.
+Missing/failed/skipped/cancelled/diagnostic evidence rejects complete acceptance;
+no failure is voted away or replaced by a green retry.
+
+Trusted automatic collection explicitly selects approved `ci-timing-v3`.
+`PublishPlan` pins the initial verified main bootstrap once, before measurement;
+The bootstrap is pinned separately per approved policy, retaining v2 history.
+`InitializeBootstrap` is an explicit trusted-controller operation, not a fallback
+for a failed fetch. Advancing main does not move that durable source. Every
+queued candidate must remain in freshly fetched complete main ancestry.
+Observation/pilot collection retains `rich-cohort-observation-v2`, with
+source-bound `effectivePolicyVersion`; old sources/verdicts remain unchanged.
+
+The first three complete samples produce an immutable comparison decision.
+Approved otherwise-eligible warnings can request exactly samples4 and5;
+continued variance/headroom uncertainty stops at five. Failures, missing,
+cancelled, skipped, diagnostic or substituted evidence never request replacement
+greens. The extension retains the original pinned reference/history snapshot.
+Complete eligible comparisons publish before an immutable reference event;
+the effective per-series pointer follows actual main order, never completion
+time. Older completion cannot overwrite newer eligibility. Candidate self-reference
+uses its recorded eligible predecessor. New compatible workload/environment
+series bootstrap unbaselined without routine approval; application SHA is
+provenance, not a cross-revision equality key.
+
+`timing-bootstrap`, `timing-plans`, `timing-decisions` and `timing-references`
+share the existing validated data branch with all original namespaces. Control/
+reference events are not attempts or ordinary metric samples. The existing
+bounded nonforce publisher preserves concurrent attempts and frozen comparison
+inputs; malformed history and publication failures are explicit.
+Event protocol versions are strict JSON integers: bootstrap1, plan2, decision1
+and reference1 (unavailable cohort observations also use1). Missing, unsupported,
+string, boolean, null or floating versions are refused before replay/publication/
+consumer selection; they never imply current protocol or empty history.
+`AutomaticBaselines.Tests.ps1 -EventVersionMetadata <exported metadata.json>`
+mutates only those real producer event versions in isolated Git and checks
+public replay, publication and consumer refusal.
+Collection keeps one noncancelling queued cohort, sequential samples and at most
+two measurement workers per sample, separate from production release concurrency.
+Neither release nor ordinary PR selection waits for this battery.
+Only main-qualified planning/decision jobs in `non-ui-cohorts.yml` receive
+write permissions; the reused measurement workers and manual/pilot execution
+remain read-only. Automatic and pilot collection share the noncancelling
+execution group, without recursively acquiring it through a reusable workflow.
+Unavailable plans remain compact, baseline-ineligible cohort observations;
+they do not invent a candidate or authorize a retry-to-green.
+
+The registered scale workflow's default-off `rich_cohort_pilot=true` bridge
+executes the selected pushed workflow SHA without history/publication authority:
+
+```powershell
+gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f rich_cohort_pilot=true -f cohort_ci_run_id=MAIN_CI_RUN_ID -f cohort_ci_run_attempt=1
+```
+
+The prior non-UI-only pilot option and normal reusable/nightly/release defaults
+remain unchanged. `NonUiCohort.Tests.ps1` crosses the same public collector,
+real strict validators and isolated Git publisher; only GitHub/hosted effects
+are synthetic. Fixture contracts are not actual hosted scale acceptance.
+Its default core companion includes `AutomaticBaselines.Tests.ps1 -SmokeOnly`,
+without adding a new historical companion matrix. The complete non-UI contract
+exercise is `.\tests\AutomaticBaselines.Tests.ps1`; its optional
+`-GateSnapshotDirectory <new isolated directory> -GatePolicyVersion ci-timing-v3` exports real publisher-produced
+prior-three/running-extension/serious-five fixtures for release-adapter tests.
+These local fixtures never write a production reference or certify hosted speed;
+#133 still owns complete hosted verification after activation.
+The audit estimates three full samples at 53.2 consumed worker-minutes (60 with
+per-job rounding), five at 88.67 (100 rounded), plus controller/reporting;
+The approved prefix watchdog makes the four-job envelopes207/345 minutes for
+three/five samples; these are not extra passing allowance or measured billing.
+The historical native-DLL cleanup refusal is retained, not repaired or retried
+here, and still does not establish a healthy calibration population.
+
+### Legacy observation-only independent non-UI cohorts
+
+Before the complete-cohort extension, `non-ui-cohorts.yml` started only after successful authenticated main-push
+required CI. Its trusted controller plans three separate hosted Windows jobs,
+with one sample worker active at a time, fresh checkouts/builds/fixtures and
+unique cohort/sample/job/runner/invocation identities. Every job runs the
+complete existing `Run-Performance.ps1` workload with the original 660-second
+setup-through-cleanup budget. The 21 profile samples and original 1,000-ms p95
+limit remain acceptance checks, not cohort-median substitutes.
+
+The separate collection concurrency group uses `queue: max` (up to 100 pending
+Actions runs) and never cancels a running collection or shares release
+concurrency. Queue overflow/cancellation is not successful execution. Initial
+collection uses latest main; later queued candidates must retain trusted main
+ancestry. Already durably observed revisions do not retry to manufacture greens.
+Neither ordinary PR selection nor release depends on these workflows.
+
+Each sample uploads exact-candidate/cohort/run/attempt results, complete named
+TRX and original phase/profile logs for 30 days, including failures. The public
+collector validates the original result contracts and recomputes profile p95
+from all 21 raw values. Failed, skipped, cancelled and incomplete jobs retain
+their original outcomes and any valid measurements. Missing or substituted
+evidence is unavailable/rejected, not zero or a replacement successful sample.
+Unexpected matching extra attempts are retained as rejected observations,
+not ignored to select three greens.
+Summaries show individual attempts, medians and descriptive ranges including
+all available failed-attempt measurements; no hard limit is averaged away.
+
+`non-ui-cohort-history.yml` observes completion independently, including
+cancellation that prevented the normal summary. It authenticates the saved
+plan and original exact required-CI attempt again, then uses the shared
+versioned, immutable `ci-health-data` publisher and trusted cohort validator.
+An unavailable plan prevents inferred candidate authority and emits an explicit
+history failure. Compact records live at
+`performance-cohorts/<revision>/<cohortRunId>/<attempt>.json`; raw artifact
+expiry is explicit. Prior complete compatible non-self cohorts can provide
+observation comparisons, never fresh release proof or active canonical references.
+
+Approved timing preview `ci-timing-preview-v2` remains observation-only until
+#131/#132 activation. The public collector's
+isolated `TEST-non-ui-range-v1` policy exercises otherwise eligible inconsistency
+extending from three to at most five executions. Failure never requests another
+execution; continued inconsistency stops at five. TEST policy cannot publish
+live history. Active-reference promotion is disabled, and this NON-UI slice
+does not claim rich UI prefix/tail/union or full performance/scale acceptance.
+
+Before default-branch registration, the existing scale workflow has a
+default-off `non_ui_cohort_pilot=true` manual bridge. It executes only the three
+non-UI workers at the explicitly selected trusted branch SHA, anchors its plan
+to supplied successful main CI ID/attempt, and grants no publication authority.
+Normal reusable/nightly/release scale execution remains unchanged. Example:
+
+```powershell
+gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f non_ui_cohort_pilot=true -f cohort_ci_run_id=MAIN_CI_RUN_ID -f cohort_ci_run_attempt=1
+```
+
+`NonUiCohort.Tests.ps1` exercises the public plan/runner/result/history seam
+with real validators and isolated Git fixtures, faking only GitHub/hosted effects.
+Its fixture timings are not hosted performance evidence. Based on the audit's
+199-second non-UI job, three executions cost about 9.95 worker-minutes (12 with
+per-job rounding), five about 16.58 (20 rounded), plus controller/reporting jobs.
+Their watchdog envelopes are 39/65 measurement-worker minutes, not passing
+allowance; failures consume resources too.
+
+### Existing complete scale execution
+
 The complete workloads are outside required PR smoke, not removed:
 
 | Command | Required selection | Evidence |
@@ -3315,20 +3942,23 @@ informational editor/navigation timings so functional validation can finish
 without further performance work. Their historical 100-ms `budgetMs` references
 remain, with `budgetEnforced: false` and `timingUse: informational`; every sample,
 percentile and functional usable-state assertion is retained. Ordinary
-durable-save p95 retains its 1,000-ms goal. On 2026-11-24 the owner approved a
-temporary 1,050-ms **enforced** ceiling only for these rich ordinary note saves
-in both `normal-executable` and `background-export`. The note result contract
-records `localDurability.goalMs: 1000`, `budgetMs: 1050`,
-`budgetEnforced: true`, `temporaryCeiling: true` and `timingUse: acceptance`.
+durable-save p95 retains its1,000-ms goal. #130's approved v2 policy, activated
+by #131, enforces1,500ms only for these rich ordinary note saves in both
+`normal-executable` and `background-export`. The current note result contract
+records `localDurability.policyVersion: ci-timing-v3`, `goalMs: 1000`,
+`budgetMs: 1500`, `budgetEnforced: true`, `temporaryCeiling: false`
+and `timingUse: acceptance`.
 `goalMet` is computed from the original nearest-rank p95 against 1,000 ms; an
 accepted p95 above the goal must report `goalMet: false`, not claim one-second
 success. The union recomputes p95 from all 21 raw samples and requires this exact
-policy metadata in both phases. At 1,050 ms it accepts; above it, it rejects.
-All commits must still be observed during continued typing. Profile saves,
+source-bound policy metadata in both phases. At1,500ms it accepts; above it, it rejects.
+V2 sources retain their original note policy identifier and limits.
+All commits must still be observed during continued typing. Ordinary profile saves,
 small-fixture note/first-commit one-second checks, queue-inclusive three-second
-stall, held-adoption capture proof and both 660-second worker budgets are
-unchanged. This is temporary acceptance pending later optimization/review, not
-informational-only durability or authority to increase another limit. Historical
+stall and held-adoption capture proof are unchanged. Prefix execution safety
+alone changes to900s; tail safety remains660s. This is not informational-only
+durability or authority to increase another limit. Legacy1050ms/660s sources
+still use their original effective policy. Historical
 failed runs retain their original measurements and verdicts.
 Missing/incorrect UI, owner, writing or durability remains a failure within the
 original observations.
@@ -3424,10 +4054,11 @@ Missing/locked interactive desktops and unavailable pixels are visible failures;
 never skip rendering, change shared-machine settings or launch local automation
 without separate permission.
 
-Non-UI performance and **each isolated rich UI worker** have their own
-**660-second whole-execution pass/fail budget**. The hosted
-watchdog allows thirteen minutes so termination, failure reporting and artifact
-upload can finish after a failed budget; the extra time cannot make the run pass.
+Under source-bound `ci-timing-v2` or `ci-timing-v3`, the isolated rich prefix has **900-second
+whole-execution safety** and a **30-minute watchdog**. Non-UI performance and
+the rich tail keep **660-second safety** and thirteen-minute watchdogs.
+Legacy sources retain660s/1050ms acceptance. Termination, failure reporting and
+artifact upload may use watchdog allowance, never extra accepting execution.
 `SCALE_STARTED_AT` begins before checkout/SDK setup;
 restore, builds, fixture generation, assertions and cleanup all count. These
 are execution bounds, not new latency thresholds or a baseline collection scheme.
@@ -3447,6 +4078,13 @@ Native rich profile samples repeat that explicit Save path in both normal-EXE
 and actual held-export WPF phases, with exact whole-Person and decoded-photo/hash
 reopen checks. `*-sqlite-rich-profile-latency-*.json` separates native
 request-to-postcommit-acknowledgment from full-reopen verification.
+Only those native rich samples use v3's1,000-ms goal/1,500-ms inclusive enforced
+p95 ceiling, with `policyVersion`, `goalMs`, truthful `goalMet`, `budgetMs`,
+`budgetEnforced: true` and `timingUse: acceptance`. Both21-sample vectors and
+every independent reopen/causal observation remain. A goal miss within the
+ceiling warns; above it rejects. V2 native samples retain their original1,000-ms
+ceiling and verdicts, including failed cohort45775685351. This buffer adjustment
+does not establish a performance repair or extend any busy/stall/admission clock.
 These observations use the real Directory-name editor's automation provider:
 visible in Edit and offscreen after Save, alongside the exact owner/value,
 enabled Edit action and Ready state. The layout-only `ProfileForm` StackPanel
@@ -3495,12 +4133,13 @@ through storage callbacks. Fixture disposal reports them as verification failure
 after closing clients and cleaning owned fixtures, preserving real save outcomes
 and original storage errors rather than silently accepting missing diagnostics.
 
-The direct scale workflow's `extended_observation` input is explicitly diagnostic.
-It requests observation for up to 900 seconds while retaining the original
-660-second per-worker verdict and thirteen-minute worker watchdog.
+The direct scale workflow's `extended_observation` input remains explicitly
+diagnostic and nonaccepting even when its900s observation equals current
+prefix safety. Current prefix watchdog is30m; tail safety/watchdog remain660s/13m.
+Historical diagnostic source retains its original660s verdict and17m watchdog.
 Reports set `diagnosticOnly`, distinguish observed completion from the verdict,
 and never report candidate-verification success in this mode, even if observed
-completion is under 660 seconds. Its artifact name starts with
+completion is within the effective safety limit. Its artifact name starts with
 `diagnostic-ui-scale-`, not the normal verification prefix. A diagnostic prefix
 is never an accepting handoff; diagnostic reports cannot pass the union. Normal release
 verification and non-UI execution do not opt into it.

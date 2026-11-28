@@ -60,6 +60,10 @@ public sealed class TeamNoteTests
     public Task Inherited_secondary_navigation_is_independent_of_delayed_test_continuations() =>
         VerifyInheritedSecondaryNavigation(TimeSpan.FromMilliseconds(3200));
 
+    [Fact]
+    public Task Inherited_secondary_navigation_waits_for_the_original_save_after_a_four_second_continuation() =>
+        VerifyInheritedSecondaryNavigation(TimeSpan.FromSeconds(4));
+
     private static async Task VerifyInheritedSecondaryNavigation(TimeSpan continuationDelay)
     {
         var proxy = DispatchProxy.Create<IApplicationWorkflow, PersonNoteTests.NoteSaveBoundary>();
@@ -85,12 +89,30 @@ public sealed class TeamNoteTests
         var person = app.CreatePersonNote("avery@example.com", "Private", "Saved")!;
         Assert.True(app.OpenOwnedNote(NoteScope.Person, person.Id, editing: true));
         var admitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        app.WorkspaceChanged += (_, _) =>
+        {
+            if (app.GetRetainedNoteDraft(NoteScope.Person, person.Id) is null) completed.TrySetResult();
+        };
         using var release = new ManualResetEventSlim();
         boundary.BeforeSave = () => { admitted.TrySetResult(); release.Wait(); };
+        boundary.StartObserving();
         app.UpdateNoteDraft(NoteScope.Person, person.Id, person.Title, "Retained Person writing");
         try
         {
-            await admitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try { await admitted.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException failure)
+            {
+                PersonNoteTests.ReportAdmissionRefusal(failure, () => System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    scenario = nameof(Inherited_secondary_notes_reach_their_exact_owner_while_retaining_Person_writing),
+                    continuationDelayMilliseconds = continuationDelay.TotalMilliseconds, admitted = admitted.Task.IsCompleted,
+                    completion = completed.Task.IsCompleted, retained = app.GetRetainedNoteDraft(NoteScope.Person, person.Id)?.IsSaving,
+                    localSave = app.LocalSave, app.Status, workers = PersonNoteTests.WorkerSnapshot(),
+                    calls = boundary.Snapshot()
+                }), Console.WriteLine);
+                throw;
+            }
             var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(NoteScope.Person, person.Id));
             Assert.True(retained.IsSaving);
             Assert.Equal(NoteScope.Person, retained.Basis.Scope);
@@ -123,6 +145,7 @@ public sealed class TeamNoteTests
             Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
         }
         finally { boundary.BeforeSave = null; release.Set(); }
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
         Assert.Equal("Retained Person writing", Assert.Single(app.GetPersonNotes(person.OwnerEmail)).Markdown);
         Assert.True(app.ConfirmTeamNote(secondary.Id));

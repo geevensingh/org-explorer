@@ -286,7 +286,11 @@ try {
         Rejects { Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history } 'main advancing during upload'
         Assert (!$effects.Contains('publish') -and $draft) 'A superseded candidate must never become public/latest.'
         $moveMainOnUpload = $false; $main = $candidate; $effects.Clear(); $draft = $false
-        Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
+        $consoleEncoding = [Console]::OutputEncoding
+        try {
+            [Console]::OutputEncoding = [Text.Encoding]::GetEncoding(1252)
+            Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
+        } finally { [Console]::OutputEncoding = $consoleEncoding }
         Assert (($effects -join ',') -ceq 'tag,draft,upload,publish') 'Publish only a complete verified draft, with immutable exact-source tag and latest updated last.'
         $expectedProvenance = "Exact source: $candidate. Trusted CI: 42. Fresh complete scale verification: 43. See release-provenance.json for immutable asset hashes. Project-key authenticated updates; not Windows publisher signing."
         $expectedSubject = '``` Ship café 🚀 *bold* _notes_ [link](https://example.invalid) `code` ``ticks`` <b> & &#65; \ #64 @owner :smile: ~done~ ! | ```'

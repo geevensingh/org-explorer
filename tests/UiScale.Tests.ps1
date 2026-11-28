@@ -72,9 +72,9 @@ public static class $typeName {
     }
     foreach ($case in @(
         @{ p95 = 1034.3852; rejected = $false },
-        @{ p95 = 1049.9999; rejected = $false },
-        @{ p95 = 1050.0; rejected = $false },
-        @{ p95 = 1050.0001; rejected = $true }
+        @{ p95 = 1499.9999; rejected = $false },
+        @{ p95 = 1500.0; rejected = $false },
+        @{ p95 = 1500.0001; rejected = $true }
     )) {
         # Rank 20/21 is the proposed p95; a single larger last sample is not another gate.
         $samples = [double[]](@(1) * 19 + @($case.p95, ($case.p95 + 20)))
@@ -88,12 +88,12 @@ public static class $typeName {
     }
     $overGoal = $policy::Report(1034.3852, $true)
     if (!$overGoal.Contains('goal=1000 ms (NOT met)') -or
-        !$overGoal.Contains('acceptance ceiling=1050 ms (temporary, enforced)') -or
+        !$overGoal.Contains('acceptance ceiling=1500 ms (approved, enforced)') -or
         !$policy::Report(1000, $true).Contains('goal=1000 ms (met)') -or
         !$policy::Report(1000, $false).Contains('acceptance ceiling=1000 ms (enforced)')) {
-        throw 'Actual note reporting must distinguish meeting the1000ms goal from accepted temporary rich1050ms enforcement.'
+        throw 'Actual note reporting must distinguish the1000ms goal from approved rich1500ms enforcement.'
     }
-    Write-Host 'PASS: actual note verdict preserves informational editor/navigation and typing; small fixtures enforce1000ms, rich nearest-rank p95 accepts through temporary1050ms only.'
+    Write-Host 'PASS: actual note verdict preserves informational editor/navigation and typing; small fixtures enforce1000ms, rich nearest-rank p95 accepts through approved1500ms only.'
     $probe = Join-Path $results 'revision-probe'
     New-Item -ItemType Directory $probe | Out-Null
     '{"outcome":"success","revision":"stale"}' | Set-Content (Join-Path $probe 'result.json')
@@ -102,18 +102,20 @@ public static class $typeName {
     $status = Get-Content (Join-Path $probe 'result.json') -Raw | ConvertFrom-Json
     if ($status.outcome -ne 'failure' -or $status.revision -notmatch '^[0-9a-f]{40}$' -or
         $status.expectedRevision -ne ('0' * 40) -or $status.steps.Count -ne 0 -or $status.suite -ne 'ui-scale' -or
-        @($status.requiredScenarios).Count -ne 1 -or $status.worker -cne 'prefix') {
+        @($status.requiredScenarios).Count -ne 1 -or $status.worker -cne 'prefix' -or
+        $status.policyVersion -cne ((git show HEAD:eng/timing-policy.json | ConvertFrom-Json).version) -or $status.ceilingSeconds -ne 900 -or
+        $status.observationSeconds -ne 900 -or $status.diagnosticOnly) {
         throw 'Candidate mismatch was not reported as a fresh named UI-scale failure before execution.'
     }
     Write-Host 'PASS: UI-scale candidate mismatch replaces stale success before any build or desktop execution.'
     $started = $env:SCALE_STARTED_AT
     try {
-        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddMinutes(-12).ToString('O')
+        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddMinutes(-16).ToString('O')
         $expired = Join-Path $results 'expired-probe'
         $exitCode = Invoke-RunnerProbe @('-ResultsDirectory', $expired) (Join-Path $results 'expired.log')
         if ($exitCode -eq 0) { throw 'Exhausted setup budget passed UI-scale verification.' }
         $status = Get-Content (Join-Path $expired 'result.json') -Raw | ConvertFrom-Json
-        if ($status.outcome -ne 'timed_out' -or $status.steps.Count -ne 0 -or $status.executionSeconds -le 660) {
+        if ($status.outcome -ne 'timed_out' -or $status.steps.Count -ne 0 -or $status.executionSeconds -le 900) {
             throw 'UI-scale setup did not consume the shared bounded execution budget.'
         }
     } finally { $env:SCALE_STARTED_AT = $started }
@@ -128,7 +130,9 @@ public static class $typeName {
         @{ job = 'ui-scale-tail'; command = 'Run-UiScale.ps1'; artifact = 'ui-scale-tail-' }
     )) {
         $job = [regex]::Match($workflow, "(?ms)^  $($suite.job):\r?`n(?<body>.*?)(?=^  [\w-]+:|\z)").Groups['body'].Value
-        $watchdog = 'timeout-minutes: 13'
+        $watchdog = if ($suite.job -eq 'ui-scale-prefix') {
+            'timeout-minutes: 30'
+        } else { 'timeout-minutes: 13' }
         foreach ($required in @('runs-on: windows-latest', $watchdog, 'SCALE_STARTED_AT=',
             'TESTED_REVISION=', 'CANDIDATE_REVISION', 'if-no-files-found: error', $suite.artifact,
             ($suite.command + ' -ExpectedRevision $env:TESTED_REVISION'))) {
@@ -188,7 +192,8 @@ public static class $typeName {
         throw 'Extended observation must stay explicit, non-verifying and separate from the unchanged pass/fail budget.'
     }
     $ciRunner = Get-Content "$root\eng\Run-CiLane.ps1" -Raw
-    if (!$ciRunner.Contains('& "$root\tests\UiScale.Tests.ps1"')) {
+    $coreContracts = Get-Content "$root\eng\CoreContracts.ps1" -Raw
+    if (!$ciRunner.Contains('Invoke-CoreContracts') -or !$coreContracts.Contains("'UiScale.Tests.ps1'")) {
         throw 'Required core execution must verify the UI-scale command contract without launching UI.'
     }
     $ci = Get-Content "$root\.github\workflows\ci.yml" -Raw

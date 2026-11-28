@@ -2,6 +2,13 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static class ControlReadiness
 {
+    internal static TPattern AwaitExpandedPattern<TPattern>(Action expand, Func<TPattern> find,
+        Action<Func<bool>> awaitState) where TPattern : class
+    {
+        expand();
+        return AwaitControl(find, pattern => pattern is not null, awaitState);
+    }
+
     internal static TControl AwaitControl<TControl>(Func<TControl> find, Func<TControl, bool> isReady,
         Action<Func<bool>> awaitState) where TControl : class
     {

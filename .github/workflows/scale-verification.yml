@@ -16,12 +16,41 @@ on:
     - cron: '23 10 * * *'
   workflow_dispatch:
     inputs:
+      cleanup_signing_probe:
+        description: One signing-only provenance probe; no workload or baseline authority
+        required: false
+        default: false
+        type: boolean
+      prefix_only_diagnostic:
+        description: One prefix-only 900s observation, 30m watchdog; nonaccepting and baseline-ineligible
+        required: false
+        default: false
+        type: boolean
+      non_ui_cohort_pilot:
+        description: Read-only three-worker NON-UI cohort pilot; no rich UI or publication
+        required: false
+        default: false
+        type: boolean
+      rich_cohort_pilot:
+        description: Read-only three complete non-UI and rich prefix/tail/union samples; no publication
+        required: false
+        default: false
+        type: boolean
+      cohort_ci_run_id:
+        description: Exact successful main-push required CI anchoring the non-promoting pilot
+        required: false
+        type: string
+      cohort_ci_run_attempt:
+        description: Exact required CI attempt anchoring the pilot
+        required: false
+        default: '1'
+        type: string
       revision:
         description: Full 40-character candidate SHA to check freshly (blank uses the selected workflow commit)
         required: false
         type: string
       extended_observation:
-        description: Observe UI work for up to 900s but retain the 660s verdict; diagnostic only
+        description: Explicit nonaccepting UI observation; cannot supply release proof or a baseline
         required: false
         default: false
         type: boolean
@@ -30,10 +59,85 @@ permissions:
   contents: read
 
 jobs:
+  cleanup-signing-probe:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.cleanup_signing_probe }}
+    name: Signing-only cleanup provenance
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Start original signing-only watchdog before checkout
+        run: '"CLEANUP_PROBE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: probe-controller
+          persist-credentials: false
+      - name: Start nonaccepting cross-step worker diagnostic
+        run: .\probe-controller\tests\ScaleWorkerStep.Tests.ps1 -Stage Start
+      - name: Verify actual worker lifetime after controller exit
+        run: .\probe-controller\tests\ScaleWorkerStep.Tests.ps1 -Stage Complete
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          path: probe-candidate
+          persist-credentials: false
+      - name: Prepare fresh no-workload manifest from immutable candidate A
+        id: prepare
+        env:
+          TARGET_REVISION: ${{ inputs.revision }}
+          GH_TOKEN: ${{ github.token }}
+        run: .\probe-controller\eng\Test-CleanupSigning.ps1 -Stage Prepare -ExpectedRevision $env:TARGET_REVISION -CandidateDirectory .\probe-candidate -ResultsDirectory .ci-results\cleanup-signing-probe
+      - uses: actions/attest@v4
+        id: signing
+        with:
+          subject-path: ${{ steps.prepare.outputs.subject }}
+      - name: Verify actual standard-root certificate and replay/context refusals
+        env:
+          TARGET_REVISION: ${{ inputs.revision }}
+          BUNDLE: ${{ steps.signing.outputs.bundle-path }}
+          GH_TOKEN: ${{ github.token }}
+        run: .\probe-controller\eng\Test-CleanupSigning.ps1 -Stage Verify -ExpectedRevision $env:TARGET_REVISION -CandidateDirectory .\probe-candidate -ResultsDirectory .ci-results\cleanup-signing-probe -AttestationBundle $env:BUNDLE
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: cleanup-signing-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            .ci-results/cleanup-signing-probe/*.json
+            probe-controller/.ci-results/scale-worker-step/**/*.json
+            probe-controller/.ci-results/scale-worker-step/**/*.log
+
+  non-ui-cohort-pilot:
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.cleanup_signing_probe && !inputs.prefix_only_diagnostic && (inputs.non_ui_cohort_pilot || inputs.rich_cohort_pilot) }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/non-ui-cohort-execution.yml
+    with:
+      revision: ${{ github.sha }}
+      ci_run_id: ${{ inputs.cohort_ci_run_id }}
+      ci_run_attempt: ${{ inputs.cohort_ci_run_attempt }}
+      pilot: true
+      rich_scale: ${{ inputs.rich_cohort_pilot || false }}
+
   non-ui-performance:
+    if: ${{ !inputs.cleanup_signing_probe && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
     name: Thorough non-UI performance
     runs-on: windows-latest
     timeout-minutes: 13
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     env:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
     steps:
@@ -55,24 +159,55 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Run fresh complete non-UI performance verification
-        run: .\eng\Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION
+        id: runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Start -Worker non-ui-performance -ExpectedRevision $env:TESTED_REVISION -ResultsDirectory .ci-results\performance
+          } else {
+            .\eng\Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION
+          }
+      - uses: actions/attest@v4
+        id: cleanup-attestation
+        if: ${{ steps.runner.outputs.needs_cleanup_signature == 'true' }}
+        with:
+          subject-path: ${{ steps.runner.outputs.cleanup_proof }}
+      - name: Observe original non-UI completion
+        if: ${{ steps.runner.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Complete -Worker non-ui-performance -ExpectedRevision $env:TESTED_REVISION -ResultsDirectory .ci-results\performance -AttestationBundle $env:ATTESTATION_BUNDLE
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: non-ui-performance-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
           if-no-files-found: error
           path: |
             .ci-results/performance/**/*.json
             .ci-results/performance/**/*.log
             .ci-results/performance/**/*.trx
+            !.ci-results/performance/**/build/**
 
   ui-scale-prefix:
+    if: ${{ !inputs.cleanup_signing_probe && (inputs.prefix_only_diagnostic || (!inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot)) }}
     name: Rich combined normal and held-export saves
     runs-on: windows-latest
-    timeout-minutes: 13
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     env:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
-      EXTENDED_OBSERVATION: ${{ inputs.extended_observation || false }}
+      EXTENDED_OBSERVATION: ${{ inputs.prefix_only_diagnostic || inputs.extended_observation || false }}
+      PREFIX_ONLY_DIAGNOSTIC: ${{ inputs.prefix_only_diagnostic || false }}
     steps:
       - name: Start shared execution budget before setup
         run: '"SCALE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
@@ -85,6 +220,9 @@ jobs:
           if ($env:CANDIDATE_REVISION -notmatch '^[0-9a-fA-F]{40}$' -or $revision -ne $env:CANDIDATE_REVISION) {
             throw 'Scale verification requires the exact full candidate SHA, not a mutable ref.'
           }
+          if ($env:PREFIX_ONLY_DIAGNOSTIC -eq 'true' -and $revision -ne $env:GITHUB_SHA) {
+            throw 'The prefix-only diagnostic must test the immutable workflow source, not another revision.'
+          }
           "TESTED_REVISION=$revision" >> $env:GITHUB_ENV
       - uses: actions/setup-dotnet@v4
         with:
@@ -92,22 +230,53 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Run combined rich save proof and capture actual published logical handoff
-        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker prefix -ResultsDirectory .ci-results\ui-scale-prefix -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+        id: runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Start -Worker prefix -ExpectedRevision $env:TESTED_REVISION -ResultsDirectory .ci-results\ui-scale-prefix -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+          } else {
+            .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker prefix -ResultsDirectory .ci-results\ui-scale-prefix -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+          }
+      - uses: actions/attest@v4
+        id: cleanup-attestation
+        if: ${{ steps.runner.outputs.needs_cleanup_signature == 'true' }}
+        with:
+          subject-path: ${{ steps.runner.outputs.cleanup_proof }}
+      - name: Observe original prefix completion
+        if: ${{ steps.runner.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Complete -Worker prefix -ExpectedRevision $env:TESTED_REVISION -ResultsDirectory .ci-results\ui-scale-prefix -AttestationBundle $env:ATTESTATION_BUNDLE
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-prefix-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ (inputs.prefix_only_diagnostic || inputs.extended_observation) && 'diagnostic-' || '' }}ui-scale-prefix-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
           if-no-files-found: error
           path: |
             .ci-results/ui-scale-prefix/**/*.json
             .ci-results/ui-scale-prefix/**/*.log
             .ci-results/ui-scale-prefix/**/*.oesnapshot
+            .ci-results/ui-scale-prefix/**/*.png
+            !.ci-results/ui-scale-prefix/**/build/**
 
   ui-scale-tail:
+    if: ${{ !inputs.cleanup_signing_probe && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
     name: Rich logical Join, delivery, reopen and navigation
     needs: ui-scale-prefix
     runs-on: windows-latest
     timeout-minutes: 13
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     env:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
       EXTENDED_OBSERVATION: ${{ inputs.extended_observation || false }}
@@ -134,22 +303,50 @@ jobs:
           name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-prefix-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: .ci-results/ui-scale-prefix
       - name: Resume actual validated logical snapshot in a fresh physical store
-        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker tail -PrefixResultsDirectory .ci-results\ui-scale-prefix -ResultsDirectory .ci-results\ui-scale-tail -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+        id: runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Start -Worker tail -ExpectedRevision $env:TESTED_REVISION -PrefixResultsDirectory .ci-results\ui-scale-prefix -ResultsDirectory .ci-results\ui-scale-tail -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+          } else {
+            .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker tail -PrefixResultsDirectory .ci-results\ui-scale-prefix -ResultsDirectory .ci-results\ui-scale-tail -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+          }
+      - uses: actions/attest@v4
+        id: cleanup-attestation
+        if: ${{ steps.runner.outputs.needs_cleanup_signature == 'true' }}
+        with:
+          subject-path: ${{ steps.runner.outputs.cleanup_proof }}
+      - name: Observe original tail completion
+        if: ${{ steps.runner.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.cleanup-attestation.outputs.bundle-path }}
+        run: |
+          if (Test-Path .\eng\Invoke-ScaleWorker.ps1) {
+            .\eng\Invoke-ScaleWorker.ps1 -Stage Complete -Worker tail -ExpectedRevision $env:TESTED_REVISION -ResultsDirectory .ci-results\ui-scale-tail -AttestationBundle $env:ATTESTATION_BUNDLE
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-tail-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
           if-no-files-found: error
           path: |
             .ci-results/ui-scale-tail/**/*.json
             .ci-results/ui-scale-tail/**/*.log
+            .ci-results/ui-scale-tail/**/*.png
+            !.ci-results/ui-scale-tail/**/build/**
 
   ui-scale:
     name: Complete scale acceptance union
     needs: [non-ui-performance, ui-scale-prefix, ui-scale-tail]
-    if: ${{ always() }}
+    if: ${{ always() && !inputs.cleanup_signing_probe && !inputs.prefix_only_diagnostic && !inputs.non_ui_cohort_pilot && !inputs.rich_cohort_pilot }}
     runs-on: windows-latest
     timeout-minutes: 13
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -169,14 +366,18 @@ jobs:
           NON_UI_OUTCOME: ${{ needs.non-ui-performance.result }}
           PREFIX_OUTCOME: ${{ needs.ui-scale-prefix.result }}
           TAIL_OUTCOME: ${{ needs.ui-scale-tail.result }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           .\eng\Assert-UiScaleUnion.ps1 -PrefixDirectory .ci-results\ui-scale-prefix -TailDirectory .ci-results\ui-scale-tail -ExpectedRevision $env:EXPECTED_REVISION -RunId $env:GITHUB_RUN_ID -RunAttempt $env:GITHUB_RUN_ATTEMPT -RequiredJobOutcomes @($env:NON_UI_OUTCOME, $env:PREFIX_OUTCOME, $env:TAIL_OUTCOME)
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-${{ inputs.revision || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
           if-no-files-found: error
           path: |
             .ci-results/ui-scale-union/**/*.json
             .ci-results/ui-scale-union/**/*.log
             .ci-results/ui-scale-union/**/*.oesnapshot
+            .ci-results/ui-scale-union/**/*.png
+            !.ci-results/ui-scale-union/**/build/**

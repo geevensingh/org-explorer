@@ -1,0 +1,151 @@
+name: Performance scale cohorts
+
+on:
+  workflow_run:
+    workflows: [Continuous integration]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+# This group cannot hold or cancel production release verification.
+concurrency:
+  group: independent-performance-cohort-execution
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: ${{ github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.conclusion == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      collect: ${{ steps.plan.outputs.collect }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Pin trusted bootstrap and exact main cohort plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          CI_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          .\eng\Invoke-NonUiCohort.ps1 -Stage Plan -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-plan -RichScale -ApprovedPolicyVersion ci-timing-v4 -PublishPlan -InitializeBootstrap
+          $plan = Get-Content .ci-results\cohort-plan\plan.json -Raw | ConvertFrom-Json
+          "collect=$($plan.collect.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: non-ui-cohort-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: .ci-results/cohort-plan/plan.json
+
+  rich-sample-1:
+    needs: plan
+    if: ${{ needs.plan.outputs.collect == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/rich-cohort-sample.yml
+    with:
+      revision: ${{ github.event.workflow_run.head_sha }}
+      sample: 1
+
+  rich-sample-2:
+    needs: [plan, rich-sample-1]
+    if: ${{ always() && needs.plan.outputs.collect == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/rich-cohort-sample.yml
+    with:
+      revision: ${{ github.event.workflow_run.head_sha }}
+      sample: 2
+
+  rich-sample-3:
+    needs: [plan, rich-sample-2]
+    if: ${{ always() && needs.plan.outputs.collect == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/rich-cohort-sample.yml
+    with:
+      revision: ${{ github.event.workflow_run.head_sha }}
+      sample: 3
+
+  decision:
+    needs: [plan, rich-sample-1, rich-sample-2, rich-sample-3]
+    if: ${{ always() && needs.plan.outputs.collect == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      extend: ${{ steps.decision.outputs.extend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Preserve comparison before requesting samples four and five
+        id: decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          CI_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          .\eng\Invoke-NonUiCohort.ps1 -Stage Summarize -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-decision -RichScale -ApprovedPolicyVersion ci-timing-v4 -PublishDecision
+          $decision = Get-Content .ci-results\cohort-decision\record.json -Raw | ConvertFrom-Json
+          "extend=$((($decision.extraSamples -join ',') -ceq '4,5').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: non-ui-cohort-decision-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            .ci-results/cohort-decision/record.json
+            .ci-results/cohort-decision/summary.md
+
+  rich-sample-4:
+    needs: [plan, decision]
+    if: ${{ always() && needs.plan.outputs.collect == 'true' && needs.decision.outputs.extend == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/rich-cohort-sample.yml
+    with:
+      revision: ${{ github.event.workflow_run.head_sha }}
+      sample: 4
+
+  rich-sample-5:
+    needs: [plan, decision, rich-sample-4]
+    if: ${{ always() && needs.plan.outputs.collect == 'true' && needs.decision.outputs.extend == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/rich-cohort-sample.yml
+    with:
+      revision: ${{ github.event.workflow_run.head_sha }}
+      sample: 5

@@ -28,7 +28,8 @@ foreach ($case in @(
     . ([scriptblock]::Create($contractsAssignment.Extent.Text))
     if ($runDesktopContracts -ne $case.expected) { throw 'A required desktop companion command was dropped or duplicated.' }
 }
-$source = Get-Content (Join-Path $root 'eng\Run-CiLane.ps1') -Raw
+$source = (Get-Content (Join-Path $root 'eng\Run-CiLane.ps1') -Raw) +
+    (Get-Content (Join-Path $root 'eng\CoreContracts.ps1') -Raw)
 foreach ($required in @("'high-resolution'", "'--prepare-high-resolution'", "'--verify-standard-display'",
     "'--high-resolution'", 'HighResolutionScenarios.json', "'--verify-update-yield'", 'ImplementationBaseline.Tests.ps1')) {
     if (!$source.Contains($required)) { throw "Required CI execution is missing $required" }
@@ -44,6 +45,13 @@ $command = $runner.Find({
 }, $true)
 if (!$command) { throw 'Missing budgeted CI command.' }
 . ([scriptblock]::Create($command.Extent.Text))
+$companion = $runner.Find({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Invoke-CiCompanion'
+}, $true)
+if (!$companion) { throw 'Missing CI companion execution.' }
+. ([scriptblock]::Create($companion.Extent.Text))
 $budgetAssignment = $runner.Find({
     param($node)
     $node -is [Management.Automation.Language.AssignmentStatementAst] -and
@@ -56,6 +64,28 @@ $steps = [Collections.Generic.List[object]]::new()
 $index = 0
 $null = New-Item -ItemType Directory -Path $results
 try {
+    $companionSteps = [Collections.Generic.List[object]]::new()
+    'published component' | Set-Content -LiteralPath (Join-Path $results 'component.txt')
+    $component = Invoke-CiCompanion 'read-published-component' {
+        Get-Content -LiteralPath (Join-Path $results 'component.txt')
+    } $companionSteps
+    if ($component -cne 'published component' -or $companionSteps.Count -ne 1 -or
+        $companionSteps[0].status -cne 'Passed') {
+        throw 'A desktop companion lost its caller-owned published component path or successful receipt.'
+    }
+    $companionFailure = $null
+    try {
+        Invoke-CiCompanion 'reject-published-component' {
+            $component = Get-Content -LiteralPath (Join-Path $results 'component.txt')
+            throw "Rejected $component"
+        } $companionSteps
+    } catch { $companionFailure = $_ }
+    if (!$companionFailure -or $companionFailure.Exception.Message -cne 'Rejected published component' -or
+        $companionSteps.Count -ne 2 -or $companionSteps[1].status -cne 'Failed' -or
+        $companionSteps[0].status -cne 'Passed') {
+        throw 'A desktop companion lost its caller-owned path or initiating failure when retaining timing.'
+    }
+    Write-Host 'PASS: actual CI companions retain the caller-owned published path and independent success/failure receipts.'
     foreach ($Lane in @('desktop', 'high-resolution')) {
         . ([scriptblock]::Create($budgetAssignment.Extent.Text))
         $started = [DateTimeOffset]::UtcNow.AddSeconds(-661)
@@ -70,7 +100,10 @@ try {
     Write-Host 'PASS: the actual budgeted CI runner preserves arguments containing spaces.'
     foreach ($Lane in @('core', 'filesystem', 'desktop', 'high-resolution')) {
         . ([scriptblock]::Create($budgetAssignment.Extent.Text))
-        $expiredSeconds = if ($Lane -eq 'core') { 301 } elseif ($Lane -in @('desktop', 'high-resolution')) { 901 } else { 661 }
+        $expiredSeconds = if ($Lane -eq 'core') {
+            . "$root\eng\TimingPolicy.ps1"
+            (Get-ApprovedCoreTimingPolicy (Get-SourceTimingPolicyVersion (git -C $root rev-parse HEAD).Trim() -Core)).safetySeconds + 1
+        } elseif ($Lane -in @('desktop', 'high-resolution')) { 901 } else { 661 }
         $started = [DateTimeOffset]::UtcNow.AddSeconds(-$expiredSeconds)
         $rejected = $false
         try {
@@ -81,7 +114,7 @@ try {
         }
         if (!$rejected -or $steps.Count -ne 2) { throw "Expired $Lane work was not rejected before launch." }
     }
-    Write-Host 'PASS: both desktop lanes reject work after fifteen minutes; core and filesystem deadlines remain unchanged.'
+    Write-Host 'PASS: both desktop lanes reject work after fifteen minutes; core expiry follows its trusted source and filesystem remains unchanged.'
     $started = [DateTimeOffset]::UtcNow
     $failed = $false
     try { Invoke-BudgetedDotnet failed-command @('test', '--not-a-supported-option') }
@@ -117,7 +150,7 @@ try {
     }
     $fixture = Join-Path $results 'partition-fixture'
     New-Item -ItemType Directory -Path (Join-Path $fixture 'eng'), (Join-Path $fixture 'tests') -Force | Out-Null
-    foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1')) {
+    foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1', 'CoreContracts.ps1', 'TimingPolicy.ps1')) {
         Copy-Item -LiteralPath (Join-Path $root "eng\$name") -Destination (Join-Path $fixture "eng\$name")
     }
     foreach ($name in @('DesktopScenarios.json', 'DesktopPartitions.json',
@@ -152,6 +185,7 @@ try {
         $env:SCALE_TIMING_FILE = $previousTiming
     }
     Write-Host 'PASS: failed command metadata stays failed and desktop partitioning cannot alter another lane.'
+    & "$PSScriptRoot\CoreContracts.Tests.ps1"
 } finally {
     Remove-Item -LiteralPath $results -Recurse -Force
 }

@@ -443,9 +443,9 @@ internal static partial class Program
         {
             var expansion = (ExpandCollapsePattern)disclosure.GetCurrentPattern(ExpandCollapsePattern.Pattern);
             var expanded = expansion.Current.ExpandCollapseState == ExpandCollapseState.Expanded;
-            expansion.Expand();
             var id = disclosure.Current.AutomationId.Replace("HistoricalCaptureDetails-", "HistoricalCaptureEvidence-", StringComparison.Ordinal);
-            var text = (ValuePattern)Find(disclosure, id).GetCurrentPattern(ValuePattern.Pattern);
+            var text = ControlReadiness.AwaitExpandedPattern(expansion.Expand,
+                () => (ValuePattern)Find(disclosure, id).GetCurrentPattern(ValuePattern.Pattern), Await);
             if (!text.Current.IsReadOnly) throw new InvalidOperationException("Capture evidence must not be editable.");
             evidence.Add(text.Current.Value);
             if (!expanded) expansion.Collapse();

@@ -46,6 +46,11 @@ jobs:
   scale:
     needs: plan
     if: ${{ needs.plan.outputs.publish == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ github.event.workflow_run.head_sha }}
@@ -111,6 +116,11 @@ jobs:
   renewal-scale:
     needs: renewal-plan
     if: ${{ needs.renewal-plan.outputs.renew == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ needs.renewal-plan.outputs.product-revision }}

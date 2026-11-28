@@ -107,7 +107,7 @@ public sealed class PersonNoteTests(ITestOutputHelper output)
                 call.GetProperty("phase").GetString() == "return");
     }
 
-    private static object WorkerSnapshot()
+    internal static object WorkerSnapshot()
     {
         ThreadPool.GetAvailableThreads(out var availableWorkers, out var availableIo);
         ThreadPool.GetMinThreads(out var minimumWorkers, out var minimumIo);
@@ -119,7 +119,7 @@ public sealed class PersonNoteTests(ITestOutputHelper output)
         };
     }
 
-    private static void ReportAdmissionRefusal(TimeoutException failure, Func<string> snapshot, Action<string> write)
+    internal static void ReportAdmissionRefusal(TimeoutException failure, Func<string> snapshot, Action<string> write)
     {
         const string marker = "NOTE-SAVE-CORE-ENTRY-REFUSAL";
         try
