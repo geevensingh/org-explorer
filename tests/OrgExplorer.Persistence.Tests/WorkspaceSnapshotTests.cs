@@ -1338,14 +1338,28 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     [InlineData("preferred")]
     [InlineData("profile")]
     [InlineData("note")]
-    public async Task Incoming_adoption_cannot_overwrite_a_draft_retained_during_actual_validation(string kind)
+    public Task Incoming_adoption_cannot_overwrite_a_draft_retained_during_actual_validation(string kind) =>
+        VerifyDraftRetainedDuringValidation(kind, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData("preferred")]
+    [InlineData("profile")]
+    [InlineData("note")]
+    public Task Incoming_adoption_retention_boundary_survives_a_delayed_validation_continuation(string kind) =>
+        VerifyDraftRetainedDuringValidation(kind, TimeSpan.FromMilliseconds(3200));
+
+    private async Task VerifyDraftRetainedDuringValidation(string kind, TimeSpan continuationDelay)
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
-        using var second = Create("second");
+        using var validationStarted = new ManualResetEventSlim();
+        using var releaseValidation = new ManualResetEventSlim();
+        using var validationCommitting = new ManualResetEventSlim();
+        var validation = new ChoiceValidationObserver(validationStarted, releaseValidation, validationCommitting, releaseValidation);
+        using var second = Create("second", validation);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         var originalRevision = second.Synchronization.LocalRevision;
@@ -1354,18 +1368,17 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Deliver("outgoing", "incoming");
         Assert.True(second.NavigatePerson("report@example.com"), second.Status);
         if (kind == "profile") Assert.True(second.BeginProfileEdit("report@example.com"), second.Status);
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(Local("second"), "workspace.sqlite")};Pooling=False");
-        connection.Open();
-        using var heldWriter = connection.BeginTransaction();
-        using var validationStarted = new ManualResetEventSlim();
-        using var watcher = new FileSystemWatcher(Local("second")) { NotifyFilter = NotifyFilters.DirectoryName };
-        watcher.Created += (_, args) => { if (args.Name?.StartsWith("snapshot-") == true) validationStarted.Set(); };
-        watcher.EnableRaisingEvents = true;
+        validation.Armed = 1;
         var synchronizing = Task.Run(second.SyncNow);
         NoteDraft? note = null;
         try
         {
             Assert.True(validationStarted.Wait(TimeSpan.FromSeconds(5)), "Actual snapshot validation never started.");
+            var remainingDelay = continuationDelay - Stopwatch.GetElapsedTime(validation.PreparationStarted);
+            if (remainingDelay > TimeSpan.Zero) await Task.Delay(remainingDelay);
+            Assert.False(validation.PreparationExpired, "The actual validation hold expired before draft retention.");
+            Assert.False(synchronizing.IsCompleted);
+            Assert.False(second.LocalSave.EditsPaused);
             if (kind == "preferred")
                 second.RetainPersonTextDraft(second.GetRelationships("report@example.com")!.Person,
                     PersonTextField.PreferredName, "Retained private name");
@@ -1377,8 +1390,10 @@ public sealed class WorkspaceSnapshotTests : IDisposable
                 second.RetainNoteDraft(note);
             }
         }
-        finally { heldWriter.Commit(); }
+        finally { releaseValidation.Set(); }
         Assert.False(await synchronizing.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.False(validation.PreparationExpired);
+        Assert.True(validationCommitting.IsSet);
         Assert.Equal(originalRevision, second.Synchronization.LocalRevision);
         Assert.Null(second.GetRelationships("report@example.com")!.Person.PreferredName);
         Assert.False(second.CanSafelyClose);
@@ -2211,6 +2226,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         ManualResetEventSlim committing, ManualResetEventSlim release) : IWorkspaceFileObserver
     {
         public int Armed;
+        public long PreparationStarted;
         public volatile bool CommitActive, PreparationExpired;
         private bool observingCommit;
         public void Observe(WorkspaceFileEffect effect) { }
@@ -2220,6 +2236,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
                 Interlocked.Exchange(ref Armed, 0) != 0)
             {
                 observingCommit = true;
+                PreparationStarted = Stopwatch.GetTimestamp();
                 preparing.Set();
                 PreparationExpired = !prepared.Wait(TimeSpan.FromSeconds(5));
             }

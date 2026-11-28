@@ -67,7 +67,12 @@ public sealed partial class WorkspaceViewModel
                 try
                 {
                     using (LocalSave.HasUnresolvedOutcome ? workflow.DeferSnapshotAdoption() : null)
-                        result = Observe(workflow.SyncNow);
+                        result = Observe(() =>
+                        {
+                            var synchronized = workflow.SyncNow();
+                            if (synchronized) EnsurePeopleSelection();
+                            return synchronized;
+                        });
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
                 {

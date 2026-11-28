@@ -226,6 +226,21 @@ internal static partial class Program
             Await(() => ReadingText(window).Contains("Private context"));
             if (listener.Pending()) throw new InvalidOperationException("Markdown rendering fetched remote content.");
             ClosePublishedWorkspace(process, workspace);
+            var remembered = ReadSmokeWorkspacePreferences().GetLastView(workspace) ??
+                throw new InvalidOperationException("The archived exact-note reopen fixture lost its remembered destination.");
+            if (remembered.NoteId != noteId || remembered.PersonEmail != "avery@example.com")
+                throw new InvalidOperationException("The archived exact-note fixture did not retain the original saved destination.");
+            var preferencesPath = Path.Combine(root, "app-settings", "workspace-settings.json");
+            var recoveryPreferences = File.ReadAllBytes(preferencesPath);
+            var writing = WorkspaceFixtures.Bytes(workspace);
+            process = Launch(executable);
+            window = Window(process);
+            AssertUnavailableRememberedNote(window, workspace, remembered, preferencesPath, recoveryPreferences, writing,
+                "casey@example.com");
+            CaptureVisualEvidence(window, "person-note-archived-exact-recovery");
+            SelectTreePerson(window, "casey@example.com");
+            Await(() => !IsVisible(window, "ViewPreferenceStatus"));
+            ClosePublishedWorkspace(process, workspace);
             Console.WriteLine("PASS: exact secondary Person-note GUID restored in Read mode before deliberate ongoing navigation.");
         }
         finally

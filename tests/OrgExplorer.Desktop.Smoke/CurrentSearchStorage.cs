@@ -192,11 +192,17 @@ internal static partial class Program
         foreach (var editing in new[] { true, false })
         {
             using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(root, "inherited-note-mode-" + editing));
-            var note = fixture.Model.CreateTeamNote("casey@example.com", "Saved inherited context", "Saved inherited writing")
-                ?? throw new InvalidOperationException(fixture.Model.Status);
-            fixture.Select(note.OwnerEmail);
+            fixture.Select("casey@example.com");
             var surface = fixture.Control<UserControl>("TeamNotes");
             T Note<T>(string name) where T : FrameworkElement => (T)surface.FindName(name);
+            Note<Button>("NewButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Note<TextBox>("NoteTitle").Text = "Saved inherited context";
+            Note<TextBox>("MarkdownEditor").Text = "Saved inherited writing";
+            PumpUntil(() => fixture.Model.GetTeamNotes("casey@example.com") is [{ Markdown: "Saved inherited writing" }] &&
+                fixture.Model.CanSafelyClose);
+            var note = fixture.Model.GetTeamNotes("casey@example.com").Single();
+            if (System.Windows.Automation.AutomationProperties.GetHelpText(Note<TextBlock>("NoteHeading")) != note.Id.ToString())
+                throw new InvalidOperationException("Inherited-note mode requires the actual created note to be displayed before editing.");
             Note<TabControl>("Views").SelectedItem = Note<TabItem>("EditTab");
             Note<TextBox>("NoteTitle").Text = "";
             Note<TextBox>("MarkdownEditor").Text = "Exact retained inherited writing";
