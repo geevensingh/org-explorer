@@ -125,8 +125,9 @@ Workspace state. New Favorites append; removing one discards its position.
 Before treating either operation as unchanged, reconcile a newer saved local
 revision. A stale cached sequence or membership cannot confirm success; failed
 refresh rejects the operation. Genuine no-ops create no revision or Profile change.
-A refresh that adopts a different committed revision invalidates the old Import
-preview. Review a fresh preview against that population before Apply; a refresh
+Loading a different committed local revision, including during Sync, invalidates
+the old Import preview. Review a fresh preview against that population before
+Apply; a reload
 at the same revision preserves the existing preview.
 After another local client completes a failed Favorite change, a successful
 unchanged retry retires only that change's failure, without a new revision or

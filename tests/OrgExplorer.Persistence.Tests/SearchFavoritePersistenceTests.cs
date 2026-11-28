@@ -477,13 +477,20 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
     }
 
     [Theory]
-    [InlineData(true, true)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(false, false)]
-    public void Favorite_refresh_invalidates_only_previews_from_an_older_local_revision(bool reorder, bool changeRevision)
+    [InlineData("reorder", true)]
+    [InlineData("favorite", true)]
+    [InlineData("sync", true)]
+    [InlineData("reorder", false)]
+    [InlineData("favorite", false)]
+    [InlineData("sync", false)]
+    public void Local_reload_invalidates_only_previews_from_an_older_revision(string operation, bool changeRevision)
     {
         var writer = Seed();
+        if (operation == "sync")
+        {
+            Assert.True(writer.ConfigureSynchronizationFolder(Path.Combine(root, "transport"), false), writer.Status);
+            Assert.True(writer.SyncNow(), writer.Status);
+        }
         using var reader = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reader.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reader.Status);
         const string import = """
@@ -496,8 +503,13 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         if (changeRevision)
             Apply(writer, """{"email":"incoming@example.com","displayName":"Incoming","managerEmail":null,"isFavorite":true}""", 2);
 
-        Assert.True(reorder ? reader.ReorderFavorite("alex@example.com", "alex@example.com")
-            : reader.EditFavorite("alex@example.com", true), reader.Status);
+        Assert.True(operation switch
+        {
+            "reorder" => reader.ReorderFavorite("alex@example.com", "alex@example.com"),
+            "favorite" => reader.EditFavorite("alex@example.com", true),
+            "sync" => reader.SyncNow(),
+            _ => throw new InvalidOperationException("Unknown local reload operation.")
+        }, reader.Status);
         var refreshedRevision = reader.Synchronization.LocalRevision;
         var applied = reader.ApplyImport(preview.Id);
         using var reopened = ApplicationWorkflow.CreateFileBacked();

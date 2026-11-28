@@ -283,6 +283,7 @@ public sealed partial class ApplicationWorkflow
                 "No ordinary write was attempted. Browsing remains available. Explicitly reconcile local storage before editing. " +
                 error.Message);
         }
+        if (revision != committedRevision) pending = null;
         revision = committedRevision;
         var evidenceReady = ReconcileLocalWriteEvidence();
         if (recoverLocalSaves && walReady && evidenceReady)
