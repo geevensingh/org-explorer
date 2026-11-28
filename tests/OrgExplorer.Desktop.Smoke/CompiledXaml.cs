@@ -4273,6 +4273,12 @@ internal static partial class Program
         var previousChild = child;
         ((IItemContainerGenerator)container.ItemContainerGenerator).RemoveAll();
         ((IContainItemStorage)container).StoreItemValue(manager.Reports.Single(), TreeViewItem.IsExpandedProperty, false);
+        var itemLookup = (IItemContainerProvider)UIElementAutomationPeer.CreatePeerForElement(container)
+            .GetPattern(PatternInterface.ItemContainer);
+        _ = itemLookup.FindItemByProperty(null, System.Windows.Automation.AutomationElementIdentifiers.AutomationIdProperty.Id,
+            manager.Reports.Single().Person.Email);
+        if (!model.PeopleNavigation.ExpandedPeople.Contains(manager.Reports.Single().Person.Email))
+            throw new InvalidOperationException("Read-only virtualized item lookup collapsed the real reporting branch.");
         var preparationSelections = 0;
         RoutedEventHandler selectedDuringPreparation = (_, _) => preparationSelections++;
         tree.AddHandler(TreeViewItem.SelectedEvent, selectedDuringPreparation);

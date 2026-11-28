@@ -445,7 +445,8 @@ public partial class MainWindow : Window
     }
     private void RestoreTreeItem(object sender, RoutedEventArgs e)
     {
-        if (sender is TreeViewItem item) RestoreTreeItem(item, restoreSelection: true);
+        if (sender is TreeViewItem item && item.IsDescendantOf(PeopleList))
+            RestoreTreeItem(item, restoreSelection: true);
     }
     private void RestoreTreeItem(TreeViewItem item, bool restoreSelection)
     {
@@ -490,7 +491,8 @@ public partial class MainWindow : Window
     private void ExpandPerson(object sender, RoutedEventArgs e)
     {
         if (!loading && ReferenceEquals(sender, e.OriginalSource) &&
-            e.OriginalSource is TreeViewItem { DataContext: ReportingNode node })
+            e.OriginalSource is TreeViewItem { DataContext: ReportingNode node } item &&
+            item.IsDescendantOf(PeopleList))
         {
             CancelOutstandingTreeExpansion();
             expandedPeople.Add(node.Person.Email);
@@ -500,7 +502,8 @@ public partial class MainWindow : Window
     private void CollapsePerson(object sender, RoutedEventArgs e)
     {
         if (!loading && ReferenceEquals(sender, e.OriginalSource) &&
-            e.OriginalSource is TreeViewItem { DataContext: ReportingNode node })
+            e.OriginalSource is TreeViewItem { DataContext: ReportingNode node } item &&
+            item.IsDescendantOf(PeopleList))
         {
             if (Environment.GetEnvironmentVariable("TREE_DIAGNOSTIC_EMAIL") is { } diagnosticEmail &&
                 node.Person.Email.Equals(diagnosticEmail, StringComparison.OrdinalIgnoreCase) &&
