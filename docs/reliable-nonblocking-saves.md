@@ -244,7 +244,7 @@ For healthy local storage under ordinary editing load, measure separately:
 | --- | --- |
 | Add Team note opens a usable editor | Informational p95; historical 100-ms reference, not a pass/fail gate |
 | Person navigation displays a usable selected view | Informational p95; historical 100-ms reference, not a pass/fail gate |
-| Ordinary edits become locally durable | p95 goal at most 1 second; temporary rich-note enforcement exception below |
+| Ordinary edits become locally durable | p95 goal at most 1 second; temporary note enforcement exception below |
 | Outstanding ordinary save becomes explicitly stalled | After 3 seconds without completion |
 
 The owner approved making editor/navigation timings informational on
@@ -253,16 +253,24 @@ Retain every raw sample and the historical reference; do not relabel earlier
 failed runs. Exact usable views, writable/focused editors, owner-correct writing
 and bounded functional observations remain required.
 
-On 2026-11-24 the owner approved a **temporary enforced p95 ceiling of 1,050 ms**
-for rich ordinary Person/Team-note saves in both the normal-executable and
-held-background-export phases. The **1,000-ms goal remains**; a p95 above that
+On 2026-11-27 the owner approved increasing note-durability acceptance after
+observed 1,247-ms first-commit and 1,878-ms rich-note measurements. The selected
+**temporary enforced ceiling is 2,000 ms** for ordinary small-fixture first
+commits and native small/rich Person/Team-note p95, including normal-executable
+and held-background-export phases. This supersedes the earlier 1,050-ms rich
+ceiling. The **1,000-ms goal remains**; a p95 above that
 goal and at or below the temporary ceiling is accepted without claiming the
 one-second goal was met. Optimization is deferred for later review, not replaced
 by informational-only durability or an automatic further increase. Preserve raw
 samples and nearest-rank p95, all 21 commits observed during continued typing,
 exact owner/data/reopen and lifetime assertions, and the original suite budgets.
-Profile-save and small-fixture first-commit one-second enforcement, the
-queue-inclusive three-second stall, and held-adoption capture proof are unchanged.
+The predetermined typing windows span the full two-second ceiling, without
+waiting for a save or stopping early: 36 inputs at nominal 60-ms spacing in the
+small native journey and ten at 250 ms in the rich journey. The public first-commit
+fixture likewise retains writing for 36 iterations at 60 ms. Profile-save
+one-second enforcement, the queue-inclusive three-second stall, held-adoption
+capture proof and all worker budgets are unchanged. Two seconds retains margin
+before the production stall deadline; this is not a change to save scheduling.
 
 The local-durability target includes save scheduling and queueing, and applies
 while typing continues, not only after typing stops. Sync/provider delivery time

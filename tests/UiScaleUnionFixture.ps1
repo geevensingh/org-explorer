@@ -63,10 +63,10 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
         $note.addTeamNote = @{ samplesMs = @(1) * 20; p95Ms = 1 }
         $note.personNavigation = @{ samplesMs = @(1) * 42; p95Ms = 1 }
         $note.localDurability = @{ samplesMs = @(1) * 21; p95Ms = 1; goalMs = 1000; goalMet = $true
-            budgetMs = 1050; budgetEnforced = $true; temporaryCeiling = $true; timingUse = 'acceptance'
+            budgetMs = 2000; budgetEnforced = $true; temporaryCeiling = $true; timingUse = 'acceptance'
             independentFullReopenVerificationMs = @(1) * 21
             independentVerificationScope = 'fresh-final-prefix-owner-and-exact-writing'
-            committedDuringTyping = @($true) * 21; continuedEditsPerNote = 6; nominalEditSpacingMs = 250 }
+            committedDuringTyping = @($true) * 21; continuedEditsPerNote = 10; nominalEditSpacingMs = 250 }
         Write-Json (Join-Path $prefix "$runName\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json") $note
     }
     foreach ($sample in @(@($prefix, 'scale-mutation-save-prefix', 'background-export'),

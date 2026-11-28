@@ -999,10 +999,10 @@ internal static partial class Program
         var ownerEmail = richFixture is null ? "morgan@example.com" : ScaleFixture.Email(11);
         var reportEmail = richFixture is null ? "avery@example.com" : ScaleFixture.Target;
         const int durabilityGoalMs = 1000;
-        var durabilityCeilingMs = richFixture is null ? durabilityGoalMs : 1050;
+        const int durabilityCeilingMs = 2000;
         var ownerHeading = richFixture is null ? "Morgan Example" : "Reference 00011";
         var reportHeading = richFixture is null ? "Avery Example" : "Reference 01000";
-        var continuedEdits = richFixture is null ? NoteCommitObservation.ContinuedEditCount : 6;
+        var continuedEdits = richFixture is null ? 36 : 10;
         var editSpacingMs = richFixture is null ? NoteCommitObservation.ContinuedEditSpacingMs : 250;
         PersonNote[] originalPersonNotes;
         TeamNote[] originalTeamNotes;
@@ -1152,8 +1152,8 @@ internal static partial class Program
                         bodyPattern.SetValue(text);
                     }, continuedEdits, editSpacingMs);
                     var completedTyping = continuedTyping.RequestCompletedMs[^1];
-                    if (continuedTyping.RequestStartedMs[^1] - continuedTyping.RequestCompletedMs[0] < 1000)
-                        throw new InvalidOperationException("The predetermined native typing workload did not span the one-second durability observation window.");
+                    if (continuedTyping.RequestStartedMs[^1] - continuedTyping.RequestCompletedMs[0] < durabilityCeilingMs)
+                        throw new InvalidOperationException("The predetermined native typing workload did not span the two-second durability observation window.");
                     durability.Add(firstCommit.Complete());
                     commitRequests.Add(firstCommit.RequestMs);
                     commitReads.Add(firstCommit.ReadCount);
@@ -1258,8 +1258,8 @@ internal static partial class Program
                 window = window.Current.BoundingRectangle.ToString()
             },
             workload = richFixture is null
-                ? "Ordinary two-Person SQLite fixture; 20 distinct Team creations, one Person creation, 20 predetermined continued edits at nominal 60-ms spacing and immediate report/Manager switches per note. All edits execute independently of save observation."
-                : "Full rich 10,000-Person SQLite fixture; 9,900 active/100 Archived, 42-edge chain, 2,500 photo references, 1,000 Person notes, 111 Team notes, 200 Historical contexts and complete Profile evidence before these additive edits. Each of 21 new notes receives six predetermined continued inputs at nominal 250-ms spacing, independent of save observation. Twenty Team-editor and 42 Person-navigation samples are informational; 21 durable-commit samples retain the one-second p95 target.",
+                ? "Ordinary two-Person SQLite fixture; 20 distinct Team creations, one Person creation, 36 predetermined continued edits at nominal 60-ms spacing and immediate report/Manager switches per note. All edits execute independently of save observation."
+                : "Full rich 10,000-Person SQLite fixture; 9,900 active/100 Archived, 42-edge chain, 2,500 photo references, 1,000 Person notes, 111 Team notes, 200 Historical contexts and complete Profile evidence before these additive edits. Each of 21 new notes receives ten predetermined continued inputs at nominal 250-ms spacing, independent of save observation. Twenty Team-editor and 42 Person-navigation samples are informational; 21 durable-commit samples retain the one-second p95 goal with a temporary enforced two-second ceiling.",
             richScale = richFixture is not null,
             heldExport = requireHeldExport is not null,
             actualRichWorkload,
@@ -1309,7 +1309,7 @@ internal static partial class Program
                 goalMet = P95(durability) <= durabilityGoalMs,
                 budgetMs = durabilityCeilingMs,
                 budgetEnforced = true,
-                temporaryCeiling = richFixture is not null,
+                temporaryCeiling = true,
                 timingUse = "acceptance",
                 independentVerificationMs,
                 requestToPostCommitAcknowledgmentMs = richFixture is null ? null : durability,
@@ -1340,12 +1340,12 @@ internal static partial class Program
         if (P95(durability) > durabilityCeilingMs || committedDuringTyping.Any(value => !value))
             throw new InvalidOperationException($"Hosted ordinary note durability budget failed: local durability={P95(durability):F1} ms, " +
                 $"goal={durabilityGoalMs} ms ({(P95(durability) <= durabilityGoalMs ? "met" : "NOT met")}), " +
-                $"acceptance ceiling={durabilityCeilingMs} ms ({(richFixture is null ? "enforced" : "temporary, enforced")}), " +
+                $"acceptance ceiling={durabilityCeilingMs} ms (temporary, enforced), " +
                 $"editor/navigation informational p95={P95(editors):F1}/{P95(navigation):F1} ms, " +
                 $"all commits observed during typing={committedDuringTyping.All(value => value)}. See {resultPath}.");
         Console.WriteLine($"PASS: hosted SQLite note durability p95={P95(durability):F1} ms during continued typing; " +
             $"goal={durabilityGoalMs} ms ({(P95(durability) <= durabilityGoalMs ? "met" : "NOT met")}); " +
-            $"acceptance ceiling={durabilityCeilingMs} ms ({(richFixture is null ? "enforced" : "temporary, enforced")}); " +
+            $"acceptance ceiling={durabilityCeilingMs} ms (temporary, enforced); " +
             $"informational usable Team-editor/Person-navigation p95={P95(editors):F1}/{P95(navigation):F1} ms; exact note/owner drafts retained.");
         return saved;
     }

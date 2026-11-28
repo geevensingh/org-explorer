@@ -164,8 +164,8 @@ function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory,
             @($durability.samplesMs).Count -ne 21 -or @($durability.committedDuringTyping).Count -ne 21 -or
             @($durability.committedDuringTyping | Where-Object { $_ -isnot [bool] -or !$_ }).Count -or
             $note.addTeamNote.p95Ms -ne $editorP95 -or $note.personNavigation.p95Ms -ne $navigationP95 -or
-            $durability.p95Ms -ne $durabilityP95 -or $durabilityP95 -gt 1050 -or
-            $durability.budgetMs -isnot [ValueType] -or $durability.budgetMs -is [bool] -or $durability.budgetMs -ne 1050 -or
+            $durability.p95Ms -ne $durabilityP95 -or $durabilityP95 -gt 2000 -or
+            $durability.budgetMs -isnot [ValueType] -or $durability.budgetMs -is [bool] -or $durability.budgetMs -ne 2000 -or
             $durability.goalMs -isnot [ValueType] -or $durability.goalMs -is [bool] -or $durability.goalMs -ne 1000 -or
             $durability.goalMet -isnot [bool] -or
             $durability.goalMet -ne ($durabilityP95 -le 1000) -or
@@ -173,7 +173,7 @@ function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory,
             $durability.temporaryCeiling -isnot [bool] -or !$durability.temporaryCeiling -or
             $durability.timingUse -cne 'acceptance' -or
             $durability.independentVerificationScope -cne 'fresh-final-prefix-owner-and-exact-writing' -or
-            $durability.continuedEditsPerNote -ne 6 -or $durability.nominalEditSpacingMs -ne 250) {
+            $durability.continuedEditsPerNote -ne 10 -or $durability.nominalEditSpacingMs -ne 250) {
             throw 'Combined original normal/held-export 20/42/21 continuous-typing proof is incomplete or nonaccepting.'
         }
     }

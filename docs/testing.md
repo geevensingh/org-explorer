@@ -992,7 +992,10 @@ contracts below cover the remaining failure/close behavior.
 Ongoing selection, inherited Team context, actual Person switches during a real
 SQLite writer lock, newer typing, failure/retry identity and scoped discard. Continued
 typing must produce multiple independently reopened committed values before idle,
-including a first ordinary small-fixture commit within one second.
+including a first ordinary small-fixture commit within the owner-approved
+temporary two-second ceiling. Its 36 fixed 60-ms iterations retain repeated
+durable progress during typing and exact final writing; the one-second goal
+and production save/stall clocks are unchanged.
 Public workflow wrappers also hold an actual successful SQLite SaveNoteDraft
 return after commit in both scopes. Typing in that gap must not reinstall the
 old base; the coordinator installs its accepted successor before retaining newer
@@ -1023,8 +1026,9 @@ The existing hosted `compatibility-settings` tail additionally exercises twenty
 distinct Team creations and one Person creation, continuous writing and immediate
 report/Manager switches. It records informational p95 from actual native interaction
 to a new writable, visible, keyboard-focused editor or usable selected Person, and
-requires one second from ordinary typing to independently reopened committed writing covering
-that request while typing continues. Its `*-sqlite-note-latency.json` records exact
+requires the temporary two-second ceiling from ordinary typing to independently
+reopened committed writing covering that request while typing continues,
+retaining the one-second goal. Its `*-sqlite-note-latency.json` records exact
 candidate/run/attempt/product hash, environment, samples, boundaries and nearest-rank
 percentiles; named editing/reopened captures retain actual desktop evidence.
 These ordinary two-Person observations are not #100's combined rich 10,000-Person
@@ -1504,16 +1508,18 @@ permanent missing/wrong values and provider failures still fail without new
 deadlines, repeated actions or changes to profile Save/Cancel/read-only behavior.
 
 `NoteCommitObservation` independently reopens the real Workspace through the
-workflow while native navigation and twenty predetermined continued edits
-proceed at nominal 60-ms spacing. This includes all original first six edits;
+workflow while native navigation and 36 predetermined continued edits
+proceed at nominal 60-ms spacing in the small native journey. This includes
+the original first twenty edits;
 the sequence never stops early or changes cadence based on save observation.
 Every native Markdown request has start/completion timing, and typing ends at
 the final actual SetValue completion, not after a trailing sleep or idle wait.
-The first-to-last continued edit must span the full one-second observation
+The first-to-last continued edit must span the full two-second acceptance
 window. The former subsecond six-edit burst could end before an otherwise
 in-budget complete reopen, so it did not establish the sustained-writing setup.
-This workload correction does not change any native sample count or latency
-budget. The observer timestamps
+The owner-approved ceiling change extends only the fixed typing window, not
+the 20/42/21 native sample counts, save-request clock or worker budgets.
+The observer timestamps
 the first coherent committed writing covering the original request instead of
 waiting for unrelated UIA assertions before beginning observation. A real-storage
 regression makes the first actual reader deliberately slow, continues both
@@ -1531,11 +1537,12 @@ The latency JSON retains all original raw arrays, p95, budgets and boundaries
 observation poll/read counts, cumulative reopen-read time, typing-completion
 timestamps and observed-during-typing flags. All commits must be observed before
 the continued-typing sequence completes.
-`localDurability.continuedEditsPerNote` (20), `nominalEditSpacingMs` (60),
+`localDurability.continuedEditsPerNote` (36), `nominalEditSpacingMs` (60),
 `continuedEditRequestStartedMs` and `continuedEditRequestCompletedMs` retain the
-fixed plan and all 21 by 20 actual action timings. Each original
+fixed plan and all 21 by 36 actual action timings. Each original
 `typingCompletedMs` equals the corresponding final request completion.
-The shared fixed sequence also drives a real-storage regression in both scopes.
+The shared helper's original twenty-edit default still drives a separate
+real-storage regression in both scopes.
 Under the owner-approved non-UI policy correction (2026-11-16), its controlled
 450-ms first-reader delay and fixed 20 edits/60-ms spacing remain, but the
 independent observer must find the exact final intended title/writing, note
@@ -1557,10 +1564,9 @@ Optional `localDurability.observerAdmittedMs`, `firstReadStartedMs` and
 21 raw totals. Queueing and read/validation are included, never deducted; these
 are observation boundaries, not a database-only commit timestamp or proof of
 a slow-write root cause. Neither delayed collection nor instrumentation can
-satisfy the native durability/during-typing assertions. Small-fixture note p95
-remains enforced at 1,000 ms; only the rich normal/held-export note phases use
-the temporarily enforced 1,050-ms ceiling described below, retaining the
-1,000-ms goal.
+satisfy the native durability/during-typing assertions. Small/rich native note
+p95 uses the temporarily enforced 2,000-ms ceiling described below, retaining
+the 1,000-ms goal and every during-typing flag.
 The invisible compiled selection also records twenty actual note Add handlers,
 layout, Person selection and independently reopened commits under a clearly
 labelled `DIAGNOSTIC` marker. Those timings decompose local product work; they
@@ -3312,7 +3318,7 @@ search and normal Closed without creating a native window. It does not replace
 the hosted rich lifecycle, change its 180-second readiness observation or extend
 the whole 660-second scale budget.
 
-Rich ordinary typing uses six predetermined inputs at nominal 250-ms spacing,
+Rich ordinary typing uses ten predetermined inputs at nominal 250-ms spacing,
 not a new 60-ms stress deadline. Raw native request/observation arrays, nearest-rank
 `ceil(0.95 * count)` p95, sample counts, exact candidate/run/attempt, product EXE/
 assembly and host hashes, environment and monotonic clock boundaries are retained
@@ -3322,17 +3328,19 @@ informational editor/navigation timings so functional validation can finish
 without further performance work. Their historical 100-ms `budgetMs` references
 remain, with `budgetEnforced: false` and `timingUse: informational`; every sample,
 percentile and functional usable-state assertion is retained. Ordinary
-durable-save p95 retains its 1,000-ms goal. On 2026-11-24 the owner approved a
-temporary 1,050-ms **enforced** ceiling only for these rich ordinary note saves
-in both `normal-executable` and `background-export`. The note result contract
-records `localDurability.goalMs: 1000`, `budgetMs: 1050`,
+durable-save p95 retains its 1,000-ms goal. On 2026-11-27 the owner approved a
+temporary 2,000-ms **enforced** ceiling for small-fixture first commits and
+native small/rich note saves, including both `normal-executable` and
+`background-export`. It supersedes the earlier 1,050-ms rich-only ceiling. The note result contract
+records `localDurability.goalMs: 1000`, `budgetMs: 2000`,
 `budgetEnforced: true`, `temporaryCeiling: true` and `timingUse: acceptance`.
 `goalMet` is computed from the original nearest-rank p95 against 1,000 ms; an
 accepted p95 above the goal must report `goalMet: false`, not claim one-second
 success. The union recomputes p95 from all 21 raw samples and requires this exact
-policy metadata in both phases. At 1,050 ms it accepts; above it, it rejects.
-All commits must still be observed during continued typing. Profile saves,
-small-fixture note/first-commit one-second checks, queue-inclusive three-second
+policy metadata in both phases. At 2,000 ms it accepts; above it, it rejects.
+All commits must still be observed during continued typing. Fixed small/rich
+typing windows span at least two seconds without save-conditioned inputs,
+trailing sleeps or idle waits. Profile-save one-second checks, queue-inclusive three-second
 stall, held-adoption capture proof and both 660-second worker budgets are
 unchanged. This is temporary acceptance pending later optimization/review, not
 informational-only durability or authority to increase another limit. Historical

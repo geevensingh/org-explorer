@@ -29,7 +29,7 @@ try {
     $goal = [regex]::Match($notes,
         '(?m)^\s*(?<body>const int durabilityGoalMs = \d+;)').Groups['body'].Value
     $ceiling = [regex]::Match($notes,
-        '(?m)^\s*(?<body>var durabilityCeilingMs = richFixture is null \? durabilityGoalMs : \d+;)').Groups['body'].Value
+        '(?m)^\s*(?<body>const int durabilityCeilingMs = \d+;)').Groups['body'].Value
     $report = [regex]::Match($notes,
         '(?ms)^\s*Console\.WriteLine\((?<body>\$"PASS: hosted SQLite note durability.+?)\);\r?$').Groups['body'].Value
     if (!$percentile -or !$condition -or !$goal -or !$ceiling -or !$report) { throw 'The actual note-latency verdict/report could not be inspected.' }
@@ -47,7 +47,6 @@ public static class $typeName {
         var navigation = new List<double> { person };
         var durability = new List<double>(commits);
         var committedDuringTyping = new[] { duringTyping };
-        $goal
         $ceiling
         $percentile
         return $condition;
@@ -65,35 +64,35 @@ public static class $typeName {
 }
 "@
     if ($policy::Reject(102.4401, 120.0399, 228.7048, $true, $false) -or
-        $policy::Reject(3000, 3000, 1000, $true, $false) -or
-        !$policy::Reject(1, 1, 1000.1, $true, $false) -or
+        $policy::Reject(3000, 3000, 2000, $true, $false) -or
+        !$policy::Reject(1, 1, 2000.1, $true, $false) -or
         !$policy::Reject(1, 1, 228.7048, $false, $false)) {
-        throw 'Editor/navigation timings must be informational; one-second durability and during-typing commits must still fail closed.'
+        throw 'Editor/navigation timings must be informational; two-second durability and during-typing commits must still fail closed.'
     }
     foreach ($case in @(
-        @{ p95 = 1034.3852; rejected = $false },
-        @{ p95 = 1049.9999; rejected = $false },
-        @{ p95 = 1050.0; rejected = $false },
-        @{ p95 = 1050.0001; rejected = $true }
+        @{ p95 = 1877.8; rejected = $false },
+        @{ p95 = 1999.9999; rejected = $false },
+        @{ p95 = 2000.0; rejected = $false },
+        @{ p95 = 2000.0001; rejected = $true }
     )) {
         # Rank 20/21 is the proposed p95; a single larger last sample is not another gate.
         $samples = [double[]](@(1) * 19 + @($case.p95, ($case.p95 + 20)))
         if ($policy::RejectSeries(3000, 3000, $samples, $true, $true) -ne $case.rejected) {
             throw "Actual rich note p95 verdict disagrees at $($case.p95) ms."
         }
-        if (!$policy::RejectSeries(1, 1, $samples, $true, $false) -or
+        if ($policy::RejectSeries(1, 1, $samples, $true, $false) -ne $case.rejected -or
             !$policy::RejectSeries(1, 1, $samples, $false, $true)) {
-            throw 'The temporary rich ceiling must not relax small-fixture durability or any during-typing requirement.'
+            throw 'The temporary note ceiling must agree for small/rich fixtures and retain every during-typing requirement.'
         }
     }
-    $overGoal = $policy::Report(1034.3852, $true)
+    $overGoal = $policy::Report(1877.8, $true)
     if (!$overGoal.Contains('goal=1000 ms (NOT met)') -or
-        !$overGoal.Contains('acceptance ceiling=1050 ms (temporary, enforced)') -or
+        !$overGoal.Contains('acceptance ceiling=2000 ms (temporary, enforced)') -or
         !$policy::Report(1000, $true).Contains('goal=1000 ms (met)') -or
-        !$policy::Report(1000, $false).Contains('acceptance ceiling=1000 ms (enforced)')) {
-        throw 'Actual note reporting must distinguish meeting the1000ms goal from accepted temporary rich1050ms enforcement.'
+        !$policy::Report(1000, $false).Contains('acceptance ceiling=2000 ms (temporary, enforced)')) {
+        throw 'Actual note reporting must distinguish meeting the1000ms goal from accepted temporary2000ms enforcement.'
     }
-    Write-Host 'PASS: actual note verdict preserves informational editor/navigation and typing; small fixtures enforce1000ms, rich nearest-rank p95 accepts through temporary1050ms only.'
+    Write-Host 'PASS: actual note verdict preserves informational editor/navigation and typing; small/rich note p95 accepts through temporary2000ms without changing the1000ms goal.'
     $probe = Join-Path $results 'revision-probe'
     New-Item -ItemType Directory $probe | Out-Null
     '{"outcome":"success","revision":"stale"}' | Set-Content (Join-Path $probe 'result.json')

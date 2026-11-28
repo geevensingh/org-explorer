@@ -10,10 +10,10 @@ $checks = 0
 foreach ($phase in @('normal-executable', 'background-export')) {
     foreach ($case in @(
         @{ p95 = 1000.0; rejected = $false },
-        @{ p95 = 1034.3852; rejected = $false },
-        @{ p95 = 1049.9999; rejected = $false },
-        @{ p95 = 1050.0; rejected = $false },
-        @{ p95 = 1050.0001; rejected = $true }
+        @{ p95 = 1877.8; rejected = $false },
+        @{ p95 = 1999.9999; rejected = $false },
+        @{ p95 = 2000.0; rejected = $false },
+        @{ p95 = 2000.0001; rejected = $true }
     )) {
         $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
         $notePath = Join-Path $fixture.prefix "$($fixture.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
@@ -48,8 +48,8 @@ foreach ($phase in @('normal-executable', 'background-export')) {
         }
         $checks++
     }
-    foreach ($defect in @('goal', 'goal-type', 'goal-met', 'ceiling', 'ceiling-type', 'temporary', 'enforced', 'informational',
-        'missing-goal', 'verification-count', 'verification-scope')) {
+    foreach ($defect in @('goal', 'goal-type', 'goal-met', 'ceiling', 'old-ceiling', 'ceiling-type', 'typing-count',
+        'temporary', 'enforced', 'informational', 'missing-goal', 'verification-count', 'verification-scope')) {
         $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
         $notePath = Join-Path $fixture.prefix "$($fixture.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
         $note = Get-Content $notePath -Raw | ConvertFrom-Json
@@ -57,8 +57,10 @@ foreach ($phase in @('normal-executable', 'background-export')) {
             'goal' { $note.localDurability.goalMs = 1050 }
             'goal-type' { $note.localDurability.goalMs = $true }
             'goal-met' { $note.localDurability.goalMet = $false }
-            'ceiling' { $note.localDurability.budgetMs = 1051 }
+            'ceiling' { $note.localDurability.budgetMs = 2001 }
+            'old-ceiling' { $note.localDurability.budgetMs = 1050 }
             'ceiling-type' { $note.localDurability.budgetMs = $true }
+            'typing-count' { $note.localDurability.continuedEditsPerNote = 6 }
             'temporary' { $note.localDurability.temporaryCeiling = $false }
             'enforced' { $note.localDurability.budgetEnforced = $false }
             'informational' { $note.localDurability.timingUse = 'informational' }

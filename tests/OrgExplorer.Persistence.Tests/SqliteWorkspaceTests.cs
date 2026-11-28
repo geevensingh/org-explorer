@@ -1325,7 +1325,8 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
         var observed = new HashSet<string>();
         TimeSpan? firstCommit = null;
-        for (var index = 0; index < 25; index++)
+        const int typingCount = 36;
+        for (var index = 0; index < typingCount; index++)
         {
             app.UpdateNoteDraft(scope, draft.Id, "Continuous context", $"Continuous writing {index:D2}");
             await Task.Delay(60);
@@ -1339,12 +1340,12 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
             }
         }
         Assert.NotNull(firstCommit);
-        Assert.True(firstCommit <= TimeSpan.FromSeconds(1), $"First ordinary local commit took {firstCommit}.");
+        Assert.True(firstCommit <= TimeSpan.FromSeconds(2), $"First ordinary local commit took {firstCommit}; acceptance ceiling is two seconds.");
         Assert.True(observed.Count >= 3, "Continuous typing must make repeated durable progress, not wait until idle.");
         Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
-        Assert.Equal("Continuous writing 24", reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id)!.Markdown);
+        Assert.Equal($"Continuous writing {typingCount - 1:D2}", reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id)!.Markdown);
     }
 
     [Theory]
