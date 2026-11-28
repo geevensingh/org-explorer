@@ -223,6 +223,13 @@ A failure emits `TREE-SCALE-REALIZATION` and attempts one existing window
 screenshot/JSON pair; input count, predicates and 180/660-second budgets remain
 unchanged, including diagnostic overhead. This is not a repair or native proof.
 
+The compiled tree replay exercises WPF's actual item storage and container
+preparation after a recycled row's DataContext is restored. Stale cached
+`IsExpanded` must neither collapse completed logical expansion nor resurrect a
+recursively collapsed branch. Restoration synchronizes only that item's cached
+expansion value with the current logical state; selection, other
+stored properties, native inputs and the full scale deadlines are unchanged.
+
 ## Placement
 
 | Category | Observes | Examples and limits |

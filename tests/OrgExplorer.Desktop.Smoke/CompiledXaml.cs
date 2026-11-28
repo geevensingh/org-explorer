@@ -4084,11 +4084,13 @@ internal static partial class Program
         child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
         if (child.IsExpanded)
             throw new InvalidOperationException("Later realization restored old nested expansion after recursive collapse.");
+        ((IContainItemStorage)container).StoreItemValue(manager.Reports.Single(), TreeViewItem.IsExpandedProperty, true);
         child.DataContext = sibling;
         if (!child.IsExpanded)
             throw new InvalidOperationException("A recycled row did not adopt the next Person's remembered expansion.");
         child.DataContext = manager.Reports.Single();
-        if (child.IsExpanded)
+        ((IItemContainerGenerator)container.ItemContainerGenerator).PrepareItemContainer(child);
+        if (child.IsExpanded || model.PeopleNavigation.ExpandedPeople.Contains(manager.Reports.Single().Person.Email))
             throw new InvalidOperationException("A recycled row resurrected the recursively reset Person's expansion.");
         if (command.CanExecute("alex@example.com", child))
             throw new InvalidOperationException("A leaf must not expose a no-op Collapse subtree command.");
@@ -4268,10 +4270,16 @@ internal static partial class Program
             model.GetRetainedNoteDraft(NoteScope.Person, model.PersonNotesView.SelectedNote!.Id) != noteDraft ||
             model.OperationError != beforeError || Control<TextBox>("OfficeNumber").Text != "  Compiled independent profile writing\r\n")
             throw new InvalidOperationException("Compiled full expansion lost nested/current rows, action availability or independent owner writing.");
+        var expandedChild = manager.Reports.Single();
+        ((IContainItemStorage)container).StoreItemValue(expandedChild, TreeViewItem.IsExpandedProperty, false);
         child.DataContext = sibling;
-        child.DataContext = manager.Reports.Single();
-        if (!child.IsExpanded)
-            throw new InvalidOperationException("A recycled row did not retain completed subtree expansion.");
+        child.DataContext = expandedChild;
+        ((IItemContainerGenerator)container.ItemContainerGenerator).PrepareItemContainer(child);
+        Layout();
+        Console.WriteLine($"TREE-PREPARE-EXPANSION rendered={child.IsExpanded}; " +
+            $"logical={model.PeopleNavigation.ExpandedPeople.Contains(expandedChild.Person.Email)}.");
+        if (!child.IsExpanded || !model.PeopleNavigation.ExpandedPeople.Contains(expandedChild.Person.Email))
+            throw new InvalidOperationException("WPF container preparation restored stale collapsed state over completed subtree expansion.");
         Layout(700, 500);
         Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Layout(700, 500);

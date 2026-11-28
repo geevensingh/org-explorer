@@ -2,6 +2,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using Microsoft.Win32;
 using OrgExplorer.Workflow;
 
@@ -445,6 +446,10 @@ public partial class MainWindow : Window
     private void RestoreTreeItem(object sender, RoutedEventArgs e)
     {
         if (sender is not TreeViewItem item || item.DataContext is not ReportingNode node) return;
+        var expanded = expandedPeople.Contains(node.Person.Email);
+        // WPF reapplies saved values, or discards uncached local values, during preparation.
+        if (ItemsControl.ItemsControlFromItemContainer(item) is IContainItemStorage storage)
+            storage.StoreItemValue(node, TreeViewItem.IsExpandedProperty, expanded);
         if (!treeRestorers.TryGetValue(item, out _))
         {
             treeRestorers.Add(item, new object());
@@ -463,7 +468,7 @@ public partial class MainWindow : Window
         loading = true;
         try
         {
-            item.IsExpanded = expandedPeople.Contains(node.Person.Email);
+            item.IsExpanded = expanded;
             item.IsSelected = string.Equals(node.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase);
         }
         finally { loading = wasLoading; }
