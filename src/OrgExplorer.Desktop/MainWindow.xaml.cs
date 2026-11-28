@@ -445,7 +445,11 @@ public partial class MainWindow : Window
     }
     private void RestoreTreeItem(object sender, RoutedEventArgs e)
     {
-        if (sender is not TreeViewItem item || item.DataContext is not ReportingNode node) return;
+        if (sender is TreeViewItem item) RestoreTreeItem(item, restoreSelection: true);
+    }
+    private void RestoreTreeItem(TreeViewItem item, bool restoreSelection)
+    {
+        if (item.DataContext is not ReportingNode node) return;
         var expanded = expandedPeople.Contains(node.Person.Email);
         // WPF reapplies saved values, or discards uncached local values, during preparation.
         if (ItemsControl.ItemsControlFromItemContainer(item) is IContainItemStorage storage)
@@ -469,7 +473,8 @@ public partial class MainWindow : Window
         try
         {
             item.IsExpanded = expanded;
-            item.IsSelected = string.Equals(node.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase);
+            if (restoreSelection)
+                item.IsSelected = string.Equals(node.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase);
         }
         finally { loading = wasLoading; }
     }

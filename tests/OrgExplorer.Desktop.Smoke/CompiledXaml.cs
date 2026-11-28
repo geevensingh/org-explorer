@@ -4273,7 +4273,13 @@ internal static partial class Program
         var previousChild = child;
         ((IItemContainerGenerator)container.ItemContainerGenerator).RemoveAll();
         ((IContainItemStorage)container).StoreItemValue(manager.Reports.Single(), TreeViewItem.IsExpandedProperty, false);
-        Layout();
+        var preparationSelections = 0;
+        RoutedEventHandler selectedDuringPreparation = (_, _) => preparationSelections++;
+        tree.AddHandler(TreeViewItem.SelectedEvent, selectedDuringPreparation);
+        try { Layout(); }
+        finally { tree.RemoveHandler(TreeViewItem.SelectedEvent, selectedDuringPreparation); }
+        if (preparationSelections != 0)
+            throw new InvalidOperationException("Cold container preparation selected a Person before the original guarded reveal.");
         child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
         if (ReferenceEquals(child, previousChild))
             throw new InvalidOperationException("The cold preparation regression reused an already-restored container.");
