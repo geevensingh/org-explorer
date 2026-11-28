@@ -84,7 +84,7 @@ public partial class MainWindow
             StatusText.Text = workflow.PeopleTreeActionFeedback;
             return;
         }
-        pendingSearchRevealEmail = null;
+        pendingPeopleRevealEmail = null;
         peopleBrowseRequest++;
         treeExpansionTarget = target;
         ShowTreeExpansion();
@@ -217,7 +217,7 @@ public partial class MainWindow
                     context = workflow.GetRelationships(manager.Email);
                 }
             }
-            pendingSearchRevealEmail = null;
+            pendingPeopleRevealEmail = null;
             peopleBrowseRequest++;
             RestoreRealizedTreeState(PeopleList);
             target.BringIntoView(new Rect(0, 0, 1, Math.Min(28, target.ActualHeight)));

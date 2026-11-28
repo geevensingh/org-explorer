@@ -240,6 +240,8 @@ internal static partial class Program
                     VerifyHostedOrdinaryFixtureStateContracts(type, Path.Combine(settings, "os")));
                 HarnessRuntime.Run("compiled-current-search-storage", () =>
                     VerifyCurrentSearchStorage(type, Path.Combine(settings, "cs")));
+                HarnessRuntime.Run("compiled-automatic-people-reading", () =>
+                    VerifyAutomaticPeopleReading(type, Path.Combine(settings, "pr")));
                 HarnessRuntime.Run("compiled-note-read-demand", () =>
                     VerifyNoteReadDemand(type, Path.Combine(settings, "nd")));
                 HarnessRuntime.Run("compiled-actual39-functional", () =>
@@ -2116,6 +2118,575 @@ internal static partial class Program
             throw new InvalidOperationException("Empty-reading scroll proof must remain invisible without a native main-window handle.");
     }
 
+    private static void VerifyAutomaticPeopleReading(Type windowType, string root)
+    {
+        VerifyAutomaticRefreshSearch(windowType, root, compact: false);
+        VerifyAutomaticRefreshSearch(windowType, root, compact: true);
+        VerifyAutomaticRefreshSearch(windowType, root, compact: false, reviewedImport: true);
+        foreach (var historical in new[] { false, true })
+            foreach (var import in new[] { false, true })
+                VerifyReturningRememberedContext(windowType, root, historical, import);
+        VerifyAutomaticPeopleReading(windowType, root, importRetry: true);
+        VerifyAutomaticPeopleReading(windowType, root, importRetry: true, invalidateReview: true);
+        VerifyAutomaticPeopleReading(windowType, root, importRetry: false);
+        VerifyAutomaticPeopleReading(windowType, root, importRetry: false, recoveryScope: NoteScope.Person);
+        VerifyAutomaticPeopleReading(windowType, root, importRetry: false, recoveryScope: NoteScope.Team);
+    }
+
+    private static void VerifyReturningRememberedContext(Type windowType, string root, bool historical, bool import)
+    {
+        var path = Path.Combine(root, $"returning-context-{historical}-{import}");
+        WorkspaceFixtures.CopyCurrent(path);
+        var preferencesPath = Path.Combine(Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY")!,
+            "workspace-settings.json");
+        var settings = new WorkspaceSettings(preferencesPath);
+        Guid noteId;
+        Guid? captureId = null;
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(path)) throw new InvalidOperationException(seed.Status);
+            noteId = seed.CreateTeamNote("casey@example.com", "Context", "Context")!.Id;
+            seed.CreateTeamNote("avery@example.com", "Own reading", "Not the remembered context");
+            if (historical)
+            {
+                if (!seed.EditPersonManager("avery@example.com", null)) throw new InvalidOperationException(seed.Status);
+                captureId = seed.GetHistoricalTeamContexts("avery@example.com")
+                    .Single(capture => capture.TeamNotes.Any(note => note.Id == noteId)).Id;
+                if (!seed.EditTeamNote(noteId, "Later context", "Different current writing"))
+                    throw new InvalidOperationException(seed.Status);
+            }
+            var archived = string.Join(",", seed.People.Select(person =>
+                $$"""{"email":"{{person.Email}}","archived":true}"""));
+            if (!seed.ApplyImport(seed.PreviewImport(SearchImport(archived, 911)).Id))
+                throw new InvalidOperationException(seed.Status);
+        }
+        var remembered = new RememberedView("avery@example.com",
+            historical ? SearchSource.HistoricalTeamNote : SearchSource.InheritedTeamNote,
+            noteId, "casey@example.com", captureId);
+        if (!settings.SetLastView(path, remembered)) throw new InvalidOperationException(settings.PreferenceError);
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic,
+            null, [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => path)], null)!;
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+        try
+        {
+            Invoke("OpenSettingsButton");
+            Invoke("OpenWorkspaceButton");
+            PumpUntil(() => model.IsWorkspaceCurrent && Control<Button>("OpenWorkspaceButton").IsEnabled);
+            if (model.PeopleNavigation.SelectedEmail is not null || model.ViewRecoveryFeedback is null)
+                throw new InvalidOperationException("Returning-context fixture did not start with an unavailable remembered Person.");
+            var content = (FrameworkElement)window.Content;
+            content.Measure(new Size(1100, 900));
+            content.Arrange(new Rect(0, 0, 1100, 900));
+            content.UpdateLayout();
+            Control<TextBox>("SearchQuery").Text = "Context";
+            Invoke("OpenSettingsButton");
+            Invoke("OpenImportButton");
+            var preferences = File.ReadAllBytes(preferencesPath);
+            var records = $$"""
+                {"email":"avery@example.com","archived":false,"managerEmail":{{(historical ? "null" : "\"alex@example.com\"")}}},
+                {"email":"alex@example.com","archived":false},
+                {"email":"casey@example.com","archived":false},
+                {"email":"higher@example.com","displayName":"A higher","managerEmail":null},
+                {"email":"one@example.com","displayName":"One","managerEmail":"higher@example.com"},
+                {"email":"two@example.com","displayName":"Two","managerEmail":"higher@example.com"}
+                """;
+            var batch = SearchImport(records, 910);
+            FocusManager.SetFocusedElement(window, Control<TextBox>("SearchQuery"));
+            if (import)
+            {
+                var source = path + "-returning.json";
+                File.WriteAllText(source, batch);
+                Control<TextBox>("ImportPath").Text = source;
+                Invoke("PreviewButton");
+                PumpUntil(() => Control<Button>("ApplyButton").IsEnabled);
+                Invoke("ApplyButton");
+            }
+            else
+            {
+                using var peer = OpenSmokeWorkspace(path);
+                if (!peer.ApplyImport(peer.PreviewImport(batch).Id) || !model.RefreshWorkspace())
+                    throw new InvalidOperationException(model.Status);
+            }
+            PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com" &&
+                Control<TextBlock>("WorkflowActivity").Text == "Ready");
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            var destination = model.PeopleNavigation.SelectedResult;
+            if (destination?.NoteId != noteId || destination.HistoricalContextId != captureId ||
+                destination.MatchText != "Context" ||
+                model.ViewRecoveryFeedback is not null || !model.IsImportOpen ||
+                Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Visible ||
+                Control<TextBox>("SearchQuery").Text != "Context" ||
+                FocusManager.GetFocusedElement(window) != Control<TextBox>("SearchQuery") ||
+                !preferences.SequenceEqual(File.ReadAllBytes(preferencesPath)))
+                throw new InvalidOperationException("Returning remembered context changed its exact destination, Import, search or preferences: " +
+                    $"historical={historical}; import={import}; note={destination?.NoteId}; capture={destination?.HistoricalContextId}; " +
+                    $"recovery={model.ViewRecoveryFeedback}; importOpen={model.IsImportOpen}; " +
+                    $"panel={Control<FrameworkElement>("ImportPanel").Visibility}; query={Control<TextBox>("SearchQuery").Text}; " +
+                    $"preferencesUnchanged={preferences.SequenceEqual(File.ReadAllBytes(preferencesPath))}.");
+            var team = Control<UserControl>("TeamNotes");
+            if (historical ? !Control<Expander>("HistoryAccess").IsExpanded :
+                !((Expander)team.FindName("CurrentTeamContext")).IsExpanded)
+                throw new InvalidOperationException("Returning remembered context was resolved but its actual reading section remained closed.");
+            var reading = historical
+                ? Control<FlowDocumentScrollViewer>("HistoricalTeamReading")
+                : (FlowDocumentScrollViewer)team.FindName("InheritedReading");
+            var section = historical
+                ? reading.Document.Blocks.OfType<Section>().Single(block => Equals(block.Tag, captureId))
+                    .Blocks.OfType<Section>().Single(block => Equals(block.Tag, noteId))
+                : reading.Document.Blocks.OfType<Section>().Single(block => Equals(block.Tag, noteId));
+            var text = new TextRange(section.ContentStart, section.ContentEnd).Text;
+            if (!text.Contains("Context", StringComparison.Ordinal) ||
+                text.Contains("Different current writing", StringComparison.Ordinal))
+                throw new InvalidOperationException("Returning remembered context did not present its exact saved writing.");
+            Control<TextBox>("SearchQuery").Text = "No such note";
+            PumpUntil(() => !Control<ListBox>("SearchResults").HasItems &&
+                Control<TextBlock>("SearchCount").Text.StartsWith("People found: 0", StringComparison.Ordinal));
+            if (model.PeopleNavigation.SelectedResult != destination || model.PeopleNavigation.LastValidView != remembered)
+                throw new InvalidOperationException("An unrelated search discarded the automatically restored exact note destination.");
+            Control<TextBox>("SearchQuery").Clear();
+            PumpUntil(() => Control<TextBlock>("SearchCount").Text.StartsWith("Enter text to search", StringComparison.Ordinal));
+            if (model.PeopleNavigation.SelectedResult != destination)
+                throw new InvalidOperationException("Clearing search discarded the automatically restored exact note destination.");
+            LogicalDescendants(Control<FrameworkElement>("ImportPanel")).OfType<Button>()
+                .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (model.IsImportOpen || model.PeopleNavigation.SelectedResult != destination ||
+                !preferences.SequenceEqual(File.ReadAllBytes(preferencesPath)))
+                throw new InvalidOperationException("Returning to browsing lost the exact note destination or changed its saved preference.");
+            var next = model.ReportingRoots.Single(node => node.Person.Email == "higher@example.com");
+            Control<TreeView>("PeopleList").RaiseEvent(new RoutedPropertyChangedEventArgs<object>(
+                null!, next, TreeView.SelectedItemChangedEvent));
+            if (model.PeopleNavigation.SelectedEmail != "higher@example.com" ||
+                model.PeopleNavigation.SelectedResult is not null ||
+                new WorkspaceSettings(preferencesPath).GetLastView(path)?.PersonEmail != "higher@example.com")
+                throw new InvalidOperationException("Deliberate navigation did not replace the restored exact note destination.");
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Returning-context verification cannot create a native window.");
+            Console.WriteLine($"PASS: returning {(historical ? "frozen" : "inherited")} exact context is presented after " +
+                $"{(import ? "accepted Import" : "refresh")} without leaving Import, clearing search or changing preferences.");
+        }
+        finally
+        {
+            window.Close();
+            Invoke("CancelExitButton");
+            model.Dispose();
+        }
+    }
+
+    private static void VerifyAutomaticRefreshSearch(Type windowType, string root, bool compact, bool reviewedImport = false)
+    {
+        var path = Path.Combine(root, reviewedImport ? "refresh-search-reviewed" :
+            compact ? "refresh-search-compact" : "refresh-search-wide");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(path) || !seed.ApplyImport(seed.PreviewImport(SearchImport("""
+                {"email":"former@example.com","displayName":"Needle","managerEmail":null,"archived":true}
+                """, 907)).Id) || seed.CreatePersonNote("former@example.com", "Retained writing", "Exact private writing") is null)
+                throw new InvalidOperationException(seed.Status);
+        using var peer = new SmokeSnapshotPeer(path);
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+            [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => path)], null)!;
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+        try
+        {
+            Invoke("OpenSettingsButton");
+            Invoke("OpenWorkspaceButton");
+            PumpUntil(() => model.IsWorkspaceCurrent && Control<Button>("OpenWorkspaceButton").IsEnabled);
+            var content = (FrameworkElement)window.Content;
+            var size = compact ? new Size(700, 500) : new Size(1100, 900);
+            void Layout()
+            {
+                content.Measure(size);
+                content.Arrange(new Rect(size));
+                content.UpdateLayout();
+            }
+            Layout();
+            Control<TextBox>("SearchQuery").Text = "Needle";
+            PumpUntil(() => model.PeopleNavigation.HighlightedResult?.Person.Email == "former@example.com");
+            Invoke("OpenSettingsButton");
+            Invoke("OpenImportButton");
+            var import = path + "-import.json";
+            File.WriteAllText(import, SearchImport("""{"email":"former@example.com","jobTitle":"Unaccepted review"}""", 908));
+            Control<TextBox>("ImportPath").Text = import;
+            if (reviewedImport)
+            {
+                Invoke("PreviewButton");
+                PumpUntil(() => Control<Button>("ApplyButton").IsEnabled);
+            }
+            var preferences = Path.Combine(Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY")!,
+                "workspace-settings.json");
+            var saved = File.ReadAllBytes(preferences);
+            var initialRevision = model.Synchronization.LocalRevision;
+            peer.Publish(source => source.ApplyImport(source.PreviewImport(SearchImport(AutomaticRefreshSearchPeople(), 909)).Id));
+            Invoke("OpenSettingsButton");
+            var overlay = model.PeopleNavigation.OverlayOpen;
+            Invoke("SyncNowButton");
+            PumpUntil(() => Control<Button>("SyncNowButton").IsEnabled);
+            Invoke("OpenSettingsButton");
+            Layout();
+            if (!model.IsImportOpen || Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Visible ||
+                Control<TextBox>("ImportPath").Text != import || Control<TextBox>("SearchQuery").Text != "Needle" ||
+                model.PeopleNavigation.HighlightedResult?.Person.Email != "former@example.com" ||
+                model.PeopleNavigation.OverlayOpen != overlay || !saved.SequenceEqual(File.ReadAllBytes(preferences)))
+                throw new InvalidOperationException("Snapshot checking changed Import, search/highlight/overlay or saved preferences: " +
+                    $"compact={compact}; reviewed={reviewedImport}; import={model.IsImportOpen}; panel={Control<FrameworkElement>("ImportPanel").Visibility}; " +
+                    $"path='{Control<TextBox>("ImportPath").Text}'; query='{Control<TextBox>("SearchQuery").Text}'; " +
+                    $"highlight='{model.PeopleNavigation.HighlightedResult?.Person.Email}'; overlay={overlay}->{model.PeopleNavigation.OverlayOpen}; " +
+                    $"preferencesUnchanged={saved.SequenceEqual(File.ReadAllBytes(preferences))}.");
+            if (reviewedImport)
+            {
+                if (model.Synchronization.Error is not { } error || !error.Contains("Incoming version is waiting", StringComparison.Ordinal) ||
+                    model.Synchronization.LocalRevision != initialRevision || model.PeopleNavigation.SelectedEmail is not null ||
+                    Control<TextBlock>("Email").Text != "" || model.GetRelationships("shallow@example.com") is not null)
+                    throw new InvalidOperationException("An unapplied Import preview did not retain the original graph and explicit deferred-adoption error.");
+                if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                    throw new InvalidOperationException("Refresh-search verification cannot create a native window.");
+                Console.WriteLine("PASS: actual compiled unapplied Import review defers one incoming snapshot request without selecting unaccepted data.");
+                return;
+            }
+            if (model.Synchronization.Error is not null || Control<Button>("ApplyButton").IsEnabled)
+                throw new InvalidOperationException("Valid refresh retained a failure or enabled an unreviewed Import.");
+            LogicalDescendants(Control<FrameworkElement>("ImportPanel")).OfType<Button>()
+                .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Layout();
+            using var accepted = OpenSmokeWorkspace(path);
+            if (accepted.Synchronization.LocalRevision != peer.Workflow.Synchronization.LocalRevision)
+                throw new InvalidOperationException("The added refresh-search path did not accept its incoming snapshot: " +
+                    $"compact={compact}; email='{Control<TextBlock>("Email").Text}'; query='{Control<TextBox>("SearchQuery").Text}'; " +
+                    $"highlight='{model.PeopleNavigation.HighlightedResult?.Person.Email}'; selected='{model.PeopleNavigation.SelectedEmail}'; " +
+                    $"synchronization='{model.Synchronization.Error}'.");
+            PumpUntil(() => Control<TextBlock>("Email").Text == "shallow@example.com" &&
+                Control<TextBox>("SearchQuery").Text == "Needle");
+            if (compact && Control<FrameworkElement>("PeoplePanel").Visibility != Visibility.Visible)
+                Invoke("OpenPeopleButton");
+            if (model.PeopleNavigation.HighlightedResult?.Person.Email != "former@example.com" ||
+                model.PersonNotesView.OwnerEmail != "shallow@example.com" || model.TeamNotesView.OwnerEmail != "shallow@example.com" ||
+                model.ProfileEdit is not null || model.PersonNotesView.IsEditing || model.TeamNotesView.IsEditing)
+                throw new InvalidOperationException("Automatic refresh activated a search match or failed to open ordinary Person reading.");
+            Control<TextBox>("SearchQuery").Text = "";
+            PumpUntil(() =>
+            {
+                Layout();
+                var tree = Control<TreeView>("PeopleList");
+                var row = VisualDescendants(tree).OfType<TreeViewItem>().SingleOrDefault(item =>
+                    item.DataContext is ReportingNode node && node.Person.Email == "shallow@example.com");
+                if (row is not { IsSelected: true }) return false;
+                var header = VisualDescendants(row).OfType<TextBlock>().FirstOrDefault(text => text.Text == "Z shallow Manager");
+                if (header is null) return false;
+                var bounds = header.TransformToAncestor(tree).TransformBounds(new Rect(header.RenderSize));
+                return !bounds.IsEmpty && bounds.Left >= 0 && bounds.Right <= tree.ActualWidth &&
+                    bounds.Top >= 0 && bounds.Bottom <= tree.ActualHeight;
+            });
+            var ancestor = VisualDescendants(Control<TreeView>("PeopleList")).OfType<TreeViewItem>().Single(item =>
+                item.DataContext is ReportingNode node && node.Person.Email == "z-root@example.com");
+            if (!ancestor.IsExpanded || !saved.SequenceEqual(File.ReadAllBytes(preferences)) ||
+                accepted.GetRelationships("former@example.com")!.Person.JobTitle is not null ||
+                accepted.GetPersonNotes("former@example.com", true).Single().Markdown != "Exact private writing" ||
+                accepted.GetPersonNotes("shallow@example.com", true).Count != 0 ||
+                accepted.GetTeamNotes("shallow@example.com", true).Count != 0)
+                throw new InvalidOperationException("Deferred reveal changed the unreviewed input, notes, preferences or expanded ancestor.");
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Refresh-search verification cannot create a native window.");
+            Console.WriteLine($"PASS: actual compiled {(compact ? "compact" : "wide")} refresh accepts the exact peer revision, retains Import/search and reveals its selected header without replacing preferences or writing.");
+        }
+        finally
+        {
+            window.Close();
+            Invoke("CancelExitButton");
+            model.Dispose();
+        }
+    }
+
+    private static void VerifyAutomaticPeopleReading(Type windowType, string root, bool importRetry,
+        bool invalidateReview = false, NoteScope? recoveryScope = null)
+    {
+        var path = Path.Combine(root, recoveryScope is { } scope ? $"remembered-{scope}-recovery" :
+            invalidateReview ? "automatic-import-invalidated" :
+            importRetry ? "automatic-import-reading" : "automatic-reading");
+        var email = recoveryScope is not null ? "avery@example.com" : importRetry ? "morgan@example.com" : "casey@example.com";
+        var heading = recoveryScope is not null ? "Avery" : importRetry ? "Morgan Example" : "Casey";
+        var ancestorEmail = importRetry ? "z-context@example.com" : "anchor@example.com";
+        var records = (importRetry ? """
+            {"email":"z-context@example.com","displayName":"Z single-report ancestor","managerEmail":null},
+            {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"z-context@example.com"},
+            {"email":"avery@example.com","displayName":"Avery Example","managerEmail":"morgan@example.com"},
+            {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
+            {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+            """ : """
+            {"email":"anchor@example.com","displayName":"Z ancestor","managerEmail":null},
+            {"email":"casey@example.com","displayName":"Casey","managerEmail":"anchor@example.com"},
+            {"email":"avery@example.com","displayName":"Avery","managerEmail":"casey@example.com"},
+            {"email":"second@example.com","displayName":"Second","managerEmail":"casey@example.com"},
+            """) + string.Join(",", Enumerable.Range(0, 24).Select(i =>
+                $$"""{"email":"context{{i:00}}@example.com","displayName":"A context {{i:00}}","managerEmail":null}"""));
+        RememberedView? remembered = null;
+        byte[]? preferences = null;
+        var preferencesPath = Path.Combine(Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY")!,
+            "workspace-settings.json");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(path) || !importRetry && !seed.ApplyImport(seed.PreviewImport(SearchImport(records, 902)).Id))
+                throw new InvalidOperationException(seed.Status);
+            if (recoveryScope is { } noteScope)
+            {
+                var settings = ReadSmokeWorkspacePreferences();
+                if (!settings.OpenWorkspace(seed, path)) throw new InvalidOperationException(seed.Status);
+                var person = seed.CreatePersonNote(email, "Person ongoing", "Never substitute this Person writing") ??
+                    throw new InvalidOperationException(seed.Status);
+                var team = seed.CreateTeamNote(email, "Team ongoing", "Never substitute this Team writing") ??
+                    throw new InvalidOperationException(seed.Status);
+                var archived = seed.CreatePersonNote(email, "Archived exact note", "Retained archived writing") ??
+                    throw new InvalidOperationException(seed.Status);
+                if (!seed.ArchivePersonNote(archived.Id)) throw new InvalidOperationException(seed.Status);
+                remembered = new(email, noteScope == NoteScope.Person ? SearchSource.PersonNote : SearchSource.OwnedTeamNote,
+                    noteScope == NoteScope.Person ? archived.Id : Guid.NewGuid(), email);
+                if (!settings.SetOngoingNote(path, NoteScope.Person, email, person.Id) ||
+                    !settings.SetOngoingNote(path, NoteScope.Team, email, team.Id) ||
+                    !settings.SetLastView(path, remembered))
+                    throw new InvalidOperationException(settings.PreferenceError);
+                preferences = File.ReadAllBytes(preferencesPath);
+            }
+        }
+        var writing = recoveryScope is not null ? WorkspaceFixtures.Bytes(path) : null;
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+            [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => path)], null)!;
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        try
+        {
+            Invoke("OpenSettingsButton");
+            Invoke("OpenWorkspaceButton");
+            PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready" &&
+                Control<TextBlock>("Email").Text == (importRetry ? "" : email));
+            var content = (FrameworkElement)window.Content;
+            var observedBringExtents = new List<double>();
+            var observedTree = Control<TreeView>("PeopleList");
+            VirtualizingPanel.SetCacheLength(observedTree, new VirtualizationCacheLength(0));
+            observedTree.AddHandler(FrameworkElement.RequestBringIntoViewEvent, new RequestBringIntoViewEventHandler((_, request) =>
+            {
+                if (request.TargetObject is TreeViewItem { DataContext: ReportingNode node } &&
+                    node.Person.Email == email && !request.TargetRect.IsEmpty && request.TargetRect.Width == 1)
+                    observedBringExtents.Add(VisualDescendants(observedTree).OfType<ScrollViewer>().First().ExtentHeight);
+            }), handledEventsToo: true);
+            void Settle()
+            {
+                var settled = false;
+                window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+                PumpUntil(() => settled);
+            }
+            void Layout(Size? requestedSize = null)
+            {
+                var size = requestedSize ?? (importRetry ? new Size(1024, 697) : new Size(1100, 736));
+                content.Measure(size);
+                content.Arrange(new Rect(size));
+                content.UpdateLayout();
+                Settle();
+                content.UpdateLayout();
+                Settle();
+            }
+            Layout();
+            if (importRetry)
+            {
+                var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+                var import = Path.Combine(root, "automatic-import.json");
+                File.WriteAllText(import, SearchImport(records, 903));
+                void RequestPreview()
+                {
+                    Invoke("OpenSettingsButton");
+                    Invoke("OpenImportButton");
+                    Control<TextBox>("ImportPath").Text = import;
+                    Invoke("PreviewButton");
+                }
+                void AwaitPreview(bool settleReview = false)
+                {
+                    var observedApplicable = false;
+                    var reviewSettled = false;
+                    PumpUntil(() =>
+                    {
+                        var applicable = Control<Button>("ApplyButton").IsEnabled;
+                        if (settleReview && applicable && !observedApplicable)
+                        {
+                            observedApplicable = true;
+                            window.Dispatcher.BeginInvoke(() => reviewSettled = true, DispatcherPriority.ContextIdle);
+                        }
+                        return applicable && (!settleReview || reviewSettled);
+                    });
+                }
+                void BackToPeople() => LogicalDescendants(Control<FrameworkElement>("ImportPanel")).OfType<Button>()
+                    .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                RequestPreview();
+                AwaitPreview();
+                using (WorkspaceFixtures.LockLocalStore(path))
+                {
+                    Invoke("ApplyButton");
+                    PumpUntil(() => model.HasFailedImport && Control<Button>("DiscardImportButton").IsEnabled);
+                    BackToPeople();
+                    Invoke("DiscardImportButton");
+                }
+                DispatcherOperation? recoveredPreview = null;
+                TimeoutException? admittedPreviewError = null;
+                var open = Control<Button>("OpenWorkspaceButton");
+                DependencyPropertyChangedEventHandler enterWhenReady = (_, _) =>
+                {
+                    if (!open.IsEnabled || model.LocalSave.EditsPaused || recoveredPreview is not null) return;
+                    recoveredPreview = window.Dispatcher.InvokeAsync(RequestPreview, DispatcherPriority.Send);
+                    try
+                    {
+                        PumpUntil(() => recoveredPreview.Task.IsCompleted &&
+                            Control<Button>("ApplyButton").IsEnabled);
+                    }
+                    catch (TimeoutException error) { admittedPreviewError = error; }
+                };
+                open.IsEnabledChanged += enterWhenReady;
+                try
+                {
+                    Invoke("NoticeRetryButton");
+                    PumpUntil(() => recoveredPreview?.Task.IsCompleted == true);
+                }
+                finally { open.IsEnabledChanged -= enterWhenReady; }
+                var requestedPreview = recoveredPreview ??
+                    throw new InvalidOperationException("Recovered controls did not admit the single preview request.");
+                requestedPreview.Task.GetAwaiter().GetResult();
+                if (admittedPreviewError is not null)
+                    throw new InvalidOperationException("Advertised recovery readiness did not admit an applicable Import.", admittedPreviewError);
+                AwaitPreview(settleReview: true);
+                if (invalidateReview)
+                {
+                    var reviewedRevision = model.Synchronization.LocalRevision;
+                    using (var delivered = ApplicationWorkflow.CreateFileBacked())
+                    {
+                        if (!delivered.OpenWorkspace(path) || !delivered.ApplyImport(delivered.PreviewImport(SearchImport("""
+                            {"email":"delivered@example.com","displayName":"Delivered after review","managerEmail":null}
+                            """, 904)).Id))
+                            throw new InvalidOperationException(delivered.Status);
+                    }
+                    if (!model.RefreshWorkspace()) throw new InvalidOperationException(model.Status);
+                    Settle();
+                    if (model.Synchronization.LocalRevision == reviewedRevision ||
+                        model.GetRelationships("delivered@example.com")?.Person.Heading != "Delivered after review" ||
+                        Control<Button>("ApplyButton").IsEnabled || !model.IsImportOpen ||
+                        !Control<Button>("PreviewButton").IsEnabled)
+                        throw new InvalidOperationException("A different accepted revision did not invalidate the recovered Import review.");
+                    if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                        throw new InvalidOperationException("Import invalidation verification cannot create a native window.");
+                    Console.WriteLine("PASS: a genuinely different accepted revision still invalidates the recovered applicable review without replaying or accepting it.");
+                    return;
+                }
+                Invoke("ApplyButton");
+                PumpUntil(() => model.PeopleNavigation.SelectedEmail == email &&
+                    Control<TextBlock>("WorkflowActivity").Text == "Ready");
+                if (!model.IsImportOpen) throw new InvalidOperationException("Automatic selection left Import.");
+                BackToPeople();
+                Layout();
+            }
+            var tree = Control<TreeView>("PeopleList");
+            var row = VisualDescendants(tree).OfType<TreeViewItem>().Single(item =>
+                item.DataContext is ReportingNode node && node.Person.Email == email);
+            var browsing = (WorkspaceViewModel)tree.DataContext;
+            var treeScroll = VisualDescendants(tree).OfType<ScrollViewer>().First();
+            if (observedBringExtents.Count != 1 || observedBringExtents[0] < treeScroll.ExtentHeight - 1)
+                throw new InvalidOperationException($"The single reveal used an unsettled scroll extent: " +
+                    $"requests={observedBringExtents.Count}; requestedExtent={observedBringExtents.FirstOrDefault()}; " +
+                    $"settledExtent={treeScroll.ExtentHeight}.");
+            if (Math.Abs(browsing.PeopleNavigation.BrowseOffset - treeScroll.VerticalOffset) >= 1)
+                throw new InvalidOperationException($"The accepted reveal remembered a stale browsing offset: " +
+                    $"remembered={browsing.PeopleNavigation.BrowseOffset}; actual={treeScroll.VerticalOffset}.");
+            var peer = UIElementAutomationPeer.CreatePeerForElement(row);
+            var headerPeer = (UIElementAutomationPeer)(peer.GetChildren() ?? []).Single(child =>
+                child.GetAutomationControlType() == AutomationControlType.Text);
+            var header = (FrameworkElement)headerPeer.Owner;
+            var viewport = tree.TransformToAncestor(content).TransformBounds(new Rect(tree.RenderSize));
+            var headerBounds = header.TransformToAncestor(content).TransformBounds(new Rect(header.RenderSize));
+            var headerCenter = new Point(headerBounds.Left + headerBounds.Width / 2, headerBounds.Top + headerBounds.Height / 2);
+            ControlReadiness.AwaitSelectedHeader(
+                () => new ControlReadiness.SelectedRowHeader<UIElementAutomationPeer>(peer.IsOffscreen(),
+                    ((ISelectionItemProvider)peer.GetPattern(PatternInterface.SelectionItem)).IsSelected, headerPeer),
+                current => current.GetName() == heading && viewport.Contains(headerCenter) &&
+                    headerBounds.Top >= viewport.Top && headerBounds.Bottom <= viewport.Bottom,
+                condition =>
+                {
+                    if (!condition())
+                        throw new InvalidOperationException("Logical row metadata rejected the actual selected viewport-visible header.");
+                });
+            if (peer.GetName() != $"{heading} ({email}); Directory name: {heading}" ||
+                peer.GetPattern(PatternInterface.SelectionItem) is not ISelectionItemProvider { IsSelected: true } ||
+                headerPeer.GetName() != heading || !viewport.Contains(headerCenter) ||
+                headerBounds.Top < viewport.Top || headerBounds.Bottom > viewport.Bottom ||
+                Control<Button>("EditProfileButton").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("Automatic opening did not expose the exact selected Person's reading profile and viewport-visible header.");
+            var ancestor = tree.Items.Cast<ReportingNode>().Single(item => item.Person.Email == ancestorEmail);
+            if (tree.ItemContainerGenerator.ContainerFromItem(ancestor) is not TreeViewItem { IsExpanded: true })
+                throw new InvalidOperationException("Automatic opening did not expand the selected Manager's ancestor.");
+            if (!importRetry && recoveryScope is null)
+            {
+                DispatcherOperation? changedOwner = null;
+                PeopleNavigationView? retainedBrowsing = null;
+                var previousRequests = observedBringExtents.Count;
+                RequestBringIntoViewEventHandler changeAfterScroll = (_, request) =>
+                {
+                    if (changedOwner is not null ||
+                        request.TargetObject is not TreeViewItem { DataContext: ReportingNode node } ||
+                        node.Person.Email != email || request.TargetRect.IsEmpty || request.TargetRect.Width != 1)
+                        return;
+                    changedOwner = window.Dispatcher.InvokeAsync(() =>
+                    {
+                        if (!browsing.NavigatePerson("context00@example.com"))
+                            throw new InvalidOperationException(browsing.Status);
+                        browsing.RememberPeopleBrowsing(["context00@example.com"], 0);
+                        retainedBrowsing = browsing.PeopleNavigation;
+                    }, DispatcherPriority.Send);
+                };
+                tree.AddHandler(FrameworkElement.RequestBringIntoViewEvent, changeAfterScroll, handledEventsToo: true);
+                try
+                {
+                    Invoke("OpenSettingsButton");
+                    Invoke("OpenWorkspaceButton");
+                    PumpUntil(() => changedOwner?.Task.IsCompleted == true);
+                    changedOwner!.Task.GetAwaiter().GetResult();
+                    Settle();
+                    if (retainedBrowsing is null || Control<TextBlock>("Email").Text != email ||
+                        browsing.PeopleNavigation.SelectedEmail != "context00@example.com" ||
+                        browsing.PeopleNavigation.BrowseOffset != retainedBrowsing.BrowseOffset ||
+                        !browsing.PeopleNavigation.ExpandedPeople.SequenceEqual(retainedBrowsing.ExpandedPeople) ||
+                        observedBringExtents.Count != previousRequests + 1)
+                        throw new InvalidOperationException("A stale post-scroll snapshot overwrote the newly selected workflow owner's browsing.");
+                    Console.WriteLine("PASS: one actual compiled reveal cannot publish a stale browsing snapshot after the workflow owner changes.");
+                }
+                finally { tree.RemoveHandler(FrameworkElement.RequestBringIntoViewEvent, changeAfterScroll); }
+            }
+            if (recoveryScope is not null)
+                foreach (var size in new[] { new Size(700, 500), new Size(1100, 736) })
+                {
+                    Layout(size);
+                    if (browsing.PeopleNavigation.SelectedEmail != email || browsing.PeopleNavigation.SelectedResult is not null ||
+                        browsing.ProfileEdit is not null || browsing.ViewRecoveryFeedback is null ||
+                        Control<TextBlock>("ViewPreferenceStatus").Visibility != Visibility.Visible ||
+                        !Control<TextBlock>("ViewPreferenceStatus").Text.Contains("no replacement was opened") ||
+                        browsing.PersonNotesView.SelectedNote is not null || browsing.TeamNotesView.SelectedNote is not null ||
+                        browsing.PersonNotesView.IsEmpty || browsing.TeamNotesView.IsEmpty ||
+                        ((TextBlock)Control<FrameworkElement>("PersonNotes").FindName("NoteHeading")).Visibility != Visibility.Collapsed ||
+                        ((TextBlock)Control<FrameworkElement>("TeamNotes").FindName("NoteHeading")).Visibility != Visibility.Collapsed ||
+                        ReadSmokeWorkspacePreferences().GetLastView(path) != remembered ||
+                        !File.ReadAllBytes(preferencesPath).SequenceEqual(preferences!))
+                        throw new InvalidOperationException("Compiled remembered-note recovery lost its Person, warning, unchanged preferences or unselected writing.");
+                    AssertWorkspaceBytes(path, writing!);
+                }
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Automatic-reading verification cannot create a native window.");
+            Console.WriteLine("PASS: actual compiled automatic opening exposes the exact reading Person, selected named header and expanded ancestor within the no-window viewport.");
+            if (recoveryScope is { } recoveredScope)
+                Console.WriteLine($"PASS: unavailable exact {recoveredScope} note retains its remembered Person, visible recovery, unselected writing and unchanged preferences/Workspace bytes at 700/1100.");
+        }
+        finally { ClosePublishedCompiledWindow(window); }
+    }
+
     private static void VerifyPeopleSearchRestoration(Window window, string settings)
     {
         var folder = Path.Combine(settings, "responsive-browsing");
@@ -2170,6 +2741,8 @@ internal static partial class Program
         void Enter(UIElement target) => Press(target, Key.Enter);
         var queryField = Control<TextBox>("SearchQuery");
         var queryResults = Control<ListBox>("SearchResults");
+        if (Control<TextBlock>("Email").Text != "alex@example.com")
+            throw new InvalidOperationException("The populated search fixture did not open its automatic root Person.");
         queryField.Text = "browse";
         PumpUntil(() => queryResults.Items.Count == 40);
         FocusManager.SetFocusedElement(window, queryField);
@@ -2183,11 +2756,12 @@ internal static partial class Program
         queryField.Text = "unmatched-query";
         PumpUntil(() => queryResults.Items.Count == 0);
         Enter(queryField);
-        if (queryResults.SelectedItem is not null || queryField.Text != "unmatched-query" || Control<TextBlock>("Email").Text != "")
+        if (queryResults.SelectedItem is not null || queryField.Text != "unmatched-query" ||
+            Control<TextBlock>("Email").Text != "alex@example.com")
             throw new InvalidOperationException("No-result query Enter must not activate a stale Person or dismiss search.");
         queryField.Text = "orchid";
         PumpUntil(() => queryResults.Items.Cast<PersonSearchResult>().Any(r => r.Matches.Any(m => m.NoteId == noteId)));
-        if (Control<TextBlock>("Email").Text != "" ||
+        if (Control<TextBlock>("Email").Text != "alex@example.com" ||
             Control<ListBox>("SearchResults").SelectedItem is not PersonSearchResult { Person.Email: "avery@example.com" })
             throw new InvalidOperationException("The first Person must be highlighted without opening a profile.");
         Enter(Control<TextBox>("SearchQuery"));
@@ -3207,7 +3781,7 @@ internal static partial class Program
         }).Prepend(new { email = "root@example.com", displayName = "Root", managerEmail = (string?)null })
           .Append(new { email = "owner@example.com", displayName = "Unrelated owner", managerEmail = (string?)null })
           .Append(new { email = "destination@example.com", displayName = "Search destination", managerEmail = (string?)null })
-          .Append(new { email = "unrelated@example.com", displayName = "A separate reporting branch", managerEmail = (string?)null })
+          .Append(new { email = "unrelated@example.com", displayName = "Z separate reporting branch", managerEmail = (string?)null })
           .Concat(Enumerable.Range(0, 256).Select(index => new
           {
               email = $"unrelated{index:000}@example.com", displayName = $"Unrelated report {index:000}",
@@ -3248,6 +3822,15 @@ internal static partial class Program
         var owner = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "owner@example.com");
         ((ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(
             (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(owner)).GetPattern(PatternInterface.SelectionItem)).Select();
+        var ownerRevealSettled = false;
+        window.Dispatcher.BeginInvoke(() => ownerRevealSettled = true, DispatcherPriority.ContextIdle);
+        PumpUntil(() => ownerRevealSettled);
+        VisualDescendants(tree).OfType<ScrollViewer>().First().ScrollToTop();
+        Layout(1100, 900);
+        var fixtureScrollSettled = false;
+        window.Dispatcher.BeginInvoke(() => fixtureScrollSettled = true, DispatcherPriority.ContextIdle);
+        PumpUntil(() => fixtureScrollSettled);
+        Layout(1100, 900);
         Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Control<TextBox>("OfficeNumber").Text = "  Search-time independent profile writing\r\n";
         var profile = model.ProfileEdit;
@@ -3258,6 +3841,11 @@ internal static partial class Program
                 Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Layout(width, height);
             var node = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "root@example.com");
+            PumpUntil(() =>
+            {
+                Layout(width, height);
+                return tree.ItemContainerGenerator.ContainerFromItem(node) is TreeViewItem;
+            });
             var row = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(node);
             var collapse = (RoutedCommand)row.ContextMenu.Items.OfType<MenuItem>()
                 .Single(item => Equals(item.Header, "Collapse subtree")).Command;
@@ -3294,13 +3882,24 @@ internal static partial class Program
                 throw new InvalidOperationException("Cancelling from search must stop expansion and retain its exact partial state and independent profile writing.");
             Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Layout(width, height);
+            row = tree.ItemContainerGenerator.ContainerFromItem(node) as TreeViewItem
+                ?? throw new InvalidOperationException("Search-clear did not restore the current expansion-root row.");
             if (!partial.SequenceEqual(model.PeopleNavigation.ExpandedPeople) || !row.IsExpanded ||
                 !expand.CanExecute("root@example.com", row) || width == 700 && !model.PeopleNavigation.OverlayOpen)
-                throw new InvalidOperationException("Search-clear must retain cancelled partial expansion, resumability and compact People.");
+                throw new InvalidOperationException($"Search-clear must retain cancelled partial expansion, resumability and compact People: " +
+                    $"width={width}; retained={partial.SequenceEqual(model.PeopleNavigation.ExpandedPeople)}; expanded={row.IsExpanded}; " +
+                    $"row={(row.DataContext as ReportingNode)?.Person.Email ?? "detached"}; resume={expand.CanExecute("root@example.com", row)}; overlay={model.PeopleNavigation.OverlayOpen}.");
         }
         Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => model.CanSafelyClose);
         Layout(1100, 900);
+        var expansionRoot = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "root@example.com");
+        var expansionRow = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(expansionRoot);
+        var collapseRoot = (RoutedCommand)expansionRow.ContextMenu.Items.OfType<MenuItem>()
+            .Single(item => Equals(item.Header, "Collapse subtree")).Command;
+        var expandRoot = (RoutedCommand)expansionRow.ContextMenu.Items.OfType<MenuItem>()
+            .Single(item => Equals(item.Header, "Expand subtree")).Command;
+        collapseRoot.Execute("root@example.com", expansionRow);
         VisualDescendants(tree).OfType<ScrollViewer>().First().ScrollToTop();
         Layout(1100, 900);
         var unrelated = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "unrelated@example.com");
@@ -3311,13 +3910,6 @@ internal static partial class Program
         Layout(1100, 900);
         unrelatedRow.IsExpanded = false;
         Layout(1100, 900);
-        var expansionRoot = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "root@example.com");
-        var expansionRow = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(expansionRoot);
-        var collapseRoot = (RoutedCommand)expansionRow.ContextMenu.Items.OfType<MenuItem>()
-            .Single(item => Equals(item.Header, "Collapse subtree")).Command;
-        var expandRoot = (RoutedCommand)expansionRow.ContextMenu.Items.OfType<MenuItem>()
-            .Single(item => Equals(item.Header, "Expand subtree")).Command;
-        collapseRoot.Execute("root@example.com", expansionRow);
         int? unrelatedReads = null;
         void ObserveBatch(object? sender, PropertyChangedEventArgs e)
         {
@@ -3870,10 +4462,47 @@ internal static partial class Program
         using (File.Open(settings, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             Invoke("DesignateButton");
-            PumpUntil(() => Control<TextBlock>("OngoingStatus").Text.Contains("NOT saved", StringComparison.Ordinal));
-            if (Control<TextBlock>("NoteKind").Text != "Other Team note" ||
+            var kind = Control<TextBlock>("NoteKind");
+            var kindId = System.Windows.Automation.AutomationProperties.GetAutomationId(kind);
+            if (kindId != "TeamNoteKind")
+                throw new InvalidOperationException("The compiled failed-designation replay lost its actual named note-kind control.");
+            var kindReads = 0;
+            string ReadKind()
+            {
+                // Replay unavailable discovery without changing the actual selected note or its presentation.
+                if (++kindReads == 1)
+                    System.Windows.Automation.AutomationProperties.SetAutomationId(kind, "UnavailableTeamNoteKind");
+                try
+                {
+                    var observed = LogicalDescendants(notes).OfType<TextBlock>().SingleOrDefault(control =>
+                        System.Windows.Automation.AutomationProperties.GetAutomationId(control) == "TeamNoteKind");
+                    if (observed is null) throw new InvalidOperationException("Missing actual UI control: TeamNoteKind");
+                    return UIElementAutomationPeer.CreatePeerForElement(observed).GetName();
+                }
+                finally { System.Windows.Automation.AutomationProperties.SetAutomationId(kind, kindId); }
+            }
+            var observedKind = ControlReadiness.AwaitFailedTeamDesignation(
+                () => UIElementAutomationPeer.CreatePeerForElement(Control<TextBlock>("OngoingStatus")).GetName(),
+                ReadKind, condition =>
+                {
+                    // Match native Await's missing-control policy and retain its one successful observation.
+                    var ready = false;
+                    PumpUntil(() =>
+                    {
+                        if (ready) return true;
+                        try { return ready = condition(); }
+                        catch (InvalidOperationException error) when (error.Message == "Missing actual UI control: TeamNoteKind")
+                        {
+                            return false;
+                        }
+                    });
+                });
+            if (observedKind != "Other Team note" || kindReads != 2 ||
+                workspace.PeopleNavigation.SelectedEmail != owner || workspace.TeamNotesView.SelectedNote?.Id != secondaryId ||
+                Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab") ||
                 !File.ReadAllBytes(settings).SequenceEqual(preference))
                 throw new InvalidOperationException("Failed Team designation must retain both the exact secondary note and durable choice.");
+            Console.WriteLine("PASS: actual failed Team designation retains its exact Other-note reading after one unavailable named-control discovery, without replaying the action.");
         }
         Control<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
         if (SmokeNoteId(folder, owner, "Secondary Team", team: true) != secondaryId)

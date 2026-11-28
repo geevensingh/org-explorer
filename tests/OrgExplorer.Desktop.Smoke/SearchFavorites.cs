@@ -26,12 +26,34 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = Window(process);
+            AssertAutomaticRefreshSearch(window, root, responsive);
             SetSettingsVisible(window, true);
             PickWorkspaceFolder(window, workspace);
             AwaitRestoredWorkspace(window, workspace);
+            if (responsive) ResizeWindow(window, 700, 500);
+            Set(window, "SearchQuery", "browse");
             OpenImportView(window);
             Set(window, "ImportPath", import);
-            ApplyReviewedHistoryImport(window);
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            Click(window, "ApplyImport");
+            Await(() => Status(window).Contains("applied"));
+            AssertAutomaticImportContext(window, Path.Combine(root, "app-settings", "workspace-settings.json"));
+            ReturnToPeople(window);
+            if (responsive) Click(window, "OpenPeople");
+            Find(window, "SearchQuery").SetFocus();
+            Await(() => CurrentPersonEmail(window) == "alex@example.com" && Value(window, "SearchQuery") == "browse" &&
+                Find(window, "SearchCount").Current.Name == "People found: 40 — local profiles and notes");
+            AssertQueryHighlight(window, "browse01@example.com");
+            if (CurrentPersonEmail(window) != "alex@example.com")
+                throw new InvalidOperationException("Automatic selection activated a search highlight.");
+            Set(window, "SearchQuery", "");
+            AssertSelectedPeopleRow(window, "alex@example.com");
+            if (responsive)
+            {
+                ResizeWindow(window, 1100, 900);
+                AssertSelectedPeopleRow(window, "alex@example.com");
+            }
             QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave Preferred");
             AssertGroupedSearchResults(window);
@@ -153,7 +175,7 @@ internal static partial class Program
 
             process = Launch(executable);
             window = Window(process);
-            AwaitUnavailableView(window, workspace);
+            AwaitUnavailableView(window, workspace, "alex@example.com");
             AssertWorkspaceBytes(workspace, beforeReopen);
             SelectFavorite(window, "avery@example.com");
             if (responsive)
@@ -173,6 +195,79 @@ internal static partial class Program
             if (process is not null) StopApplication(process);
         }
     }
+
+    private static void AssertAutomaticRefreshSearch(AutomationElement window, string root, bool responsive)
+    {
+        var workspace = Path.Combine(root, "refresh-search-workspace");
+        var import = Path.Combine(root, "refresh-search-import.json");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(workspace) || !seed.ApplyImport(seed.PreviewImport(SearchImport("""
+                {"email":"former@example.com","displayName":"Needle","managerEmail":null,"archived":true}
+                """, 907)).Id) || seed.CreatePersonNote("former@example.com", "Retained writing", "Exact private writing") is null)
+                throw new InvalidOperationException(seed.Status);
+        }
+        using var peer = new SmokeSnapshotPeer(workspace);
+        File.WriteAllText(import, SearchImport("""{"email":"former@example.com","jobTitle":"Unaccepted review"}""", 908));
+        SetSettingsVisible(window, true);
+        PickWorkspaceFolder(window, workspace);
+        AwaitRestoredWorkspace(window, workspace);
+        if (responsive) ResizeWindow(window, 700, 500);
+        TypeSearchQuery(window, "Needle");
+        AssertQueryHighlight(window, "former@example.com");
+        OpenImportView(window);
+        Set(window, "ImportPath", import);
+        // An unapplied Preview is protected writing and legitimately defers snapshot adoption.
+        var preferences = Path.Combine(root, "app-settings", "workspace-settings.json");
+        var saved = File.ReadAllBytes(preferences);
+        peer.Publish(source => source.ApplyImport(source.PreviewImport(SearchImport(AutomaticRefreshSearchPeople(), 909)).Id));
+        PublishSmokeWorkspace(window, workspace);
+        Await(() => IsVisible(window, "ImportPath") && Value(window, "ImportPath") == import &&
+            IsVisible(window, "BackToPeople") && !IsVisible(window, "People") &&
+            !Find(window, "ApplyImport").Current.IsEnabled);
+        if (!saved.SequenceEqual(File.ReadAllBytes(preferences)))
+            throw new InvalidOperationException("Automatic refresh changed saved Person/note or pane preferences.");
+        using (var accepted = OpenSmokeWorkspace(workspace))
+        {
+            if (accepted.Synchronization.LocalRevision != peer.Workflow.Synchronization.LocalRevision)
+                throw new InvalidOperationException("Automatic refresh did not adopt the expected incoming revision: " +
+                    $"expected={peer.Workflow.Synchronization.LocalRevision}; observed={accepted.Synchronization.LocalRevision}. " +
+                    accepted.Synchronization.Error);
+            if (accepted.GetRelationships("former@example.com")!.Person.JobTitle is not null ||
+                accepted.GetPersonNotes("former@example.com", true).Single().Markdown != "Exact private writing")
+                throw new InvalidOperationException("Refresh applied the Import input or changed private writing.");
+        }
+        ReturnToPeople(window);
+        if (responsive && !IsVisible(window, "PeopleNavigation")) Click(window, "OpenPeople");
+        Find(window, "SearchQuery").SetFocus();
+        Await(() => CurrentPersonEmail(window) == "shallow@example.com" && Value(window, "SearchQuery") == "Needle");
+        AssertQueryHighlight(window, "former@example.com");
+        if (CurrentPersonEmail(window) != "shallow@example.com")
+            throw new InvalidOperationException("Refresh activated the retained search highlight.");
+        Set(window, "SearchQuery", "");
+        AssertSelectedPeopleRow(window, "shallow@example.com", "z-root@example.com");
+        if (responsive)
+        {
+            ResizeWindow(window, 1100, 900);
+            AssertSelectedPeopleRow(window, "shallow@example.com", "z-root@example.com");
+        }
+        if (!saved.SequenceEqual(File.ReadAllBytes(preferences)))
+            throw new InvalidOperationException("Deferred refresh reveal published automatic browsing as a remembered destination.");
+    }
+
+    private static string AutomaticRefreshSearchPeople() => """
+            {"email":"a-root@example.com","displayName":"A root","managerEmail":null},
+            {"email":"a-chain@example.com","displayName":"A chain","managerEmail":"a-root@example.com"},
+            {"email":"deep@example.com","displayName":"A deep Manager","managerEmail":"a-chain@example.com"},
+            {"email":"deep-one@example.com","displayName":"Deep one","managerEmail":"deep@example.com"},
+            {"email":"deep-two@example.com","displayName":"Deep two","managerEmail":"deep@example.com"},
+            {"email":"z-root@example.com","displayName":"Z root","managerEmail":null},
+            {"email":"shallow@example.com","displayName":"Z shallow Manager","managerEmail":"z-root@example.com"},
+            {"email":"shallow-one@example.com","displayName":"Shallow one","managerEmail":"shallow@example.com"},
+            {"email":"shallow-two@example.com","displayName":"Shallow two","managerEmail":"shallow@example.com"}
+            """ + "," + string.Join(",", Enumerable.Range(1, 40).Select(index => $$"""
+                {"email":"refresh{{index:00}}@example.com","displayName":"B offscreen context {{index:00}}","managerEmail":null}
+                """));
 
     private static string SearchBrowsingPeople(bool responsive, bool photo = false) => $$"""
             {"email":"avery@example.com","displayName":"Avery Directory","preferredName":"Ave Preferred","alias":"avhandle",
@@ -518,9 +613,9 @@ internal static partial class Program
     private static void AssertSearchReading(AutomationElement window, string expected, string? absent = null,
         string readingId = "PersonNoteReading")
     {
-        Await(() => ((TextPattern)Find(window, readingId).GetCurrentPattern(TextPattern.Pattern))
-            .DocumentRange.GetText(-1).Contains(expected));
-        var text = ((TextPattern)Find(window, readingId).GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1);
+        var text = ControlReadiness.AwaitReading(
+            () => ((TextPattern)Find(window, readingId).GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1),
+            expected, Await);
         if (absent is not null && text.Contains(absent)) throw new InvalidOperationException("Search opened later writing in frozen context.");
     }
 }

@@ -70,6 +70,11 @@ containers; existing Loaded/recycled-row restoration remains responsible for
 later realization. The compiled check also requires the affected row to expand
 and cancellation to remain available. This is a work-count regression, not a
 native timing measurement or a substitute for full-population UI scale.
+The compiled search-expansion fixture lets the hierarchy fallback select its
+expansion root, settles deferred Person reveal before preparing browsing, and
+observes the current row container after search-clear rather than a detached
+pre-search container. Logical partial-state, resumability and writing assertions
+remain unchanged.
 It also retains exact independent profile/note drafts.
 The focused non-UI selector below runs this same contract; it remains included
 in the existing full `--verify-profile-refresh` companion check:
@@ -292,11 +297,29 @@ unrelated real-time stall. Both scopes also run with a continuation delayed past
 three wall-clock seconds; the six-second admission wait and all discard
 assertions stay intact. Production clocks and separate exact three-second
 queue/stall/unknown-outcome regressions remain unchanged.
+The inherited-secondary-Team-note navigation contract uses the same test-only
+request-clock control while a real in-memory workflow's Person-note writer is
+held. Its delayed-continuation case crosses three wall-clock seconds without
+advancing that request clock, retaining the exact captured base, writing, owners,
+secondary-note destination and Team-note nonmutation assertions. The held save
+remains Pending with an unknown outcome until released and actually completed;
+the five-second admission wait and final successful flush stay unchanged.
+Without this fixture control, the delayed case reproduces the genuine
+three-second stall at the flush while the backend is still Ready. This identifies
+the fixture interaction, not the historical hosted scheduler delay or feature
+causality. Production deadlines and separate stall/recovery cases are unchanged.
 Preferred-name Save/Enter submits the displayed field's immutable Person base
 through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
 that field's unsaved failure, never other fields, profile sessions, quick actions,
 notes, Import, local recovery or retained synchronization divergence.
+The incoming-adoption draft-retention fixture holds the existing actual validation
+phase until the Preferred-name/profile/note draft is retained, rather than racing
+a competing SQLite writer's busy failure after a directory-watcher signal.
+Immediate and delayed continuations require validation still active and editing
+available before retention, then the original refusal, revision and exact-draft
+assertions. Natural scheduling delay counts toward the controlled delay; the
+five-second entry and ten-second completion waits and production clocks remain.
 Fresh compact entries display Preferred name, otherwise Directory name, otherwise
 empty, without retaining or publishing that default. Explicit Save/Enter captures
 the submitted text and original base before asynchronous work begins, so an
@@ -314,6 +337,14 @@ retries stale even when the submitted name would otherwise clear.
 Changed-field delivery rejects save/retry;
 other-field delivery is retained, and success returns the exact saved base for
 newer typing rather than rereading a possibly newer provider revision.
+The admitted-work Preferred-name typing contract controls only its view-model
+request clock while the original operation remains held. Both save-name and
+independent-favorite cases also delay the test continuation past three wall-clock
+seconds, then require the actual original-value typing and its correct saved
+base/retirement. Natural scheduling delay counts toward that held-admission
+delay instead of being extended by another full delay. The five-second
+holds/waits and production stall clocks remain
+unchanged; this non-timing contract must not reject its intended typing as stalled.
 Ordinary profiles use `BeginProfileEdit`, staged text/Manager/photo operations,
 and explicit `SaveProfileEdit` / `CancelProfileEdit`. `ProfileEdit` exposes the
 person-scoped immutable baseline and complete draft. `TryLeaveProfileEdit`
@@ -355,6 +386,11 @@ field. Each readiness poll and post-action check captures again; observations
 do not survive navigation, focus/scroll changes or updates. Text-pattern, pixel,
 selection and keyboard assertions remain actual provider/desktop observations,
 with the same complete scenario selection, size matrices and execution budgets.
+The explicit profile-Save fixture obtains the actual Workspace path through
+the existing bounded control-readiness observation before invoking Save once.
+It retains that successful metadata value for independent reopening; persistently
+missing or blank metadata still fails, without an unguarded second lookup, action replay,
+changed completion assertions or increased CI/Save observation deadlines.
 Responsive editor checks acquire the displayed identity inside the existing
 readiness poll, so a transient post-resize absence cannot bypass that wait.
 File-backed profile-session cases cover complete publication and reopening,
@@ -418,6 +454,130 @@ People and exact-note browsing remain available after failed Import or recovery
 maintenance without clearing either error or claiming safe close. Independent
 writing and divergence retain owner drafts while Person browsing stays available;
 rejected startup restoration reports recovery without publishing a partial remembered view.
+Opening and accepted-Import selection cases use the real WorkspaceViewModel
+People-navigation seam. Independent graphs cover current Direct-report
+eligibility, cross-branch depth, displayed Preferred-name/email ties, input-order
+independence, both fallback levels, current/Archived selection precedence and
+non-activating search with Import retained. Real-folder startup cases independently
+compare preference and Workspace bytes, exact secondary notes, unavailable-Person
+recovery and failed-reopen clearing. A valid remembered Person with an unavailable
+exact owned, inherited or frozen note now opens its normal profile with explicit
+recovery and neither owned-note default selected. Missing/archived Person and
+owned-note cases, unavailable inherited/frozen contexts, deliberate same-Person
+reselection and explicit ongoing access retain independent preference/Workspace
+byte checks. Exact secondary/owned-Team/inherited/frozen restoration and retained
+writing guards remain.
+The invisible compiled recovery/Import probe admits one preview from the actual
+ready-control event and pumps a nested dispatcher while that original handler
+is still active. Recovery finishes its refresh before exposing Ready controls,
+without a duplicate caller refresh invalidating the next applicable review.
+Status-only finalization keeps a failed retry visibly failed, retryable and
+read-only with its exact profile draft while the original file remains held.
+Ordinary Preview/Apply refresh remains deferred. The existing twenty-second
+observations, one request and genuinely changed-revision invalidation case remain.
+Real-folder accepted Import and local-refresh cases additionally reopen an
+all-archived Workspace, then reactivate its remembered Person alongside a higher
+qualifying Manager. Both note scopes prove remembered priority, exact secondary
+Read restoration or missing-note suppression of both defaults, unchanged
+preferences and non-activating search. The Import case also retains its screen;
+navigation never creates replacement writing.
+Accepted-refresh cases reuse this seam for local reload and synchronous/asynchronous
+snapshot adoption, cross-branch selection, current/Archived exact reading,
+non-activating search/Import, and unchanged saved destinations. Real folders
+retain failed Person/Team writing, profile and Preferred-name drafts and independent
+errors, and refuse invalid, incomplete, deferred, unavailable or stale data.
+Both Person-note and Team-note refresh use that same Workspace selection policy.
+An owned ranking barrier and a reentrant presentation notification prove that
+accepted deliberate navigation wins over automatic selection and records its own
+saved destination; a refused choice does not cancel a valid automatic fallback.
+A Workspace replacement invalidates pending ranking before Open and publishes its
+navigation reset under the same destination gate, without holding that gate over
+storage I/O. The real-folder barrier also switches to an all-archived Workspace
+containing the old candidate email and requires it to remain unselected.
+Ranking also binds the accepted local revision and is superseded by a newer
+selection pass, so an accepted same-Workspace Import that archives the population
+cannot commit an old current candidate afterward.
+Compiled returning-Person cases present exact inherited/frozen note sections after
+Import and refresh while preserving Import, active search, focus and preferences.
+Those same cases retain the exact remembered destination through unrelated search,
+query clearing and the return to browsing; deliberate Person navigation still
+replaces it. Search-match cleanup does not cancel remembered-note reading or reveal.
+Installed reopening expects the fixture's independently remembered Person, rather
+than incorrectly requiring the empty first-open destination for a populated reopen.
+If isolated app preferences are absent, the populated installer fixture instead
+requires its known shallowest current Person, Casey; only the initial empty
+creation requires no selection.
+The in-memory refresh/error-retention contract controls only its view-model
+request clock. Its two-scope delayed-validation cases hold the real public save
+boundary beyond three wall-clock seconds, then require the actual invalid-title
+failure before refresh and preserve its exact writing/error afterward. With the
+production request clock, that delay reproduces an early `Stalled`/unknown flush
+refusal and a null draft error before refresh while the backend is still Ready.
+This proves the fixture interaction, not the historical delaying actor.
+Production clocks and separate exact three-second stall/outcome checks remain unchanged.
+Existing hosted profile/reopen, archival and search/responsive journeys observe
+the actual profile identity, selected row's rendered text and clickable point
+inside the tree viewport, expanded ancestors and deferred reveal after Import
+or search. The search/responsive journeys also deliver a cross-branch candidate
+while an archived match is highlighted and Import input remains open, then
+observe the matching profile and deferred selected row behind offscreen context.
+This accepted-refresh fixture does not create an unapplied Preview: that is
+protected pending work and must defer snapshot adoption. The existing invisible
+automatic-opening selection also drives these actual compiled 700/1100 refresh
+paths and a separate reviewed-Import refusal, checking the exact delivered
+revision before matching profile/row assertions. Neither path retries, selects
+a corrective destination or discards a review to make refresh succeed.
+The original Import journey and full responsive matrices remain intact.
+The profile fixture places a qualifying Manager behind offscreen
+single-report ancestor context. These assertions do not realize, expand or scroll
+the expected row themselves. Existing scenario selections, full responsive
+matrices and budgets remain; compiled invisible checks are not hosted evidence.
+The existing Person-note reopen journey additionally observes archived exact-note
+recovery with the remembered Person and actual selected row. The ordinary and
+responsive Team-context journeys observe missing exact-note recovery without
+substitute Person/Team writing, preserving their complete 700/1100 reopen matrix
+and original budgets. The compiled automatic-opening contract covers both note
+scopes and their recovery presentation without showing a native window; it
+does not replace exact-candidate hosted evidence or complete the whole fallback
+design's joint delivery.
+The clickable target is the rendered header text, not an expanded TreeViewItem's
+whole-subtree centre. The latter can lie below the viewport while the entire
+selected header is visible. The compiled automatic-opening case exercises this
+same late-branch layout and actual named/selected header without a native window;
+the hosted check remains responsible for screen coordinates and clickable points.
+Logical TreeViewItem `IsOffscreen` metadata is not an additional visibility
+requirement for its selected header. The shared observation still requires the
+actual selected row, an available named header whose own provider is onscreen,
+the original viewport geometry and a real in-viewport clickable point.
+Missing/unselected rows, missing/offscreen headers and rejected geometry/points
+retain the same bounded failure. The compiled case also exercises this selection
+and header observation through actual BAML/provider state, not only a fake identity.
+The real-folder compiled opening case also replays failed Apply, Import discard,
+local reconciliation, accepted re-preview/Apply and Back to People at the ordinary
+viewport width. It compares the remembered browse offset with the settled actual
+TreeView offset, alongside the exact profile, selected header and expanded ancestor.
+BringIntoView requests are asynchronous: the adapter records browsing at context
+idle after queued scroll/layout effects, guarded by the accepted request and owner.
+It does not issue a second reveal, restore an earlier offset, change any deadline
+or bypass active search/Import or retained writing.
+Cold virtualization coverage observes the extent at the one actual reveal request
+and compares it with the settled real TreeView extent. The adapter first realizes
+and expands the path, then defers that original request to guarded context idle
+so pending layout/scroll-extent publication can finish before MakeVisible clamps
+the offset. It never repairs a clamped request with a second scroll.
+The compiled fixture services the staged request and its existing post-scroll
+snapshot before asserting exact selected-header geometry and browsing position.
+The compiled opening case also changes the workflow-selected owner after the
+single actual reveal request but before its queued browsing snapshot. The
+accepted-request guard rejects that stale snapshot, retaining the new owner's
+browsing; all three phases share current-Workspace, owner and browsing-context
+checks. The original header/extent geometry and one-request assertions remain.
+After Import, the search journey deliberately resumes compact People and focuses
+the unchanged query before its existing highlight/geometry/focus assertions.
+It does not assume that clicking Back to People is a query-field focus gesture.
+Reading checks retain the successful text observation for both required and
+forbidden writing, rather than making an unguarded second UIA lookup after
+readiness. Runner cases preserve the same bounded missing/wrong-text failures.
 Blocked Workspace replacement is distinct from an attempted open failure. The
 compiled Retry action must still reconcile the current local store without
 reopening or creating the blocked destination or resetting the current view.
@@ -1270,8 +1430,50 @@ controlled request clocks and held/lost return boundaries. They prove the oldest
 queued three-second deadline, never-returning admission, explicit edit pause,
 continued arbitrary Person browsing, exact independent drafts/Team-name profiles,
 late accepted generations and real committed-state reconciliation before retry.
-Lost acknowledgment cannot create another note. `OrgExplorer.Storage.ProcessFixture`
-is an owned, non-UI child killed at the existing storage observer's actual
+Lost acknowledgment cannot create another note. The real-file lost-note-acknowledgment
+reconciliation fixture controls only its view-model request clock,
+using the existing `SaveClock`; real autosave cadence, admission, SQLite Commit
+and storage clocks remain unchanged. Both scopes also delay the successful
+postcommit return by 3.2 wall-clock seconds before creating the actual
+lost-acknowledgment exception. An independent public reopen first proves the exact
+committed GUID/title/body and wrong-owner absence. While held, the original
+immutable base and writing remain Pending with an unknown outcome and an
+unfinished flush; release produces Indeterminate with the actual acknowledgment
+error. Explicit real-store reconciliation must account for that same note before
+retry, and another public reopen still finds exactly one GUID and the exact
+title/body. The original five-second outer flush wait and all original recovery
+assertions remain. The original-clock counterexample failed twice in both scopes:
+it reported Stalled before the exception was created despite an exact committed
+reopen. This confirms the non-timing fixture's interaction with the request
+deadline, not a production-storage failure or the cause of the historical hosted
+continuation delay. Separate exact three-second queued/stalled/unknown-outcome
+contracts and production deadlines are unchanged.
+The bounded persistence held-save audit extends this fixture isolation only to
+three demonstrated non-timing contracts in `SqliteWorkspaceTests`: cancelled
+durability observation during a real Commit, newer typing during a successful
+public save return, and stale-base refusal after public save admission. Each
+delayed regression reuses its complete original scenario with a 3.2-second
+wall-clock continuation delay, retaining the original admission/outer waits,
+actual held work, cancellation, exact immutable bases and writing, public
+independent reopen, ownership and final flush/refusal assertions.
+The successful-return and stale-base fixtures control only the VM request clock;
+real backend clocks are unchanged. The cancelled-observation fixture must use
+the same existing `SaveClock` at both public workflow and VM dependencies,
+following `Held_bulk_Import`: the held real Commit spans both request lifetimes.
+The original-clock cancellation counterexample failed twice at final flush;
+VM-only control still failed, while both-clock control preserves Pending/Unknown
+until actual release and commit. Original-clock delayed variants in both note
+scopes also rejected newer typing or replaced the required external-base error
+with Stalled; VM-only control preserves their intended outcomes. These prove
+fixture/deadline interactions, not the historical hosted scheduling cause.
+Autosave cadence, real storage/observation clocks, three-second production
+budgets and all intentional queue/stall/unknown-outcome timing tests remain.
+No blanket clock change is made to unproven candidates, including independent
+profile/Preferred-name Cancel behind a held note Commit, direct retained-base
+saving, lost-return reconciliation during snapshot I/O, or pending creation
+behind a competing SQLite transaction.
+`OrgExplorer.Storage.ProcessFixture` is an owned, non-UI child killed at the
+existing storage observer's actual
 SQLite pre/post-Commit boundaries for both note scopes and complete profiles.
 Reopening uses the normal validating reader; neither Dispose nor private-table
 inspection supplies crash evidence. The child identifies its actual PID, observed
@@ -1282,7 +1484,7 @@ revision/error and read-only Windows Restart Manager owner snapshots for only th
 owned receipt paths. These non-atomic snapshots never shut down/restart an owner,
 force-delete evidence, inventory unrelated processes or log note contents. Missing
 owners at observation do not establish that no earlier holder existed.
-Five focused `SqliteShmRecoveryTests` cases retain the original owned child and
+Seven focused `SqliteShmRecoveryTests` cases retain the original owned child and
 public validating Open. The test host explicitly maps that child's existing
 physical SHM file at its current length, without taking a SQLite DMS lock or
 resizing it. After actual Commit Begin/End admission and death within the
@@ -1294,6 +1496,17 @@ bytes under an actual older public read snapshot, releases that reader, kills
 the writer, and only then restores those bytes into the original held section.
 Hashes require original database/WAL bytes to remain unchanged; no live
 database/WAL copy, deletion or backup protocol is introduced.
+Two controlled cases retain a nonwriting read/write database or WAL handle from
+the paused child through death, both raw hashes and public reopen. Hash streams
+keep read-only access and share read/write/delete, so observation does not exclude
+held write-capable resources. The stable Commit boundaries, original byte
+comparison, held SHM and complete resource assertions remain; this neither
+authorizes concurrent writing nor identifies the historical hosted holder.
+Temporary raw-WAL/revision/native diagnostics were removed after the bounded
+investigation. The historical shipping committed-next/public-base failure is
+still unexplained; passing rebuilt diagnostic/control cases do not waive it.
+Their retained source, manifests and hosted artifacts are investigation evidence,
+not normal CI acceptance or a production recovery correction.
 The original nine death cases and healthy public WAL-reader controls remain.
 The causal 3.53.4 RED is `SQLITE_IOERR_TRUNCATE` (10/1546) in the first public
 Open; supported native `SQLite` 3.54.1 must turn it GREEN without an Open retry
@@ -2114,6 +2327,32 @@ real-store regressions for diagnosis; they remain included in the complete
 handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
 remain in the representative hosted profile journey.
+The Team-context designation-refusal assertion observes the actual failed
+preference feedback and exact `Other Team note` kind within one existing
+20-second wait, rather than following feedback readiness with an unguarded
+Kind lookup. The original unchanged-preference-byte assertion remains.
+The compiled owned-Team path replays one unavailable named-control discovery
+using actual BAML, a real preference-file refusal and one Designate action.
+Only that discovery is withheld; the actual secondary note, owner, Read mode
+and original automation identity remain intact afterward. It uses native
+Await's missing-control policy without changing the general dispatcher pump.
+Runner cases require permanently missing/wrong kinds and wrong feedback to
+fail bounded observation. This covers the observation gap in the failed hosted
+context artifact, not the Windows provider's transient-absence actor or a
+causal claim about the remembered-note feature.
+`--verify-inherited-note-mode` and `--verify-people-opening` isolate the existing
+inherited Edit/Read and automatic-opening cases; both remain in the complete
+profile-refresh selection. The inherited fixture creates and saves its subject
+through the real compiled New-note action before invalid editing, rather than
+assuming a synthetic selection of an already automatically selected Person
+loads a note created directly through the workflow.
+The automatic-opening recovery fixture requests its one new Preview at the
+actual reenabled Open control boundary, then requires Apply to remain enabled
+after queued recovery presentation settles within the same 20-second observation.
+Recovery drains its pending refresh before returning, rather than leaving an old
+invalidation behind the new applicable review. An independent real-folder case
+adopts a genuinely different revision after that review and still requires Apply
+to become disabled; no stale review is accepted or replayed.
 The same invisible-control regression exercises all ordinary facts, labelled
 missing-value slots, long identity/facts, matching photo/initials footprints, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing

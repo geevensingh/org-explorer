@@ -58,6 +58,10 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyManagerChoiceDemand);
             if (args.Length == 2 && args[1] == "--verify-current-search-storage")
                 return VerifyHostedCutoverContracts(executable, VerifyCurrentSearchStorage);
+            if (args.Length == 2 && args[1] == "--verify-inherited-note-mode")
+                return VerifyHostedCutoverContracts(executable, VerifyRetainedInheritedTeamNoteMode);
+            if (args.Length == 2 && args[1] == "--verify-people-opening")
+                return VerifyHostedCutoverContracts(executable, VerifyAutomaticPeopleReading);
             if (args.Length == 2 && args[1] == "--verify-actual39-functional")
                 return VerifyHostedCutoverContracts(executable, VerifyActual39FunctionalContracts);
             if (args.Length == 2 && args[1] == "--verify-note-read-demand")
