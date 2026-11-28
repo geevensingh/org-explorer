@@ -264,11 +264,15 @@ internal static partial class Program
                 var started = Stopwatch.GetTimestamp();
                 try
                 {
-                    var identity = email.GetUpdatedCache(cache).Cached;
                     var current = value.GetUpdatedCache(cache).Cached;
+                    if (current.Name != requestedValue || current.IsOffscreen)
+                    {
+                        stages["value"] = stages.GetValueOrDefault("value") + 1;
+                        return false;
+                    }
+                    var identity = email.GetUpdatedCache(cache).Cached;
                     var entry = edit.GetUpdatedCache(cache).Cached;
                     var stage = identity.Name != ScaleFixture.Target || identity.IsOffscreen ? "identity" :
-                        current.Name != requestedValue || current.IsOffscreen ? "value" :
                         !entry.IsEnabled || entry.IsOffscreen ? "edit" :
                         !profileInput.Current.IsOffscreen ? "form" :
                         Activity(window) != "Ready" ? "activity" : "ready";
