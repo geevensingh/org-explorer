@@ -119,9 +119,9 @@ selection is checked through its own exact selected-Person result, not a hidden
 archived toggle or an inherited note owner's incidental email; query, overlay,
 viewport and complete native size matrices remain.
 
-Headless draft-discard coverage compiles the actual note coordinator with only
-its timer substituted. Busy retries must refuse discard before any refresh or
-draft mutation; idle explicit discard remains available.
+Headless draft-discard coverage uses the
+[public workflow/view-model cases](#immutable-drafts-and-scoped-cancellation)
+with a controlled request clock and a held real in-memory save.
 
 ## Durable typing and save handoffs
 

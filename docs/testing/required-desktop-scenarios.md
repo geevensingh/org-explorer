@@ -110,7 +110,8 @@ without changing its display. They cover:
 - `compatibility-settings`: global Settings before open, current-format reopening,
   older/future-version nonmutation and write blocking, validation retry and an
   explicitly chosen supported alternative. Startup coverage also checks first-run controls, automatic
-  same-Workspace reopening without a selected Person, an honest empty recovery
+  same-Workspace reopening with the remembered or automatic fallback Person,
+  an honest empty failed-startup recovery
   state with Retry/Choose actions and no replacement creation, successful Retry,
   failed manual attempts retaining the old default, and alternate-folder reopen.
 - `update-settings`: actual default-enabled startup and manual checks against a

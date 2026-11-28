@@ -211,9 +211,12 @@ unchanged Workspace bytes and deliberate archived access with reopened ratios.
 No additional whole journeys, manifest changes or deadline increases are needed.
 Startup helpers require the exact Workspace, completed activity, current
 validated data, expected Person and absence of visible Workspace/view recovery
-errors. No-selection expectations remain for fixtures without saved valid views.
+errors. A populated current Workspace without a valid saved Person uses automatic
+fallback selection; no-selection expectations remain for failed startup, empty
+or all-archived fixtures.
 Their runner regression rejects an earlier open-success observation until the
-saved destination is actually present. The full UI-scale mutation journey now
+expected remembered or fallback destination is actually present.
+The full UI-scale mutation journey now
 waits for that validated startup restoration instead of issuing a redundant
 manual open whose completion could clear its new query. Its 10,000-Person fixture,
 180-second waits and final durable profile/Manager/favorite/photo checks remain.
