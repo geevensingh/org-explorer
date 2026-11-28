@@ -4270,6 +4270,17 @@ internal static partial class Program
             model.GetRetainedNoteDraft(NoteScope.Person, model.PersonNotesView.SelectedNote!.Id) != noteDraft ||
             model.OperationError != beforeError || Control<TextBox>("OfficeNumber").Text != "  Compiled independent profile writing\r\n")
             throw new InvalidOperationException("Compiled full expansion lost nested/current rows, action availability or independent owner writing.");
+        var previousChild = child;
+        ((IItemContainerGenerator)container.ItemContainerGenerator).RemoveAll();
+        ((IContainItemStorage)container).StoreItemValue(manager.Reports.Single(), TreeViewItem.IsExpandedProperty, false);
+        Layout();
+        child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
+        if (ReferenceEquals(child, previousChild))
+            throw new InvalidOperationException("The cold preparation regression reused an already-restored container.");
+        Console.WriteLine($"TREE-COLD-PREPARE rendered={child.IsExpanded}; " +
+            $"logical={model.PeopleNavigation.ExpandedPeople.Contains(manager.Reports.Single().Person.Email)}.");
+        if (!child.IsExpanded || !model.PeopleNavigation.ExpandedPeople.Contains(manager.Reports.Single().Person.Email))
+            throw new InvalidOperationException("First container preparation lost completed logical subtree expansion.");
         var expandedChild = manager.Reports.Single();
         ((IContainItemStorage)container).StoreItemValue(expandedChild, TreeViewItem.IsExpandedProperty, false);
         child.DataContext = sibling;
