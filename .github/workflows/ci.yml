@@ -30,7 +30,7 @@ jobs:
     if: ${{ !inputs.core_capacity_diagnostic }}
     name: Core and view models
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Start execution budget before setup
         run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'

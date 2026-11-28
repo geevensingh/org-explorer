@@ -193,7 +193,14 @@ function Assert-LaneHealthRecord($Record, [string]$Path) {
             Assert-HealthNumber $Record.measurements.ceilingSeconds 'ceilingSeconds'
             if ($Record.measurements.headroomSeconds -ne
                 $Record.measurements.ceilingSeconds - $Record.measurements.executionSeconds) { throw 'Lane headroom disagrees.' }
-            $ceiling = if ($Record.lane -ceq 'core') { 300 }
+            $corePolicy = if ($Record.lane -ceq 'core') {
+                Get-ApprovedCoreTimingPolicy $(if ($Record.originalPolicy) { $Record.originalPolicy } else { 'core-original-v1' })
+            } else { $null }
+            if ($Record.lane -ceq 'core' -and $Record.originalPolicy -ceq 'core-goal-safety-v2' -and
+                (Get-SourceTimingPolicyVersion $Record.revision -Hosted -Core) -cne $Record.originalPolicy) {
+                throw 'Retained core policy differs from its independently verified source.'
+            }
+            $ceiling = if ($Record.lane -ceq 'core') { $corePolicy.safetySeconds }
                 elseif ($Record.lane -cmatch '^(desktop-|high-resolution-)') { 900 }
                 elseif ((Get-TimingLane $Record.lane) -ceq 'ui-scale-prefix' -and $Record.originalPolicy -cin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')) { 900 } else { 660 }
             if ($Record.measurements.ceilingSeconds -ne $ceiling) { throw 'Lane measurement changed an original budget.' }
@@ -294,13 +301,15 @@ function Get-HostedHealth($Job) {
         seconds = $seconds; steps = $steps; scope = 'API job wall time including setup and post/upload, not product latency' }
 }
 
-function Get-CoreHealthMeasurement([string]$Directory, $Run) {
+function Get-CoreHealthMeasurement([string]$Directory, $Run, [string]$SourceGitDirectory) {
     $execution = Get-Content (Join-Path $Directory 'execution.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+    $version = Get-SourceTimingPolicyVersion $Run.head_sha -Core -Hosted:(!$SourceGitDirectory) -GitDirectory $SourceGitDirectory
+    $policy = Get-ApprovedCoreTimingPolicy $version
     foreach ($name in @('schemaVersion', 'ceilingSeconds', 'targetSeconds')) { Assert-HealthNumber $execution[$name] $name }
     if ($execution.schemaVersion -ne 1 -or $execution.lane -cne 'core' -or
         $execution.revision -cne $Run.head_sha -or $execution.runId -cne [string]$Run.id -or
         $execution.runAttempt -cne [string]$Run.run_attempt -or $execution.selector -cne 'all' -or
-        $execution.policyVersion -cne 'core-original-v1' -or $execution.ceilingSeconds -ne 300 -or $execution.targetSeconds -ne 300 -or
+        $execution.policyVersion -cne $version -or $execution.ceilingSeconds -ne $policy.safetySeconds -or $execution.targetSeconds -ne $policy.goalSeconds -or
         $execution.complete -isnot [bool]) { throw 'Unbound core policy/selection.' }
     Assert-HealthNumber $execution.executionSeconds 'executionSeconds'
     Assert-HealthDate $execution.startedAt 'startedAt'
@@ -321,22 +330,26 @@ function Get-CoreHealthMeasurement([string]$Directory, $Run) {
     $diagnostics = @()
     if ($execution.ContainsKey('configurationErrors')) { $diagnostics += @($execution.configurationErrors) }
     if ($execution.ContainsKey('error') -and $execution.error) { $diagnostics += "Original runner error: $($execution.error)" }
-    if ($execution.executionSeconds -gt 300) {
+    if ($execution.executionSeconds -gt $policy.safetySeconds) {
         if ($validation -ceq 'success') { $validation = 'failure' }
-        $diagnostics += 'Completed checks/runner exit cannot waive the original 300-second whole-execution acceptance budget.'
+        $diagnostics += if ($version -ceq 'core-original-v1') {
+            'Completed checks/runner exit cannot waive the original 300-second whole-execution acceptance budget.'
+        } else { "Completed checks/runner exit cannot waive the source-bound $($policy.safetySeconds)-second whole-execution safety budget." }
     }
     return @{ validation = $validation; tests = $tests; configuration = $execution.configuration; diagnostics = $diagnostics
         correctnessChecks = $correctness; originalPolicyAcceptance = $validation
         measuredAt = $execution.finishedAt; runnerOutcome = $execution.outcome; runnerComplete = $execution.complete
-        measurements = @{ executionSeconds = $execution.executionSeconds; ceilingSeconds = 300
-            headroomSeconds = 300 - $execution.executionSeconds; steps = $steps; metrics = @() }
-        selector = 'all'; originalPolicy = 'core-original-v1' }
+        measurements = @{ executionSeconds = $execution.executionSeconds; ceilingSeconds = $policy.safetySeconds
+            headroomSeconds = $policy.safetySeconds - $execution.executionSeconds; steps = $steps; metrics = @() }
+        selector = 'all'; originalPolicy = $version }
 }
 
 function Export-LocalCoreHealth([string]$Directory, [string]$WorkingDirectory, [Nullable[int]]$ObservedExitCode) {
     $execution = Get-Content (Join-Path $Directory 'execution.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
     $run = @{ head_sha = $execution.revision; id = $execution.runId; run_attempt = $execution.runAttempt }
-    $result = Get-CoreHealthMeasurement $Directory $run
+    $gitDirectory = (& git -C $Directory rev-parse --absolute-git-dir).Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'Local core policy source repository is unavailable.' }
+    $result = Get-CoreHealthMeasurement $Directory $run -SourceGitDirectory $gitDirectory
     $record = [ordered]@{
         schemaVersion = 2; recordType = 'local-lane-observation'; repository = $FilesystemHealthRepository; lane = 'core'
         revision = $execution.revision; controllerRevision = $null; writerRevision = $null; writerScope = 'local result projection'

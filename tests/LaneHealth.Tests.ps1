@@ -1010,7 +1010,7 @@ try {
     try {
         $probe = Join-Path $fixture 'core-probe'
         New-Item -ItemType Directory -Path (Join-Path $probe 'eng'), (Join-Path $probe 'tests') -Force | Out-Null
-        foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1', 'CoreContracts.ps1')) {
+        foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1', 'CoreContracts.ps1', 'TimingPolicy.ps1')) {
             Copy-Item "$root\eng\$name" (Join-Path $probe "eng\$name")
         }
         foreach ($name in @('DesktopScenarios.json', 'DesktopPartitions.json')) {

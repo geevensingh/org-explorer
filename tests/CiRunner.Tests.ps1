@@ -100,7 +100,10 @@ try {
     Write-Host 'PASS: the actual budgeted CI runner preserves arguments containing spaces.'
     foreach ($Lane in @('core', 'filesystem', 'desktop', 'high-resolution')) {
         . ([scriptblock]::Create($budgetAssignment.Extent.Text))
-        $expiredSeconds = if ($Lane -eq 'core') { 301 } elseif ($Lane -in @('desktop', 'high-resolution')) { 901 } else { 661 }
+        $expiredSeconds = if ($Lane -eq 'core') {
+            . "$root\eng\TimingPolicy.ps1"
+            (Get-ApprovedCoreTimingPolicy (Get-SourceTimingPolicyVersion (git -C $root rev-parse HEAD).Trim() -Core)).safetySeconds + 1
+        } elseif ($Lane -in @('desktop', 'high-resolution')) { 901 } else { 661 }
         $started = [DateTimeOffset]::UtcNow.AddSeconds(-$expiredSeconds)
         $rejected = $false
         try {
@@ -111,7 +114,7 @@ try {
         }
         if (!$rejected -or $steps.Count -ne 2) { throw "Expired $Lane work was not rejected before launch." }
     }
-    Write-Host 'PASS: both desktop lanes reject work after fifteen minutes; core and filesystem deadlines remain unchanged.'
+    Write-Host 'PASS: both desktop lanes reject work after fifteen minutes; core expiry follows its trusted source and filesystem remains unchanged.'
     $started = [DateTimeOffset]::UtcNow
     $failed = $false
     try { Invoke-BudgetedDotnet failed-command @('test', '--not-a-supported-option') }
@@ -147,7 +150,7 @@ try {
     }
     $fixture = Join-Path $results 'partition-fixture'
     New-Item -ItemType Directory -Path (Join-Path $fixture 'eng'), (Join-Path $fixture 'tests') -Force | Out-Null
-    foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1', 'CoreContracts.ps1')) {
+    foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1', 'CoreContracts.ps1', 'TimingPolicy.ps1')) {
         Copy-Item -LiteralPath (Join-Path $root "eng\$name") -Destination (Join-Path $fixture "eng\$name")
     }
     foreach ($name in @('DesktopScenarios.json', 'DesktopPartitions.json',

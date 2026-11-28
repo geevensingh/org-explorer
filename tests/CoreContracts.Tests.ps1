@@ -33,7 +33,10 @@ function Invoke-ControlledCore([string]$Mode = 'overlap', [int]$BudgetUsed = 0,
     $start.Environment['CORE_CONTRACT_MODE'] = $Mode
     $start.Environment['DOTNET_PROCESSOR_COUNT'] = [string]$ProcessorCount
     $start.Environment['CORE_CONTRACT_HOLDER_STARTUP_DELAY_MS'] = [string]$HolderStartupDelayMilliseconds
-    if ($BudgetUsed) { $start.Environment['LANE_STARTED_AT'] = [DateTimeOffset]::UtcNow.AddSeconds(-$BudgetUsed).ToString('O') }
+    if ($BudgetUsed -and $Mode -cne 'timeout') {
+        $start.Environment['LANE_STARTED_AT'] = [DateTimeOffset]::UtcNow.AddSeconds(-$BudgetUsed).ToString('O')
+    }
+    if ($Mode -ceq 'timeout') { $start.Environment['CORE_CONTRACT_OWNERSHIP_BUDGET_USED'] = [string]$BudgetUsed }
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
@@ -49,10 +52,21 @@ function Invoke-ControlledCore([string]$Mode = 'overlap', [int]$BudgetUsed = 0,
 try {
     New-Item -ItemType Directory -Path (Join-Path $fixture 'eng'),
         (Join-Path $fixture 'tests\OrgExplorer.Core.Tests') -Force | Out-Null
-    foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1', 'CoreContracts.ps1')) {
+    foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1', 'CoreContracts.ps1', 'TimingPolicy.ps1')) {
         $path = Join-Path $root "eng\$name"
         if (Test-Path -LiteralPath $path) { Copy-Item -LiteralPath $path (Join-Path $fixture "eng\$name") }
     }
+    $runnerPath = Join-Path $fixture 'eng\Run-CiLane.ps1'
+    $runner = Get-Content -LiteralPath $runnerPath -Raw
+    $queueCall = 'Invoke-CoreContracts $root $results $artifactBuild $started $ceilingSeconds $steps'
+    Assert ([regex]::Matches($runner, [regex]::Escape($queueCall)).Count -eq 1) 'Controlled ownership clock has no unique public queue seam.'
+    $controlledQueue = @'
+if ($env:CORE_CONTRACT_MODE -ceq 'timeout') {
+                $started = [DateTimeOffset]::UtcNow.AddSeconds(-[int]$env:CORE_CONTRACT_OWNERSHIP_BUDGET_USED)
+            }
+            Invoke-CoreContracts $root $results $artifactBuild $started $ceilingSeconds $steps
+'@
+    [IO.File]::WriteAllText($runnerPath, $runner.Replace($queueCall, $controlledQueue))
     foreach ($name in @('DesktopScenarios.json', 'DesktopPartitions.json')) {
         Copy-Item -LiteralPath (Join-Path $root "tests\$name") (Join-Path $fixture "tests\$name")
     }

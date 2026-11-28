@@ -2191,8 +2191,8 @@ bounded 900-second observation window and 16-minute upload watchdog. Normal
 lanes and aggregate acceptance are skipped only for this diagnostic dispatch.
 Its separate `core-capacity` artifacts always declare `complete=false`,
 `diagnosticOnly=true` and a diagnostic policy/outcome, even if all observed
-checks pass. The 300-second goal and normal five-minute cutoff remain unchanged;
-900 seconds is a capture bound, not an activated safety policy. No production
+checks pass. The 300-second goal remains; 900 seconds is only a capture bound.
+Normal source-bound core acceptance uses the separately approved policy below. No production
 latency, coverage or baseline authority is amended. The focused non-UI
 `CoreCapacity.Tests.ps1` checks exhausted-window refusal and dispatch isolation.
 
@@ -2207,19 +2207,23 @@ Each native worker has its own disposable desktop; UI automation never runs
 concurrently on one desktop.
 The stable aggregate `CI` requires all four lanes, including both ordinary
 and both high-resolution desktop workers. Failure, required skip,
-cancellation, missing result and timeout cannot pass. Preserve the 5-minute
-workflow/view-model, 11-minute filesystem, 15-minute limit for each ordinary
+cancellation, missing result and timeout cannot pass. Preserve the 8-minute
+workflow/view-model watchdog, 11-minute filesystem, 15-minute limit for each ordinary
 desktop worker, 15-minute limit for each high-resolution worker and 2-minute aggregate
-deadlines: 78 minutes
+deadlines: 81 minutes
 summed, at most 17 minutes on the parallel critical path, excluding queues and
 later CD. All four native desktop workers enforce matching 900-second whole-execution
 budgets, including setup, temporarily raised with owner approval on 2026-11-15.
 Both full scenario/size/assertion matrices, including profile-copy and SQLite
-save coverage, remain required. Core/filesystem deadlines, separate scale-suite
+save coverage, remain required. Filesystem deadlines, separate scale-suite
 budgets and save-latency targets are unchanged. If fifteen minutes is insufficient,
 investigate rather than automatically extending it again.
-The five-minute target includes setup, restore, build, fixtures, tests and cleanup;
-passing a hard deadline does not claim that target or a new latency SLA.
+The five-minute core goal includes setup, restore, build, fixtures, tests and
+cleanup. Approved `core-goal-safety-v2` enforces a separate 420-second execution
+safety cutoff and an eight-minute watchdog for upload/teardown. A complete
+execution above 300s but at or below 420s is yellow and nonblocking for duration
+alone; failures and unfinished checks still block. The independent source
+manifest keeps original `core-original-v1` results at their original 300s limit.
 
 `DesktopPartitions.json` assigns every existing ordinary scenario exactly once.
 The `people` worker runs profile, draft, Person-note, Team/history and search
@@ -2283,7 +2287,8 @@ not discard other completed
 receipts or turn the original execution into success.
 Scheduling, resolved parallelism and ownership configuration join the existing
 source-bound fixture identity in timing-series compatibility. The original
-setup-inclusive 300-second limit and six-worker/four-lane topology are unchanged.
+setup-inclusive 300-second goal and six-worker/four-lane topology are unchanged;
+source-bound `core-goal-safety-v2` has the separately approved 420s safety limit.
 This capacity repair does not establish hosted speed or relabel prior results.
 
 The filesystem runner excludes only `Category=Performance`; ordinary persistence,
@@ -2335,6 +2340,11 @@ file that may never be written before expiry. The default controlled holder
 delays its own readiness beyond the remaining fixture deadline; the parent must
 have launched and exited, and that exact descendant must be gone. Missing launch
 receipts still fail explicitly; no startup or execution budget is extended.
+The controlled ownership-deadline case completes real restore/build/test setup
+before allocating its synthetic eight-second queue remainder. Its original
+300s synthetic ceiling and 20s watchdog remain; other controls still reject
+expired whole-execution setup. Normal core setup remains charged to the actual
+source-bound safety deadline. No missing launch receipt is synthesized.
 Creation-time matching prevents cleanup of an unrelated process reusing a PID.
 The overlap child explicitly resolves four CPUs;
 a separate one-CPU child must complete all 21 companions serially, without
@@ -2437,10 +2447,11 @@ release-planning no-ops do not certify executed scale or publication.
 Core preserves its unfiltered selection and emits the original terminal outcome
 plus timings for every existing mandatory companion and the health contracts.
 Raw local runner success/completed correctness checks are separate from
-original-policy acceptance: a completed execution beyond 300 seconds is a
-reported budget failure, not a within-budget/healthy sample, even where the
+original-policy acceptance: on `core-original-v1`, execution beyond 300 seconds
+is a reported budget failure, not a within-budget/healthy sample, even where the
 preexisting local companion execution returns success. Reporting does not
-change that raw exit or extend the Actions deadline.
+change that raw exit. New core source policies are validated independently,
+never substituted into these historical outcomes.
 Partitions retain their original required command/scenario matrices; named
 compiled trust/icon/output checks are additional observations, not substituted
 native proof. Core/filesystem TRX retains workload-family outcome counts,

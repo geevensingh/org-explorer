@@ -20,14 +20,22 @@ function Get-ApprovedTimingPolicy(
     }
 }
 
-function Get-SourceTimingPolicyVersion([string]$Revision, [switch]$Hosted, [string]$GitDirectory) {
+function Get-ApprovedCoreTimingPolicy(
+    [ValidateSet('core-original-v1', 'core-goal-safety-v2')][string]$Version = 'core-original-v1') {
+    return @{ version = $Version; goalSeconds = 300
+        safetySeconds = if ($Version -ceq 'core-goal-safety-v2') { 420 } else { 300 }
+        watchdogMinutes = if ($Version -ceq 'core-goal-safety-v2') { 8 } else { 5 } }
+}
+
+function Get-SourceTimingPolicyVersion([string]$Revision, [switch]$Hosted, [string]$GitDirectory, [switch]$Core) {
     if ($Revision -cnotmatch '^[0-9a-f]{40}$') { throw 'Timing policy requires an exact trusted source revision.' }
-    $path = 'eng/timing-policy.json'
+    $path = if ($Core) { 'eng/core-timing-policy.json' } else { 'eng/timing-policy.json' }
+    $original = if ($Core) { 'core-original-v1' } else { 'rich-scale-original-v1' }
     if ($Hosted) {
         $tree = Invoke-HealthApi "git/trees/$Revision`?recursive=1"
         if ($tree.truncated) { throw 'Truncated source tree cannot establish timing policy.' }
         $entries = @($tree.tree | Where-Object { $_.path -ceq $path })
-        if (!$entries.Count) { return 'rich-scale-original-v1' }
+        if (!$entries.Count) { return $original }
         if ($entries.Count -ne 1 -or $entries[0].type -cne 'blob') { throw 'Invalid timing policy source entry.' }
         $blob = Invoke-HealthApi "git/blobs/$($entries[0].sha)"
         if ($blob.encoding -cne 'base64') { throw 'Unsupported timing policy source encoding.' }
@@ -37,12 +45,13 @@ function Get-SourceTimingPolicyVersion([string]$Revision, [switch]$Hosted, [stri
             else { @('-C', (Split-Path $PSScriptRoot -Parent)) }
         $entry = @(git @gitArguments ls-tree $Revision -- $path)
         if ($LASTEXITCODE -ne 0) { throw 'Trusted timing policy source revision is unavailable.' }
-        if (!$entry.Count) { return 'rich-scale-original-v1' }
+        if (!$entry.Count) { return $original }
         $text = (git @gitArguments show "${Revision}:$path") -join "`n"
         if ($LASTEXITCODE -ne 0) { throw 'Trusted timing policy source cannot be read.' }
     }
     $policy = $text | ConvertFrom-Json -AsHashtable
-    if ($policy.Count -ne 1 -or $policy.version -isnot [string] -or $policy.version -cnotin @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4')) {
+    $approved = if ($Core) { @('core-goal-safety-v2') } else { @('ci-timing-v2', 'ci-timing-v3', 'ci-timing-v4') }
+    if ($policy.Count -ne 1 -or $policy.version -isnot [string] -or $policy.version -cnotin $approved) {
         throw 'Unknown or amended timing policy requires explicit approval and implementation.'
     }
     return $policy.version
@@ -388,7 +397,8 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
     if ($Record.recordType -cne 'performance-cohort' -and $Record.measurements) {
         $duration = $evaluation.metrics.executionSeconds
         $lane = Get-TimingLane $Record.lane
-        $limit = if ($lane -ceq 'core') { 300 }
+        $corePolicy = if ($lane -ceq 'core') { Get-ApprovedCoreTimingPolicy $(if ($Record.originalPolicy) { $Record.originalPolicy } else { 'core-original-v1' }) } else { $null }
+        $limit = if ($lane -ceq 'core') { $corePolicy.safetySeconds }
             elseif ($lane -cmatch '^(desktop-|high-resolution-)') { 900 }
             elseif ($lane -ceq 'ui-scale-prefix') { 900 }
             elseif ($lane -cin @('filesystem', 'non-ui-performance', 'ui-scale-tail')) { 660 } else { $null }
@@ -396,6 +406,12 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
             $duration.limit = $limit; $duration.headroom = $limit - $duration.median
             if ($duration.median -gt $limit) {
                 $duration.health = 'red'; $duration.reason = 'Whole execution exceeds its effective safety limit.'
+            } elseif ($lane -ceq 'core') {
+                $duration.goal = $corePolicy.goalSeconds
+                $duration.goalMet = $duration.median -le $duration.goal
+                if (!$duration.goalMet -and $duration.health -cne 'red') {
+                    $duration.health = 'yellow'; $duration.reason = 'Core execution completed within safety but exceeded its 300-second goal.'
+                }
             }
         }
     }

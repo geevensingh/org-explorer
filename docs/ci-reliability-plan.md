@@ -24,6 +24,13 @@ prefix additionally uses a 1,000-ms goal/1,500-ms inclusive p95 ceiling.
 Ordinary/small-fixture and non-UI profile/note limits remain 1,000 ms. Other
 product, causal, matrix and sample requirements are unchanged.
 
+Core separately uses approved `core-goal-safety-v2`: a 300-second goal,
+420-second safety cutoff and eight-minute workflow watchdog. Goal misses within
+safety are yellow; failed or unfinished checks still block. The independent
+source manifest preserves earlier `core-original-v1` 300-second verdicts.
+Scale/product limits are unaffected; see the measured core amendment in the
+[policy](ci-timing-policy-proposal.md).
+
 V4 leaves those numbers and comparative rules unchanged. A specifically scoped
 post-verification native build-deletion refusal may warn only with verified
 GitHub-hosted signing provenance, fresh invocation/source/run binding and valid

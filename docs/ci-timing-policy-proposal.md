@@ -5,6 +5,28 @@
 Independent integration and a new exact-candidate full cohort belong to #133.
 No earlier failed execution is reclassified and joint `main` delivery is pending.
 
+## Approved core goal and safety amendment
+
+The owner approved `core-goal-safety-v2`: retain the 300-second whole-core goal,
+enforce a separate inclusive 420-second safety cutoff and use an eight-minute
+workflow watchdog for upload/teardown. Complete execution above the goal but
+within safety is yellow and nonblocking for duration alone. Failed, missing or
+unfinished checks still block; product latency limits and required selection
+are unchanged.
+
+Three complete nonaccepting hosted observations at
+`daa6449c0e5046470be8f5fd1a0d1f361d6d113a` ran all 757 compiled cases and 21
+companions on the same four-CPU `20261123.321.1` image:
+251.0151487, 262.1259543 and 311.5764762 seconds. The maximum plus the observed
+60.5613275-second range is 372.1378037 seconds; rounding upward to whole minutes
+gives 420 seconds. This is measured headroom, not a calibrated probability or
+guarantee. The later main reconciliation must be verified freshly.
+
+`eng/core-timing-policy.json` independently identifies the core source policy.
+Sources without it retain `core-original-v1` and the original 300-second
+acceptance cutoff. Old failed/cancelled observations are not reinterpreted.
+The scale `ci-timing-v4` policy and all its numerical rules remain unchanged.
+
 ## Scoped disposable-worker housekeeping
 
 V4 changes **no timing value or evidence rule**. It permits a visible warning
@@ -271,7 +293,7 @@ three p95 values from three workers are not63 independent executions.
 
 | Metric/workload | Healthy / warning policy | Implemented blocking requirement / safety |
 |---|---|---|
-| Core whole duration | Empirical envelope; existing300s target remains descriptive | Preserve300s policy/safety; no evidence justifies padding this lane |
+| Core whole duration | Empirical envelope; 300s goal retained | Original300s safety remains on original sources; see the approved core amendment |
 | Filesystem whole duration | Empirical envelope; existing300s target descriptive | Preserve660s safety and full real-storage selection |
 | Each desktop/high-resolution partition | Empirical envelope, per actual partition/companions | Preserve900s safety, full UI/state/size matrices |
 | Non-UI whole duration | Empirical envelope, no healthy band inferred from mixed pilots | Preserve660s safety; observed complete workers are far below it |

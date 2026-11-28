@@ -15,6 +15,7 @@ if ($HighResolutionPartition -and $Lane -ne 'high-resolution') {
 }
 . "$root\eng\DesktopResults.ps1"
 . "$root\eng\CoreContracts.ps1"
+. "$root\eng\TimingPolicy.ps1"
 $partition = if ($HighResolutionPartition) { $HighResolutionPartition } else { $DesktopPartition }
 $partitions = Get-DesktopPartitions -HighResolution:([bool]$HighResolutionPartition)
 $runDesktopContracts = $Lane -eq 'desktop' -and $DesktopPartition -ne 'people'
@@ -25,7 +26,13 @@ $steps = [System.Collections.Generic.List[object]]::new()
 $companionSteps = [System.Collections.Generic.List[object]]::new()
 $index = 0
 $artifactBuild = Join-Path $results 'build'
-$ceilingSeconds = if ($CoreCapacityDiagnostic) { 900 } elseif ($Lane -eq 'core') { 300 } `
+$corePolicy = $null
+if ($Lane -ceq 'core') {
+    $coreRevision = (& git rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'Core policy source revision is unavailable.' }
+    $corePolicy = Get-ApprovedCoreTimingPolicy (Get-SourceTimingPolicyVersion $coreRevision -Core)
+}
+$ceilingSeconds = if ($CoreCapacityDiagnostic) { 900 } elseif ($Lane -eq 'core') { $corePolicy.safetySeconds } `
     elseif ($Lane -in @('desktop', 'high-resolution')) { 900 } else { 660 }
 if ($CoreCapacityDiagnostic) { Write-Host 'DIAGNOSTIC ONLY: 300s goal, bounded 900s observation; this run cannot accept a candidate or supply a baseline.' }
 $env:SCALE_TIMING_FILE = Join-Path $results 'scale-measurements.log'
@@ -273,7 +280,7 @@ try {
             complete = ($complete -and !$CoreCapacityDiagnostic)
             outcome = if ($CoreCapacityDiagnostic) { "diagnostic_$outcome" } else { $outcome }
             observedComplete = $complete; diagnosticOnly = [bool]$CoreCapacityDiagnostic; error = $executionFailure
-            policyVersion = if ($CoreCapacityDiagnostic) { 'core-capacity-diagnostic-v1' } else { "$Lane-original-v1" }
+            policyVersion = if ($CoreCapacityDiagnostic) { 'core-capacity-diagnostic-v1' } elseif ($Lane -ceq 'core') { $corePolicy.version } else { "$Lane-original-v1" }
             selector = if ($Lane -eq 'core') { 'all' } else { 'Category!=Performance' }
             ceilingSeconds = $ceilingSeconds; targetSeconds = 300; executionSeconds = $elapsed
             steps = @($steps.ToArray()); configuration = $configuration; configurationErrors = $configurationErrors
