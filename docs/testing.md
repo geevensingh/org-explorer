@@ -3461,6 +3461,12 @@ These observations use the real Directory-name editor's automation provider:
 visible in Edit and offscreen after Save, alongside the exact owner/value,
 enabled Edit action and Ready state. The layout-only `ProfileForm` StackPanel
 has no WPF automation peer and cannot be a native UI Automation target.
+Pending native profile observations first read the requested reading value.
+Until that exact value is onscreen, they do not fetch unrelated owner/Edit
+properties. Acceptance still requires fresh exact owner, enabled visible Edit,
+the original editor being offscreen and Ready; the value alone cannot pass.
+Every sample retains the original request clock, one-second p95 gate and
+independent whole-profile/photo reopen without deducting observation cost.
 
 Only the fixture's synchronization cadence is controlled through its independent
 TimeProvider. Actual save-request/latency/three-second clocks remain real for

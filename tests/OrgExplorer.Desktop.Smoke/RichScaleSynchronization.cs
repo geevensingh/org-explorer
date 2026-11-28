@@ -251,48 +251,18 @@ internal static partial class Program
             var save = ControlReadiness.AwaitPattern(() => Find(window, "SaveProfile"),
                 control => control.Current.IsEnabled,
                 control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), AwaitScale);
-            var requestedAt = DateTimeOffset.UtcNow;
-            var observations = 0;
-            var observationMs = 0d;
-            var maximumObservationMs = 0d;
-            var stages = new Dictionary<string, int>();
             var request = Stopwatch.StartNew();
             save.Invoke();
-            var invokeMs = request.Elapsed.TotalMilliseconds;
             ObserveNoteLatency(() =>
             {
-                var started = Stopwatch.GetTimestamp();
-                try
-                {
-                    var current = value.GetUpdatedCache(cache).Cached;
-                    if (current.Name != requestedValue || current.IsOffscreen)
-                    {
-                        stages["value"] = stages.GetValueOrDefault("value") + 1;
-                        return false;
-                    }
-                    var identity = email.GetUpdatedCache(cache).Cached;
-                    var entry = edit.GetUpdatedCache(cache).Cached;
-                    var stage = identity.Name != ScaleFixture.Target || identity.IsOffscreen ? "identity" :
-                        !entry.IsEnabled || entry.IsOffscreen ? "edit" :
-                        !profileInput.Current.IsOffscreen ? "form" :
-                        Activity(window) != "Ready" ? "activity" : "ready";
-                    stages[stage] = stages.GetValueOrDefault(stage) + 1;
-                    return stage == "ready";
-                }
-                finally
-                {
-                    var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-                    observations++;
-                    observationMs += elapsed;
-                    maximumObservationMs = Math.Max(maximumObservationMs, elapsed);
-                }
+                var current = value.GetUpdatedCache(cache).Cached;
+                if (current.Name != requestedValue || current.IsOffscreen) return false;
+                var identity = email.GetUpdatedCache(cache).Cached;
+                var entry = edit.GetUpdatedCache(cache).Cached;
+                return identity.Name == ScaleFixture.Target && !identity.IsOffscreen &&
+                    entry.IsEnabled && !entry.IsOffscreen && profileInput.Current.IsOffscreen && Activity(window) == "Ready";
             });
             samples.Add(request.Elapsed.TotalMilliseconds);
-            Console.WriteLine("[DEBUG-release-profile] " + JsonSerializer.Serialize(new
-            {
-                phase, sample, requestedAt, acknowledgedAt = DateTimeOffset.UtcNow,
-                requestMs = samples[^1], invokeMs, observations, observationMs, maximumObservationMs, stages
-            }));
             requireHeldExport?.Invoke();
             expected = expected with { OfficeNumber = requestedValue };
             var verification = Stopwatch.StartNew();
