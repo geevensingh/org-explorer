@@ -16,11 +16,64 @@ on:
         required: false
         default: false
         type: boolean
+      run_tree_diagnosis:
+        description: Diagnose the unchanged native scale tree; not release approval
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
+  tree-diagnosis:
+    name: Diagnostic native scale tree
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_tree_diagnosis }}
+    runs-on: windows-latest
+    timeout-minutes: 13
+    steps:
+      - name: Start diagnostic execution budget before setup
+        run: '"SCALE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Run the original tree journey under the unchanged budget
+        run: |
+          . .\eng\ScaleRunner.ps1
+          . .\eng\DesktopResults.ps1
+          . .\eng\UiScaleResults.ps1
+          $selection = @{ diagnosticOnly = $true; requiredScenarios = @('scale-navigation-rendering') }
+          Invoke-ScaleSuite -Suite tree-diagnostic -Label 'Diagnostic native tree' `
+            -ResultsDirectory .ci-results\tree-diagnostic -ExpectedRevision $env:GITHUB_SHA `
+            -Selection $selection -Verify {
+              param($run, $build)
+              $previous = $env:DESKTOP_RESULTS_DIRECTORY
+              try {
+                $env:DESKTOP_RESULTS_DIRECTORY = $run
+                Invoke-ScaleDotnet restore-app @('restore', 'src\OrgExplorer.Desktop', '--locked-mode')
+                Invoke-ScaleDotnet restore-tests @('restore', 'tests\OrgExplorer.Desktop.Smoke', '--locked-mode')
+                Invoke-ScaleDotnet build-app @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore')
+                Invoke-ScaleDotnet display @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
+                  '--no-restore', '--', '--prepare-high-resolution')
+                Invoke-ScaleDotnet tree @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
+                  '--no-build', '--no-restore', '--',
+                  (Join-Path $build 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'), 'scale-navigation-rendering')
+                Assert-DesktopResults (Join-Path $run 'scenarios.json') @('scale-navigation-rendering')
+              } finally { $env:DESKTOP_RESULTS_DIRECTORY = $previous }
+            }
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: diagnostic-tree-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            .ci-results/tree-diagnostic/**/*.json
+            .ci-results/tree-diagnostic/**/*.log
+            .ci-results/tree-diagnostic/**/*.png
+
   core:
     name: Core and view models
     runs-on: windows-latest
