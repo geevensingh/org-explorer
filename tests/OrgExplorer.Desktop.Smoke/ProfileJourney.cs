@@ -1146,7 +1146,9 @@ internal static partial class Program
     private static void SaveProfileEditing(AutomationElement window, PersonProfile? submittedProfile = null)
     {
         var owner = Find(window, "Email").Current.Name;
-        var workspace = Find(window, "WorkspaceName").Current.HelpText;
+        var workspace = ControlReadiness.AwaitControl(
+            () => Find(window, "WorkspaceName").Current.HelpText,
+            path => !string.IsNullOrWhiteSpace(path), Await);
         var submittedText = SmokeProfileTextFields.Select(field =>
             (field.Control, Value: Value(window, field.Control) is { Length: > 0 } value ? value : null)).ToArray();
         var hasTeamName = IsVisible(window, "TeamNameEditor");

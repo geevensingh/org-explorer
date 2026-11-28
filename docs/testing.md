@@ -205,6 +205,11 @@ field. Each readiness poll and post-action check captures again; observations
 do not survive navigation, focus/scroll changes or updates. Text-pattern, pixel,
 selection and keyboard assertions remain actual provider/desktop observations,
 with the same complete scenario selection, size matrices and execution budgets.
+The explicit profile-Save fixture obtains the actual Workspace path through
+the existing bounded control-readiness observation before invoking Save once.
+It retains that successful metadata value for independent reopening; persistently
+missing or blank metadata still fails, without an unguarded second lookup, action replay,
+changed completion assertions or increased CI/Save observation deadlines.
 Responsive editor checks acquire the displayed identity inside the existing
 readiness poll, so a transient post-resize absence cannot bypass that wait.
 File-backed profile-session cases cover complete publication and reopening,
