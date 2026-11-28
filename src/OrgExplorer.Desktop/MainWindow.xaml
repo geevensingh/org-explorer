@@ -9,6 +9,14 @@
         AutomationProperties.HelpText="{Binding Text, ElementName=StatusText}"
         Icon="/OrgExplorer.Desktop;component/Assets/OrgExplorer.ico"
         FontFamily="Segoe UI" FontSize="14" Background="#FAFBFC" Foreground="#24292F">
+  <Window.CommandBindings>
+    <CommandBinding Command="{x:Static local:MainWindow.ExpandSubtreeCommand}"
+                    CanExecute="CanExpandSubtree" Executed="ExpandSubtree"/>
+    <CommandBinding Command="{x:Static local:MainWindow.CollapseSubtreeCommand}"
+                    CanExecute="CanCollapseSubtree" Executed="CollapseSubtree"/>
+    <CommandBinding Command="{x:Static local:MainWindow.CollapseOtherBranchesCommand}"
+                    CanExecute="CanCollapseOtherBranches" Executed="CollapseOtherBranches"/>
+  </Window.CommandBindings>
   <Window.Resources>
     <DataTemplate DataType="{x:Type local:ImportUnchangedSection}">
       <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}" Header="{Binding Summary}"
@@ -310,6 +318,13 @@
     <Style x:Key="ProfileField" TargetType="StackPanel">
       <Setter Property="Margin" Value="0,0,16,12"/>
     </Style>
+    <Style x:Key="ReportingAction" TargetType="MenuItem">
+      <Style.Triggers>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Visibility" Value="Collapsed"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
     <Style x:Key="ReportingItem" TargetType="TreeViewItem">
       <Setter Property="AutomationProperties.AutomationId" Value="{Binding Person.Email}"/>
       <Setter Property="AutomationProperties.Name">
@@ -324,6 +339,34 @@
       <EventSetter Event="Loaded" Handler="RestoreTreeItem"/>
       <EventSetter Event="Expanded" Handler="ExpandPerson"/>
       <EventSetter Event="Collapsed" Handler="CollapsePerson"/>
+      <EventSetter Event="PreviewMouseRightButtonDown" Handler="TargetReportingMenu"/>
+      <EventSetter Event="ContextMenuOpening" Handler="PrepareReportingMenu"/>
+      <Setter Property="ContextMenu">
+        <Setter.Value>
+          <ContextMenu>
+            <ContextMenu.Style>
+              <Style TargetType="ContextMenu">
+                <EventSetter Event="Closed" Handler="CloseReportingMenu"/>
+              </Style>
+            </ContextMenu.Style>
+            <MenuItem Header="Expand subtree" AutomationProperties.AutomationId="ExpandSubtree"
+                      Style="{StaticResource ReportingAction}"
+                      Command="{x:Static local:MainWindow.ExpandSubtreeCommand}"
+                      CommandParameter="{Binding PlacementTarget.DataContext.Person.Email, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+            <MenuItem Header="Collapse subtree" AutomationProperties.AutomationId="CollapseSubtree"
+                      Style="{StaticResource ReportingAction}"
+                      Command="{x:Static local:MainWindow.CollapseSubtreeCommand}"
+                      CommandParameter="{Binding PlacementTarget.DataContext.Person.Email, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+            <MenuItem Header="Collapse other branches" AutomationProperties.AutomationId="CollapseOtherBranches"
+                      Style="{StaticResource ReportingAction}"
+                      Command="{x:Static local:MainWindow.CollapseOtherBranchesCommand}"
+                      CommandParameter="{Binding PlacementTarget.DataContext.Person.Email, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+          </ContextMenu>
+        </Setter.Value>
+      </Setter>
       <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
       <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
       <Setter Property="Template">
@@ -643,9 +686,16 @@
       <GroupBox x:Name="PeoplePanel" Header="People" BorderThickness="0" Padding="0" Background="#FAFBFC"
                 AutomationProperties.AutomationId="PeopleNavigation">
       <Grid Margin="0,0,8,0">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Button x:Name="ClosePeopleButton" Content="Close People" HorizontalAlignment="Right"
                 AutomationProperties.AutomationId="ClosePeople" Click="ClosePeople" Visibility="Collapsed" Margin="0,0,0,8"/>
+        <DockPanel x:Name="TreeExpansionPanel" Grid.Row="2" Visibility="Collapsed" Margin="0,8,0,0">
+          <Button x:Name="CancelTreeExpansionButton" DockPanel.Dock="Right" Content="Cancel expansion"
+                  AutomationProperties.AutomationId="CancelTreeExpansion" Click="CancelTreeExpansion"
+                  Style="{StaticResource QuietButton}" Margin="8,0,0,0"/>
+          <TextBlock x:Name="TreeExpansionStatus" AutomationProperties.AutomationId="TreeExpansionStatus"
+                     AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        </DockPanel>
         <DockPanel x:Name="SearchPanel" Grid.Row="1" Visibility="Collapsed">
           <TextBlock DockPanel.Dock="Top" x:Name="SearchCount" AutomationProperties.AutomationId="SearchCount"
                      Text="Enter text to search local information." TextWrapping="Wrap" Margin="0,0,0,8"/>

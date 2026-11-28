@@ -213,7 +213,8 @@ public partial class MainWindow
     private void RestorePeopleBrowsing()
     {
         var request = ++peopleBrowseRequest;
-        // Retain accepted Person selections made while search hid the tree.
+        // The logical snapshot includes accepted search paths and recursive expansion resets.
+        expandedPeople.Clear();
         expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
         RestoreRealizedTreeState(PeopleList);
         Dispatcher.BeginInvoke(() =>
