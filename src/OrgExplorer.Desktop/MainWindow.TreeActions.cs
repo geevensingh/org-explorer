@@ -16,6 +16,7 @@ public partial class MainWindow
     public static RoutedUICommand CollapseOtherBranchesCommand { get; } =
         new("Collapse other branches", nameof(CollapseOtherBranchesCommand), typeof(MainWindow));
     private bool changingTreePresentation;
+    private string? treeDiagnosticCollapse;
     private IInputElement? reportingMenuReturnFocus;
     private int reportingMenuRequest;
     private TreeViewItem? treeExpansionTarget;
@@ -151,7 +152,8 @@ public partial class MainWindow
             coreExpanded = workflow.PeopleNavigation.ExpandedPeople.Contains(email),
             retainedType = retained?.GetType().FullName,
             retainedLoaded = retained?.IsLoaded,
-            retainedExpanded = retained?.IsExpanded
+            retainedExpanded = retained?.IsExpanded,
+            collapse = treeDiagnosticCollapse
         };
         System.Windows.Automation.AutomationProperties.SetHelpText(PeopleList,
             "[DEBUG-tree-state] " + System.Text.Json.JsonSerializer.Serialize(state));

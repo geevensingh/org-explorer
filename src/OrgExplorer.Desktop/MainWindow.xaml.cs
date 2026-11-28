@@ -502,6 +502,10 @@ public partial class MainWindow : Window
         if (!loading && ReferenceEquals(sender, e.OriginalSource) &&
             e.OriginalSource is TreeViewItem { DataContext: ReportingNode node })
         {
+            if (Environment.GetEnvironmentVariable("TREE_DIAGNOSTIC_EMAIL") is { } diagnosticEmail &&
+                node.Person.Email.Equals(diagnosticEmail, StringComparison.OrdinalIgnoreCase) &&
+                expandedPeople.Contains(diagnosticEmail))
+                treeDiagnosticCollapse = Environment.StackTrace;
             CancelOutstandingTreeExpansion();
             expandedPeople.Remove(node.Person.Email);
             RememberPeopleBrowsing();
