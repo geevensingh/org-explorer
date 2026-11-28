@@ -81,10 +81,23 @@ public sealed class TeamNoteTests
         };
         using var release = new ManualResetEventSlim();
         boundary.BeforeSave = () => { admitted.TrySetResult(); release.Wait(); };
+        boundary.StartObserving();
         app.UpdateNoteDraft(NoteScope.Person, person.Id, person.Title, "Retained Person writing");
         try
         {
-            await admitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try { await admitted.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException failure)
+            {
+                PersonNoteTests.ReportAdmissionRefusal(failure, () => System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    scenario = nameof(Inherited_secondary_notes_reach_their_exact_owner_while_retaining_Person_writing),
+                    continuationDelayMilliseconds, admitted = admitted.Task.IsCompleted,
+                    completion = completed.Task.IsCompleted, retained = app.GetRetainedNoteDraft(NoteScope.Person, person.Id)?.IsSaving,
+                    localSave = app.LocalSave, app.Status, workers = PersonNoteTests.WorkerSnapshot(),
+                    calls = boundary.Snapshot()
+                }), Console.WriteLine);
+                throw;
+            }
             if (continuationDelayMilliseconds > 0) await Task.Delay(continuationDelayMilliseconds);
             Assert.True(app.NavigateInheritedTeamNote(secondary.Id), app.Status);
             Assert.Equal(root.OwnerEmail, app.PeopleNavigation.SelectedEmail);

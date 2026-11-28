@@ -296,6 +296,11 @@ public completion notification after releasing its deliberately held writer,
 before asserting close/flush readiness. It runs both ordinary and four-second
 delayed continuations. The real three-second stall remains intact; no save is
 retried, clock frozen or pending outcome called successful.
+Its unchanged five-second admission refusal also reuses the bounded
+`NOTE-SAVE-CORE-ENTRY-REFUSAL` reporter and public-proxy observations, recording
+signal state, pending save status and non-atomic worker-pool counts before release.
+This capture does not diagnose or extend admission, and preserves the original
+timeout rather than retrying the writer.
 The small-fixture continuous-typing test keeps its one-second first-commit
 assertion, all 25 edits/60-ms waits, repeated durable progress and exact final
 reopen. A refusal emits `NOTE-FIRST-COMMIT-REFUSAL` with the existing edit/read
