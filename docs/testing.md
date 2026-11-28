@@ -102,6 +102,12 @@ Cached no-op cases use separate real local clients: a changed saved revision
 must be refreshed before deciding membership or order. Exact reopened sequences
 and unrelated delivered profile values prove actual changes are saved, while
 self-destination and repeated genuine no-ops add no revision or Profile history.
+Favorite-triggered refresh must invalidate an Import preview built from an older
+revision before Apply can overwrite its population/order. Both Favorite paths
+preserve same-revision previews; changed-revision cases reject stale Apply,
+reopen the complete incoming Favorites and accept a fresh preview. Publication
+metadata changed after legacy validation must be rejected before creating write
+evidence, preserving the complete original file set and bytes.
 `WorkspaceSnapshotTests` supplies #143's exact-order interchange-2
 publication/adoption/reopen, initialized-empty and supported unordered
 interchange-1 initialization (including equal-name input ties), pre-transport

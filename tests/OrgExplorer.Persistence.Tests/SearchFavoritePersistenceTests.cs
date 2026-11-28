@@ -93,6 +93,38 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         Assert.Empty(reader.FavoritePeople);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Legacy_Favorites_initialization_refuses_future_publication_metadata_before_writing_evidence(bool savedOrder)
+    {
+        var seed = Seed();
+        Assert.True(seed.EditFavorite("avery@example.com", true), seed.Status);
+        Assert.NotNull(seed.CreatePersonNote("avery@example.com", "Private", "Keep original writing"));
+        seed.Dispose();
+        ChangeStoredFixture(savedOrder
+            ? "UPDATE synchronization SET snapshot_format=1;"
+            : "DROP TABLE favorite_order; UPDATE synchronization SET snapshot_format=1;");
+        using var releasedRead = new ReleasedRead();
+        using var reader = ApplicationWorkflow.CreateFileBacked(fileObserver: releasedRead);
+        var opening = Task.Run(() => reader.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly));
+        Dictionary<string, byte[]> before;
+        try
+        {
+            Assert.True(releasedRead.Entered.Wait(TimeSpan.FromSeconds(5)), "Legacy validation did not release its read snapshot.");
+            ChangeStoredFixture("UPDATE synchronization SET snapshot_format=3;");
+            before = WorkspaceFixtures.Bytes(folder);
+        }
+        finally { releasedRead.Release.Set(); }
+
+        Assert.False(await opening.WaitAsync(TimeSpan.FromSeconds(20)), reader.Status);
+        var after = WorkspaceFixtures.Bytes(folder);
+        Assert.Equal(before.Keys.Order(), after.Keys.Order());
+        foreach (var (path, expected) in before)
+            Assert.Equal(expected, after[path]);
+        Assert.Empty(reader.FavoritePeople);
+    }
+
     [Fact]
     public async Task Snapshot_adoption_refuses_future_local_order_before_replacing_private_content()
     {
@@ -442,6 +474,53 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         Assert.True(app.EditPersonNote(note.Id, "Resolved", "Independent failed note"), app.Status);
         Assert.Null(app.LocalSaveError);
         Assert.True(app.CanSafelyClose, app.Status);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    public void Favorite_refresh_invalidates_only_previews_from_an_older_local_revision(bool reorder, bool changeRevision)
+    {
+        var writer = Seed();
+        using var reader = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reader.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reader.Status);
+        const string import = """
+            {"schemaVersion":1,"batchId":"20000000-0013-4000-8000-000000000003",
+             "observedAt":"2026-11-07T17:00:00Z","people":[
+             {"email":"avery@example.com","officeNumber":"Previewed office"}]}
+            """;
+        var preview = reader.PreviewImport(import);
+        Assert.True(preview.CanApply, reader.Status);
+        if (changeRevision)
+            Apply(writer, """{"email":"incoming@example.com","displayName":"Incoming","managerEmail":null,"isFavorite":true}""", 2);
+
+        Assert.True(reorder ? reader.ReorderFavorite("alex@example.com", "alex@example.com")
+            : reader.EditFavorite("alex@example.com", true), reader.Status);
+        var refreshedRevision = reader.Synchronization.LocalRevision;
+        var applied = reader.ApplyImport(preview.Id);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        var opened = reopened.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly);
+        if (changeRevision)
+            Assert.False(applied, "Stale preview was applied. Independent reopen: " + reopened.Status);
+        else
+            Assert.True(applied, reader.Status);
+        Assert.True(opened, reopened.Status);
+        Assert.Equal(changeRevision ? ["alex@example.com", "incoming@example.com"] : ["alex@example.com"],
+            reopened.FavoritePeople.Select(person => person.Email));
+        Assert.Equal(changeRevision ? "007B" : "Previewed office",
+            reopened.GetRelationships("avery@example.com")!.Person.OfficeNumber);
+        if (changeRevision)
+        {
+            Assert.Equal(refreshedRevision, reopened.Synchronization.LocalRevision);
+            var fresh = reader.PreviewImport(import);
+            Assert.True(fresh.CanApply, reader.Status);
+            Assert.True(reader.ApplyImport(fresh.Id), reader.Status);
+            Assert.True(reopened.RefreshWorkspace(), reopened.Status);
+            Assert.Equal(["alex@example.com", "incoming@example.com"], reopened.FavoritePeople.Select(person => person.Email));
+            Assert.Equal("Previewed office", reopened.GetRelationships("avery@example.com")!.Person.OfficeNumber);
+        }
     }
 
     [Theory]

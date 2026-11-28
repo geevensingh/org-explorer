@@ -108,7 +108,9 @@ public sealed partial class ApplicationWorkflow
         try
         {
             if (onlyIfRevisionChanged && workspaceCurrent && LocalSqliteRevision() == revision) return true;
+            var previousRevision = revision;
             var walReady = OpenLocalSqlite(create: false, recoverLocalSaves: recoverLocalSaves);
+            if (previousRevision != revision) pending = null;
             if (!walReady) return Fail(localWalFault!.Message);
             if (recoverLocalSaves && (localSaveFault ?? localWalFault) is { } fault)
                 return Fail(fault.Message);

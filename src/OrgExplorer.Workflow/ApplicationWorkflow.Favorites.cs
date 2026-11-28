@@ -123,6 +123,7 @@ public sealed partial class ApplicationWorkflow
             }
             else if (LocalFavoriteOrderExists(command))
                 throw new IOException("Favorites ordering appeared before initialization. Reopen to reconcile; nothing saved.");
+            ReadLocalSnapshotFormat(command);
             revision = expectedRevision;
             using var evidence = BeginLocalWrite();
             WriteLocalFavoriteOrder(command, order);

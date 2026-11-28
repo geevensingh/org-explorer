@@ -95,6 +95,8 @@ the validated read-only projection and defer persistence to explicit recovery.
 Recovery while that lock remains held fails without clearing the new storage
 fault or enabling edits; initialization must commit before recovery succeeds.
 Invalid state and unresolved outcomes are not treated as successful initialization.
+Initialization revalidates publication metadata inside its transaction before
+starting write evidence; unsupported metadata cannot leave a new receipt.
 
 Synchronization metadata's `snapshot_format=2` records ordered publication
 support. An absent column or value 1 denotes a supported pre-transport store.
@@ -123,6 +125,9 @@ Workspace state. New Favorites append; removing one discards its position.
 Before treating either operation as unchanged, reconcile a newer saved local
 revision. A stale cached sequence or membership cannot confirm success; failed
 refresh rejects the operation. Genuine no-ops create no revision or Profile change.
+A refresh that adopts a different committed revision invalidates the old Import
+preview. Review a fresh preview against that population before Apply; a refresh
+at the same revision preserves the existing preview.
 After another local client completes a failed Favorite change, a successful
 unchanged retry retires only that change's failure, without a new revision or
 Profile history. Independent failed writing remains retained.
