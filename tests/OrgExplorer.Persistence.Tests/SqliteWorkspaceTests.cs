@@ -1003,14 +1003,24 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
-    public async Task Typing_during_a_successful_save_return_uses_the_accepted_base_for_the_next_commit(NoteScope scope)
+    public Task Typing_during_a_successful_save_return_uses_the_accepted_base_for_the_next_commit(NoteScope scope) =>
+        VerifyTypingDuringSuccessfulReturn(scope, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public Task Typing_during_a_delayed_successful_return_preserves_the_accepted_base_and_newer_writing(NoteScope scope) =>
+        VerifyTypingDuringSuccessfulReturn(scope, TimeSpan.FromMilliseconds(3200));
+
+    private async Task VerifyTypingDuringSuccessfulReturn(NoteScope scope, TimeSpan continuationDelay)
     {
         var proxy = DispatchProxy.Create<IApplicationWorkflow, NoteSaveBoundary>();
         var boundary = (NoteSaveBoundary)proxy;
         var inner = boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         using var committed = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        using var app = new WorkspaceViewModel(proxy);
+        // The backend has returned; the deliberately held acknowledgment is not a deadline contract.
+        using var app = new WorkspaceViewModel(proxy, timeProvider: new SaveClock());
         Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var paused = 0;
@@ -1035,6 +1045,10 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
                 Assert.Equal("First committed writing", first.Markdown);
                 Assert.Null(reading.BeginNoteDraft(scope, "report@example.com", creation.Id));
             }
+            if (continuationDelay > TimeSpan.Zero) await Task.Delay(continuationDelay);
+            Assert.False(release.IsSet);
+            Assert.Equal(LocalSavePhase.Pending, app.LocalSave.Phase);
+            Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
             app.UpdateNoteDraft(scope, creation.Id, "Latest context", "Newer writing during the successful return");
             var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(scope, creation.Id));
             Assert.Same(creation, retained.Basis);
@@ -1056,6 +1070,9 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
             Assert.Equal("Latest context", latest.Title);
             Assert.Equal("Newer writing during the successful return", latest.Markdown);
             Assert.Null(reopened.BeginNoteDraft(scope, "report@example.com", creation.Id));
+            Assert.Equal(creation.Id, Assert.Single(scope == NoteScope.Person
+                ? reopened.GetPersonNotes(creation.OwnerEmail).Select(note => note.Id)
+                : reopened.GetTeamNotes(creation.OwnerEmail).Select(note => note.Id)));
         }
         finally
         {
@@ -1067,14 +1084,24 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
-    public async Task A_genuine_different_base_rejects_an_admitted_autosave_without_losing_either_writing(NoteScope scope)
+    public Task A_genuine_different_base_rejects_an_admitted_autosave_without_losing_either_writing(NoteScope scope) =>
+        VerifyDifferentBaseRejection(scope, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public Task Different_base_rejection_survives_a_delayed_save_admission_continuation(NoteScope scope) =>
+        VerifyDifferentBaseRejection(scope, TimeSpan.FromMilliseconds(3200));
+
+    private async Task VerifyDifferentBaseRejection(NoteScope scope, TimeSpan continuationDelay)
     {
         var proxy = DispatchProxy.Create<IApplicationWorkflow, NoteSaveBoundary>();
         var boundary = (NoteSaveBoundary)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         using var admitted = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        using var app = new WorkspaceViewModel(proxy);
+        // The admission hold isolates stale-base refusal, not elapsed save-request time.
+        using var app = new WorkspaceViewModel(proxy, timeProvider: new SaveClock());
         Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var original = Assert.IsType<NoteDraft>(app.SaveNoteDraft(
@@ -1090,7 +1117,12 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         try
         {
             app.UpdateNoteDraft(scope, original.Id, "Local context", "Retained local writing");
+            var capturedBase = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(scope, original.Id)).Basis;
             Assert.True(admitted.Wait(TimeSpan.FromSeconds(10)), "The autosave did not reach its actual public workflow boundary.");
+            if (continuationDelay > TimeSpan.Zero) await Task.Delay(continuationDelay);
+            Assert.False(release.IsSet);
+            Assert.Equal(LocalSavePhase.Pending, app.LocalSave.Phase);
+            Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
             using (var other = ApplicationWorkflow.CreateFileBacked())
             {
                 Assert.True(other.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), other.Status);
@@ -1105,6 +1137,8 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
             Assert.False(await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10)));
             Assert.Contains("changed externally", app.LocalSaveError);
             var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(scope, original.Id));
+            Assert.Same(capturedBase, retained.Basis);
+            Assert.Equal("Local context", retained.Title);
             Assert.Equal("Retained local writing", retained.Markdown);
             Assert.NotNull(retained.Error);
             Assert.False(app.CanSafelyClose);
@@ -1492,10 +1526,20 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Cancelling_observation_of_a_pending_real_write_never_confirms_it_saved(bool delayedObservation)
+    public Task Cancelling_observation_of_a_pending_real_write_never_confirms_it_saved(bool delayedObservation) =>
+        VerifyCancelledWriteObservation(delayedObservation ? TimeSpan.FromMilliseconds(1500) : TimeSpan.Zero);
+
+    [Fact]
+    public Task Cancelling_real_write_observation_survives_a_delayed_test_continuation() =>
+        VerifyCancelledWriteObservation(TimeSpan.FromMilliseconds(3200));
+
+    private async Task VerifyCancelledWriteObservation(TimeSpan observationDelay)
     {
+        // Both request lifetimes span this real Commit hold; observation cancellation is not a stall contract.
+        var clock = new SaveClock();
         using var boundary = new CommitBoundary();
-        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: boundary));
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(timeProvider: clock, fileObserver: boundary),
+            timeProvider: clock);
         Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         // A competing writer refuses at the 1s busy limit; hold the admitted app Commit instead.
@@ -1512,10 +1556,10 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
                     return reading.BeginNoteDraft(NoteScope.Team, "manager@example.com", draft.Id)?.Markdown == "Not yet committed";
                 }, async observation =>
                 {
-                    if (delayedObservation)
+                    if (observationDelay > TimeSpan.Zero)
                     {
                         await WaitUntil(() => app.GetRetainedNoteDraft(NoteScope.Team, draft.Id)?.IsSaving == true);
-                        await Task.Delay(1500);
+                        await Task.Delay(observationDelay);
                     }
                     await WaitUntil(() => boundary.Entered.IsSet &&
                         app.GetRetainedNoteDraft(NoteScope.Team, draft.Id)?.IsSaving == true);
@@ -1523,10 +1567,27 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
                     observation.Complete();
                 }));
             Assert.Contains("cancelled", failure.Message);
+            Assert.True(boundary.Entered.IsSet);
+            Assert.False(boundary.Release.IsSet);
+            var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(NoteScope.Team, draft.Id));
+            Assert.Same(draft, retained.Basis);
+            Assert.Equal("Pending context", retained.Title);
+            Assert.Equal("Not yet committed", retained.Markdown);
+            Assert.True(retained.IsSaving);
+            Assert.Equal(LocalSavePhase.Pending, app.LocalSave.Phase);
+            Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
             Assert.False(app.CanSafelyClose);
         }
         finally { boundary.Hold = false; boundary.Release.Set(); }
         Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        var saved = Assert.IsType<NoteDraft>(reopened.BeginNoteDraft(NoteScope.Team, draft.OwnerEmail, draft.Id));
+        Assert.Equal(draft.Id, saved.Id);
+        Assert.Equal("Pending context", saved.Title);
+        Assert.Equal("Not yet committed", saved.Markdown);
+        Assert.Null(reopened.BeginNoteDraft(NoteScope.Team, "report@example.com", draft.Id));
+        Assert.Equal(draft.Id, Assert.Single(reopened.GetTeamNotes(draft.OwnerEmail)).Id);
     }
 
     [Fact]

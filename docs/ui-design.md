@@ -506,18 +506,72 @@ hosted acceptance has run for this candidate.
 
 ## Startup and remembered view
 
-Within the reopened Workspace, restore the last Person and the exact last-viewed
-note, including a secondary note. This explicitly supersedes the earlier interview
-suggestion to always show the ongoing note on startup. A secondary note remains
-identifiable and the ongoing note stays easy to reach.
+Within the reopened Workspace, restore the last available, non-archived Person
+and the exact last-viewed note when available, including a secondary note. This
+explicitly supersedes the earlier interview suggestion to always show the ongoing
+note on startup. A secondary note remains identifiable and the ongoing note
+stays easy to reach. If that Person is available but their exact remembered note
+is not, select the Person and show explicit note-recovery feedback without
+silently opening another note or selecting a different manager.
 
-When there is nothing valid to restore, use a purposeful search/Favorites starting
-view, not an empty or disabled profile form. Restore only available, validated
-data; a remembered selection is not permission to reactivate archived data,
-create replacement records, or conceal a failed Workspace reopen.
+When no valid Person can be selected, use the hierarchy fallback below. Restore
+only available, validated data; a remembered selection is not permission to
+reactivate archived data, create replacement records, or conceal a failed
+Workspace reopen.
 
 Remembered view preferences do not imply restoration of unsaved drafts or a new
 draft-recovery system. Preserve the existing save/navigation/restart safeguards.
+
+### Implemented hierarchy fallback
+
+These requirements supersede the earlier search/Favorites-first starting view
+when no valid Person is selected. Shared observable People navigation implements
+the hierarchy fallback and valid-Person, missing-note recovery. The behavior
+and this documentation must reach the default branch together; this records
+implementation, not hosted acceptance of an unverified candidate.
+
+Preserve a valid current selection or remembered Person before considering the
+fallback, regardless of hierarchy position or report count. Deliberately
+browsing an available Archived person remains valid navigation and must not be
+replaced; an archived remembered Person is not automatically restored.
+If an all-archived Workspace reopens unselected and accepted Import or refresh
+later makes its remembered Person current again, restore that Person before
+considering a hierarchy candidate. Restore an available exact note in Read mode;
+an unavailable exact note retains recovery without either owned-note default.
+
+Apply the fallback after successful, validated Workspace opening or creation,
+including reopening without a valid remembered Person, the first and subsequent
+accepted imports, and data refreshes that leave no valid Person selected.
+Cancelled or failed operations do not trigger it. Never select from a previous
+Workspace to disguise a failed reopen.
+
+Choose among current, non-archived people in the Imported population:
+
+1. Find managers with at least two current, non-archived Direct reports known to
+   this Workspace. Reporting descendants at greater depths and people outside
+   the Workspace do not contribute to this threshold.
+2. Choose the qualifying manager with the fewest manager links to a reporting
+   root across all branches. Roots have depth zero; skip single-report ancestor
+   context even when it leads to many Reporting descendants.
+3. Break equal-depth ties using the tree's displayed-name ordering, including
+   Preferred name, then case-insensitive Person email for identical-name ties.
+   Do not prefer larger teams or depend on import order.
+4. If no manager meets the threshold, choose the shallowest current Person with
+   the same tie-break. If there are no current people, leave nobody selected and
+   show the purposeful search/Favorites starting view, not a disabled profile.
+
+Reveal the chosen tree row, expand its ancestors and scroll it into view. Open
+the normal View-mode Person profile with ordinary ongoing-note defaults and
+existing designation/choice rules, without creating replacement notes. Preserve
+editing/navigation safeguards. Do not switch away from Import or clear an active
+search to expose an automatic selection; reveal the row when ordinary People
+browsing resumes. Search highlighting alone remains non-navigating.
+
+Automatic fallback and valid-Person, missing-note recovery are in-session
+selections, not permission to replace the saved Person/note destination.
+Preserve unavailable-destination feedback, remembered preferences and all writing
+until deliberate navigation replaces the remembered destination. A hierarchy
+fallback must not hide the reason a remembered destination could not be restored.
 
 ### Implemented exact-view restoration
 
@@ -540,11 +594,13 @@ destination is valid when no note was selected. No synchronized schema changes
 or unsaved-buffer persistence are involved.
 
 Unavailable/archived Persons or notes leave the remembered preference and all
-writing intact. The UI explains the failure and offers search/Favorites/People
-re-selection without opening ongoing replacement writing, creating records or
-unarchiving anything. First use and absent view preferences use the same
-purposeful start rather than a disabled profile. Failed Workspace reopen never
-attempts selection restoration or creates a missing folder.
+writing intact. The UI explains the failure and selects the still-valid remembered
+Person without replacement writing, or uses the hierarchy fallback when no
+Person is valid. First use and absent view preferences use the same hierarchy
+rule; an empty current population retains the purposeful search/Favorites start.
+Neither automatic path rewrites the saved destination, creates records or
+unarchives anything. Failed Workspace reopen never attempts selection restoration
+or creates a missing folder.
 
 All preference writes preserve ongoing choices, pane proportions, other
 Workspaces and the successful startup folder. Atomic publication and explicit
@@ -565,9 +621,10 @@ lanes or the overall #57 joint delivery are complete.
 ## Scope and implementation decisions still required
 
 The intentional behavior additions are ongoing-note designation, remembered
-Person/note selection, and remembered proportional pane sizing. Everything else
-must preserve the existing ownership, import, editing, synchronization, history,
-and data-safety contracts.
+Person/note selection, remembered proportional pane sizing, hierarchy-based
+fallback selection, and valid-Person, missing-note recovery. Everything else must
+preserve the existing ownership, import, editing, synchronization, history, and
+data-safety contracts.
 
 The concept images illustrate reading and searching at wide and compact sizes.
 They are not pixel specifications or proof of working responsiveness. Incidental

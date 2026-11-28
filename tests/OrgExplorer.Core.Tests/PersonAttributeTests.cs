@@ -1,4 +1,5 @@
 using OrgExplorer.Workflow;
+using System.Diagnostics;
 using System.Text.Json;
 using Xunit;
 
@@ -6,6 +7,11 @@ namespace OrgExplorer.Core.Tests;
 
 public class PersonAttributeTests
 {
+    private sealed class PreferredNameContractClock : TimeProvider
+    {
+        public override long GetTimestamp() => 0;
+    }
+
     internal const string CompleteBatch = """
         {"schemaVersion":1,"batchId":"40000000-0000-4000-8000-000000000001",
          "observedAt":"2026-11-01T17:00:00Z","people":[
@@ -150,18 +156,30 @@ public class PersonAttributeTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Original_Preferred_name_typing_during_admitted_work_retires_only_without_a_newer_saved_base(bool saveName)
+    public Task Original_Preferred_name_typing_during_admitted_work_retires_only_without_a_newer_saved_base(bool saveName) =>
+        VerifyOriginalPreferredNameTyping(saveName, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Original_Preferred_name_typing_during_admitted_work_survives_a_delayed_continuation(bool saveName) =>
+        VerifyOriginalPreferredNameTyping(saveName, TimeSpan.FromMilliseconds(3200));
+
+    private static async Task VerifyOriginalPreferredNameTyping(bool saveName, TimeSpan continuationDelay)
     {
         var inner = ApplicationWorkflow.CreateInMemory();
-        using var app = new WorkspaceViewModel(inner);
+        // This contract holds admitted work; real stall behavior is covered separately.
+        using var app = new WorkspaceViewModel(inner, timeProvider: new PreferredNameContractClock());
         Assert.True(app.OpenWorkspace("fictitious"));
         Assert.True(app.ApplyImport(app.PreviewImport(CompleteBatch).Id));
         var basis = Assert.Single(app.People);
         app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, "Explicitly submitted");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
+        long admittedAt = 0;
         var saving = app.RunLocalSaveAsync(() =>
         {
+            admittedAt = Stopwatch.GetTimestamp();
             entered.SetResult();
             if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException("The owning test did not release its admitted operation.");
             return saveName
@@ -171,8 +189,17 @@ public class PersonAttributeTests
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var remainingDelay = continuationDelay - Stopwatch.GetElapsedTime(admittedAt);
+            if (remainingDelay > TimeSpan.Zero) await Task.Delay(remainingDelay);
+            Assert.Equal(LocalSavePhase.Pending, app.LocalSave.Phase);
             app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName);
-            if (saveName) Assert.NotNull(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+            if (saveName)
+            {
+                var typing = Assert.IsType<RetainedPersonTextDraft>(
+                    app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+                Assert.Equal(basis.PreferredName, typing.Value);
+                Assert.Equal(basis, typing.Basis);
+            }
             Assert.False(app.CanSafelyClose);
         }
         finally

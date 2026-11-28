@@ -47,7 +47,10 @@ public sealed partial class WorkspaceViewModel
             workflow.RetainNoteDraft(basis);
             ScheduleNoteAutosave();
         }
-        noteViews[scope] = NoteViewFor(scope) with { Selected = basis.Id, Editing = true, Exact = true, Error = null };
+        noteViews[scope] = NoteViewFor(scope) with
+        {
+            Selected = basis.Id, Editing = true, Exact = true, Error = null, RememberedRecovery = false
+        };
         return basis;
     });
 
