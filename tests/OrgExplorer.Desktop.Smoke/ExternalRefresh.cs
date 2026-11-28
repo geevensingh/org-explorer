@@ -302,11 +302,11 @@ internal static partial class Program
                 return review.CanApply && source.ApplyImport(review.Id);
             });
             PublishSmokeWorkspace(window, folder);
-            AssertReportingStructure(window, 2, 1, 1);
+            AssertReportingStructure(window, "2 total, 1 employee, 1 vendor");
             NavigateToManager(window, "casey@example.com");
-            AssertReportingStructure(window, 3, 2, 1);
+            AssertReportingStructure(window, "3 total, 2 employees, 1 vendor");
             OpenPerson(window, "casey@example.com");
-            AssertReportingStructure(window, 2, 1, 1);
+            AssertReportingStructure(window, "2 total, 1 employee, 1 vendor");
             peer.Publish(source => source.EditPersonArchived("leaf@example.com", true) &&
                 source.EditPersonArchived("v-report@example.com", true));
             PublishSmokeWorkspace(window, folder);
