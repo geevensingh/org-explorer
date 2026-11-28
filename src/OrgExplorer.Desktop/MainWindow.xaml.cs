@@ -110,6 +110,11 @@ public partial class MainWindow : Window
     {
         preview = null;
         ApplyButton.IsEnabled = false;
+        ImportDiagnostics.Text = "";
+        ImportDiagnostics.Visibility = ImportImpactText.Visibility = ImportActionsText.Visibility =
+            ImportObservationText.Visibility = Visibility.Collapsed;
+        System.Windows.Automation.AutomationProperties.SetName(ImportDiagnostics, "");
+        ImportImpactText.Text = ImportActionsText.Text = ImportObservationText.Text = "";
         const string guidance = "Choose a version-1 Import batch and preview again. No data changes until Apply.";
         PreviewText.ItemsSource = new[] { guidance };
         System.Windows.Automation.AutomationProperties.SetName(PreviewText, guidance);
@@ -211,9 +216,7 @@ public partial class MainWindow : Window
         {
             var path = ImportPath.Text;
             var result = await RunWorkflowAsync(() => workflow.PreviewImportFile(path), "Validating Import preview…", isImport: true);
-            var messages = result.Errors.Concat(result.Warnings).Concat(result.Changes).ToArray();
-            PreviewText.ItemsSource = messages;
-            System.Windows.Automation.AutomationProperties.SetName(PreviewText, string.Join("\n", messages));
+            ShowImportReview(result);
             preview = result.CanApply ? result.Id : null;
             ApplyButton.IsEnabled = result.CanApply;
             ShowStatus();

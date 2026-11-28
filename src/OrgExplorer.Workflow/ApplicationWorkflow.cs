@@ -27,7 +27,28 @@ public sealed record PersonProfile(string Email, string? DirectoryName, string? 
 public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string> Changes, IReadOnlyList<string> Errors)
 {
     public IReadOnlyList<string> Warnings { get; init; } = [];
+    public IReadOnlyList<ImportPersonPreview> People { get; init; } = [];
+    public IReadOnlyList<string> Messages { get; init; } = [];
+    public bool IsReplay { get; init; }
+    public ImportBatchImpact? Impact => !CanApply || IsReplay ? null : new(
+        People.Count(p => p.IsNew),
+        People.Count(p => !p.IsNew && p.Changes.Count > 0),
+        People.Count(p => !p.IsNew && p.Changes.Count == 0),
+        CountAction(ImportChangeKind.Archive), CountAction(ImportChangeKind.Reactivate),
+        CountAction(ImportChangeKind.Manager), CountAction(ImportChangeKind.Photo), CountAction(ImportChangeKind.Favorite));
+
+    private int CountAction(ImportChangeKind kind) =>
+        People.Count(p => !p.IsNew && p.Changes.Any(c => c.Kind == kind));
 }
+
+public sealed record ImportBatchImpact(int PeopleAdded, int ExistingPeopleChanged, int NoPersonChanges,
+    int Archived, int Reactivated, int ManagerChanged, int PhotoChanged, int FavoriteChanged);
+
+public enum ImportChangeKind { Text, Manager, Photo, Archive, Reactivate, Favorite }
+public sealed record ImportPersonChange(string Field, string Label, ImportChangeKind Kind, string? Before, string? After);
+public sealed record ImportInitialValue(string Field, string Label, string? Value);
+public sealed record ImportPersonPreview(string Email, bool IsNew, IReadOnlyList<ImportPersonChange> Changes,
+    IReadOnlyList<ImportInitialValue> InitialValues);
 
 public sealed record ReportingNode(PersonProfile Person, IReadOnlyList<ReportingNode> Reports);
 public sealed record ReportingCategoryCount(PersonCategory Category, int Count);
@@ -239,6 +260,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         var errors = new List<string>();
         var changes = new List<string>();
         var warnings = new List<string>();
+        var personPreviews = new List<ImportPersonPreview>();
+        var messages = new List<string>();
         var id = Guid.NewGuid();
         if (workspace is null) errors.Add("Open a Workspace first.");
         else if (!workspaceCurrent) errors.Add("Workspace unavailable; retained information is STALE. Wait for valid local delivery before importing.");
@@ -264,6 +287,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 var priorChanges = changes.Count;
                 if (!keys.Add(email)) throw new FormatException($"{email}: duplicate Person identity.");
                 var existing = proposed.GetValueOrDefault(email);
+                var personChanges = new List<ImportPersonChange>();
                 var directoryName = record.TryGetProperty("displayName", out var name) ? Text(name, $"{email}.displayName") : existing?.DirectoryName;
                 var preferredName = record.TryGetProperty("preferredName", out var preferred) ? Text(preferred, $"{email}.preferredName") : existing?.PreferredName;
                 var manager = record.TryGetProperty("managerEmail", out var managerValue)
@@ -296,7 +320,11 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                         proposedPhotos[photoPath] = resource.Bytes;
                     }
                     if (photoPath != existing?.PhotoPath)
+                    {
                         changes.Add($"{email}: Photo {(photoPath is null ? "→ (clear)" : "→ supplied local image")}");
+                        personChanges.Add(new("photoPath", "Photo", ImportChangeKind.Photo, null,
+                            photoPath is null ? null : "supplied local image"));
+                    }
                 }
                 var next = (existing ?? new PersonProfile(email, directoryName, preferredName, manager)) with
                 { DirectoryName = directoryName, PreferredName = preferredName, ManagerEmail = manager, Archived = archived,
@@ -307,19 +335,53 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 proposed[email] = next;
                 if (!previouslyAccepted) AddOlderEvidenceWarnings(email, record, observedAt, warnings);
                 if (existing is null) changes.Add($"Add {email}: Manager = {manager ?? "(none)"}");
-                foreach (var (field, _, label) in TextFields)
+                foreach (var (field, property, label) in TextFields)
                 {
                     var previous = existing is null ? null : ReadText(existing, field);
                     var current = ReadText(next, field);
                     if (previous != current)
+                    {
                         changes.Add($"{email}: {label} {previous ?? "(none)"} → {current ?? "(clear)"}");
+                        personChanges.Add(new(property, label, ImportChangeKind.Text, previous, current));
+                    }
                 }
                 if (existing is not null && !string.Equals(existing.ManagerEmail, manager, StringComparison.OrdinalIgnoreCase))
+                {
                     changes.Add($"{email}: Manager {existing.ManagerEmail ?? "(none)"} → {manager ?? "(clear)"}");
-                if (existing?.Archived != archived && archived) changes.Add($"Archive {email}: retain profile and local context.");
-                if (existing?.Archived == true && !archived) changes.Add($"Reactivate {email} in the current reporting tree.");
+                    personChanges.Add(new("managerEmail", "Manager", ImportChangeKind.Manager, existing.ManagerEmail, manager));
+                }
+                if (existing?.Archived != archived && archived)
+                {
+                    changes.Add($"Archive {email}: retain profile and local context.");
+                    personChanges.Add(new("archived", "Archive", ImportChangeKind.Archive, "Current", "Archived; retain profile and local context"));
+                }
+                if (existing?.Archived == true && !archived)
+                {
+                    changes.Add($"Reactivate {email} in the current reporting tree.");
+                    personChanges.Add(new("archived", "Reactivate", ImportChangeKind.Reactivate, "Archived", "Current reporting tree"));
+                }
                 if ((existing?.IsFavorite ?? false) != favorite)
+                {
                     changes.Add($"{email}: Favorite {(favorite ? "→ marked" : "→ unmarked")}");
+                    personChanges.Add(new("isFavorite", "Favorite", ImportChangeKind.Favorite,
+                        existing?.IsFavorite == true ? "Marked" : "Unmarked", favorite ? "Marked" : "Unmarked"));
+                }
+                var initialValues = new List<ImportInitialValue>();
+                if (existing is null)
+                {
+                    if (record.TryGetProperty("photoPath", out _))
+                        initialValues.Add(new("photoPath", "Photo", photoPath is null ? "No photo" : "Supplied local image"));
+                    foreach (var (field, property, label) in TextFields)
+                        if (record.TryGetProperty(property, out _))
+                            initialValues.Add(new(property, label, ReadText(next, field)));
+                    initialValues.Add(new("managerEmail", "Manager", manager));
+                    if (record.TryGetProperty("archived", out _))
+                        initialValues.Add(new("archived", "Status", archived ? "Archived" : "Current"));
+                    if (record.TryGetProperty("isFavorite", out _))
+                        initialValues.Add(new("isFavorite", "Favorite", favorite ? "Marked" : "Unmarked"));
+                    personChanges.Clear();
+                }
+                personPreviews.Add(new(email, existing is null, personChanges.ToArray(), initialValues.ToArray()));
                 if (changes.Count == priorChanges)
                 {
                     var supplied = record.EnumerateObject().Where(p => p.Name != "email")
@@ -341,13 +403,17 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 changes.Clear();
                 warnings.Clear();
                 changes.Add("Already applied: exact replay is a no-op.");
+                personPreviews.Clear();
+                messages.Add("Already applied: exact replay is a no-op.");
             }
             else
             {
                 ValidateGraph(proposed);
-                PreviewTeamNoteReview(proposed, changes);
+                PreviewTeamNoteReview(proposed, messages);
+                changes.AddRange(messages);
             }
-            var preview = new ImportPreview(id, errors.Count == 0, changes, errors) { Warnings = warnings };
+            var preview = new ImportPreview(id, errors.Count == 0, changes, errors)
+            { Warnings = warnings, People = personPreviews.ToArray(), Messages = messages.ToArray(), IsReplay = previouslyAccepted };
             if (preview.CanApply) pending = new Pending(preview, proposed, batchId, fingerprint, root.Clone(), proposedPhotos, resources);
             if (preview.CanApply) Status = "Preview ready. Review changes before Apply.";
             else Fail(string.Join("\n", errors));
@@ -357,7 +423,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         {
             errors.Add(ex.Message);
             Fail("Import rejected: " + string.Join("\n", errors));
-            return new ImportPreview(id, false, changes, errors);
+            return new ImportPreview(id, false, changes, errors)
+            { Warnings = warnings, People = personPreviews.ToArray(), Messages = messages.ToArray() };
         }
     }
 

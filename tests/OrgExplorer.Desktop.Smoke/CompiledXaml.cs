@@ -289,6 +289,7 @@ internal static partial class Program
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyOwnedTeamNameProfile(teamNameWindow, Path.Combine(settings, "team-name-workspace")); }
                 finally { ClosePublishedCompiledWindow(teamNameWindow); }
+                VerifyCompiledAdaptiveImportDisclosure(type, Path.Combine(settings, "adaptive-import"));
                 VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
                 VerifyCompactSearchActivation(type, Path.Combine(settings, "compact-activation"));
@@ -831,7 +832,7 @@ internal static partial class Program
     }
 
     private static void VerifyProfileSaveRefresh(Window window, string settings, HeldNotePublisher publisher,
-        bool noteRefreshOnly = false, bool compactIdentityOnly = false)
+        bool noteRefreshOnly = false, bool compactIdentityOnly = false, bool importReviewOnly = false)
     {
         var folder = Path.Combine(settings, "workspace");
         using (var seed = ApplicationWorkflow.CreateFileBacked())
@@ -875,7 +876,8 @@ internal static partial class Program
         if (!noteRefreshOnly)
         {
             VerifyRejectedPickerChoice(window, folder, preferences);
-            VerifyImportPreviewKey(window, folder);
+            VerifyImportPreviewKey(window, folder, archivedBuildingBefore: "Juniper");
+            if (importReviewOnly) return;
             Invoke("OpenSettingsButton");
             if (Control<FrameworkElement>("ExplorerPanel").Visibility != Visibility.Collapsed ||
                 Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Collapsed ||
@@ -1299,13 +1301,266 @@ internal static partial class Program
         Console.WriteLine("PASS: actual compiled long Person/owned/current/frozen reading stays bounded in one scroll at 700/1100/maximized sizes, with collapsed attributed warnings.");
     }
 
-    private static void VerifyImportPreviewKey(Window window, string folder)
+    private static void VerifyCompiledImportReview(Type windowType, string root)
+    {
+        var folder = Path.Combine(root, "workspace");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000072",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":null,
+                  "department":"Research","officeCountry":"Canada","officeNumber":"007B"},
+                 {"email":"zara@example.com","displayName":"Zara","managerEmail":null},
+                 {"email":"header-archived@example.com","displayName":"Archived example","managerEmail":null,"archived":true}]}
+                """).Id))
+                throw new InvalidOperationException("Import review fixture failed: " + seed.Status);
+        }
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic,
+            null, [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => folder)], null)!;
+        try
+        {
+            ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => ((Button)window.FindName("OpenWorkspaceButton")).IsEnabled &&
+                ((TextBlock)window.FindName("StatusText")).Text == "Local SQLite Workspace opened.");
+            VerifyImportPreviewKey(window, folder);
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Import review verification must not show a window or create a native handle.");
+        }
+        finally { ClosePublishedCompiledWindow(window); }
+        VerifyCompiledAdaptiveImportDisclosure(windowType, Path.Combine(root, "adaptive"));
+    }
+
+    private static void SeedProfileJourneyImportHistory(IApplicationWorkflow workflow, string root)
+    {
+        CreatePhotoFixture(Path.Combine(root, "avery.png"));
+        var import = Path.Combine(root, "history-import.json");
+        void Require(bool accepted)
+        {
+            if (!accepted) throw new InvalidOperationException("ProfileJourney history replay failed: " + workflow.Status);
+        }
+        void Apply(string input)
+        {
+            File.WriteAllText(import, input);
+            var preview = workflow.PreviewImportFile(import);
+            Require(preview.CanApply && workflow.ApplyImport(preview.Id));
+        }
+        void SaveText(string email, params (PersonTextField Field, string? Value)[] fields)
+        {
+            Require(workflow.BeginProfileEdit(email));
+            foreach (var (field, value) in fields) Require(workflow.StageProfileText(field, value));
+            Require(workflow.SaveProfileEdit());
+        }
+        void SaveTeam(string email, string? name)
+        {
+            Require(workflow.BeginProfileEdit(email));
+            Require(workflow.StageProfileTeamName(name));
+            Require(workflow.SaveProfileEdit());
+        }
+        Apply(ProfileJourneyInitialImport);
+        const string link = "https://127.0.0.1:12345/profile";
+        SaveText("avery@example.com",
+            (PersonTextField.JobTitle, "Research\r\nengineer with a deliberately long role description"),
+            (PersonTextField.OfficeBuilding, "South campus\r\nResearch and collaboration building"),
+            (PersonTextField.OfficeState, "Ontario"), (PersonTextField.LinkedInProfileUrl, link));
+        SaveText("avery@example.com", (PersonTextField.JobTitle, "Research engineer"),
+            (PersonTextField.OfficeBuilding, null), (PersonTextField.OfficeState, null),
+            (PersonTextField.LinkedInProfileUrl, null));
+        foreach (var name in new string?[] { "Platform", "Renamed platform", null, "Platform" })
+            SaveTeam("morgan@example.com", name);
+        Apply(ProfileJourneyInheritedImport);
+        SaveTeam("rowan@example.com", "Platform");
+        foreach (var name in new string?[] { "Renamed owned label", null, "Platform" })
+            SaveTeam("morgan@example.com", name);
+        var basis = workflow.GetRelationships("avery@example.com")!.Person;
+        Require(workflow.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Ave") is not null);
+        SaveText("avery@example.com", (PersonTextField.LinkedInProfileUrl, link));
+        var avery = workflow.GetRelationships("avery@example.com")!.Person;
+        var morgan = workflow.GetRelationships("morgan@example.com")!.Person;
+        if (workflow.People.Count != 31 || avery.PreferredName != "Ave" || avery.OfficeNumber != "007B" ||
+            avery.OfficeBuilding is not null || avery.OfficeState is not null || avery.JobTitle != "Research engineer" ||
+            workflow.GetPhoto(avery.Email) is null || morgan.ManagerEmail != "rowan@example.com" ||
+            morgan.TeamName != "Platform" || workflow.GetRelationships("rowan@example.com")!.Person.TeamName != "Platform" ||
+            !workflow.GetProfileTimeline(avery.Email)!.Observations.Any(evidence =>
+                evidence.Field == "jobTitle" && evidence.Source == ProfileChangeSource.LocalEdit &&
+                evidence.Value.GetString() == "Research engineer" && evidence.ObservedAt is null &&
+                evidence.RecordedAt == new DateTimeOffset(2026, 11, 4, 17, 0, 0, TimeSpan.Zero)) ||
+            !workflow.GetProfileTimeline(morgan.Email)!.Observations.Any(evidence =>
+                evidence.Field == "managerEmail" && evidence.Source == ProfileChangeSource.Import &&
+                evidence.Value.GetString() == "rowan@example.com" &&
+                evidence.ObservedAt == new DateTimeOffset(2026, 11, 2, 16, 0, 0, TimeSpan.Zero)))
+            throw new InvalidOperationException("ProfileJourney replay did not establish the independently known complete profile/evidence baseline.");
+    }
+
+    private static void VerifyCompiledAdaptiveImportDisclosure(Type windowType, string root)
+    {
+        VerifyCompiledAdaptiveImportDisclosure(windowType, Path.Combine(root, "compact"), profileJourneyHistory: false);
+        VerifyCompiledAdaptiveImportDisclosure(windowType, Path.Combine(root, "profile-journey"), profileJourneyHistory: true);
+    }
+
+    private static void VerifyCompiledAdaptiveImportDisclosure(Type windowType, string root, bool profileJourneyHistory)
+    {
+        var folder = Path.Combine(root, "workspace");
+        Directory.CreateDirectory(folder);
+        var clock = new SnapshotClock();
+        clock.Advance(new DateTimeOffset(2026, 11, 4, 17, 0, 0, TimeSpan.Zero) - DateTimeOffset.UnixEpoch);
+        using (var seed = ApplicationWorkflow.CreateFileBacked(timeProvider: clock))
+        {
+            if (!seed.OpenWorkspace(folder)) throw new InvalidOperationException(seed.Status);
+            if (profileJourneyHistory) SeedProfileJourneyImportHistory(seed, root);
+            else
+            {
+                var initial = seed.PreviewImport("""
+                    {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000077",
+                     "observedAt":"2026-11-01T17:00:00Z","people":[
+                     {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
+                     {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                     {"email":"V-reference@example.com","displayName":"Vendor","managerEmail":"morgan@example.com"},
+                     {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+                     {"email":"archived.reference@example.com","displayName":"Archived","managerEmail":null,"archived":true}]}
+                    """);
+                if (!initial.CanApply || !seed.ApplyImport(initial.Id))
+                    throw new InvalidOperationException("Adaptive disclosure fixture failed: " + seed.Status);
+            }
+        }
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic,
+            null, [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => folder)], null)!;
+        try
+        {
+            ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => ((TextBlock)window.FindName("StatusText")).Text == "Local SQLite Workspace opened.");
+            ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((Button)window.FindName("OpenImportButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var import = Path.Combine(root, "adaptive.json");
+            var longValue = new string('W', 160) + " complete end";
+            var before = WorkspaceFixtures.Bytes(folder);
+            File.WriteAllText(import, profileJourneyHistory ? AdaptiveImportFixture(longValue, "North floor\nSouth floor") : $$"""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000078",
+                 "observedAt":"2026-11-03T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Updated Avery","alias":"updated","jobTitle":"Engineer",
+                  "department":"Research","officeNumber":"0099","officeState":"WA","officeCountry":"USA","isFavorite":true},
+                 {"email":"morgan@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}}},
+                 {"email":"V-reference@example.com","officeBuilding":"North floor\nSouth floor"},
+                 {"email":"v-child@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"managerEmail":null,"archived":true,"isFavorite":true},
+                 {"email":"archived.reference@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"archived":false},
+                 {"email":"new.reference@example.com","displayName":"New reference","managerEmail":null}]}
+                """);
+            if (profileJourneyHistory)
+            {
+                using var workflow = OpenSmokeWorkspace(folder);
+                var adaptive = workflow.PreviewImportFile(import);
+                if (!adaptive.CanApply || adaptive.Impact != new ImportBatchImpact(1, 5, 0, 1, 1, 1, 1, 2) ||
+                    !adaptive.People.Select(person => person.Changes.Count).SequenceEqual(new[] { 10, 1, 1, 4, 2, 0 }))
+                    throw new InvalidOperationException("The complete-history adaptive fixture lost its exact accepted changes/actions.");
+            }
+            ((TextBox)window.FindName("ImportPath")).Text = import;
+            ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+            var rootVisual = (FrameworkElement)window.Content;
+            var height = profileJourneyHistory ? 700 : 500;
+            rootVisual.Measure(new Size(700, height));
+            rootVisual.Arrange(new Rect(0, 0, 700, height));
+            rootVisual.UpdateLayout();
+            var review = (ListBox)window.FindName("PreviewText");
+            var scrolling = VisualDescendants(review).OfType<ScrollViewer>().First();
+            var viewport = (ScrollContentPresenter)scrolling.Template.FindName("PART_ScrollContentPresenter", scrolling);
+            foreach (var (email, expected) in new[]
+            {
+                ("morgan@example.com", "Office building: (none) → " + longValue),
+                ("V-reference@example.com", "Office building: (none) → North floor\nSouth floor"),
+                ("v-child@example.com", "Archive: Current → Archived; retain profile and local context")
+            })
+            {
+                var disclosure = VisualDescendants(review).OfType<Expander>().Single(entry =>
+                    System.Windows.Automation.AutomationProperties.GetAutomationId(entry) == "ImportPerson:" + email);
+                var toggle = VisualDescendants(disclosure).OfType<ToggleButton>().First();
+                ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
+                rootVisual.UpdateLayout();
+                var detail = VisualDescendants(disclosure).OfType<TextBox>().Single(text => text.Text == expected);
+                var provider = (ITextProvider)UIElementAutomationPeer.CreatePeerForElement(detail).GetPattern(PatternInterface.Text);
+                if (provider.DocumentRange.GetText(-1).Replace("\r\n", "\n") != expected ||
+                    !Equals(provider.DocumentRange.GetAttributeValue(System.Windows.Automation.TextPattern.FontNameAttribute.Id), "Segoe UI") ||
+                    !Equals(provider.DocumentRange.GetAttributeValue(System.Windows.Automation.TextPattern.FontSizeAttribute.Id), 10.5d))
+                    throw new InvalidOperationException("Adaptive detail lost its complete native document or typography.");
+                var reading = detail.TransformToAncestor(rootVisual).TransformBounds(new Rect(detail.RenderSize));
+                var currentViewport = viewport.TransformToAncestor(rootVisual).TransformBounds(new Rect(viewport.RenderSize));
+                var scrollProvider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(scrolling).GetPattern(PatternInterface.Scroll);
+                if (!currentViewport.Contains(reading))
+                    scrollProvider.SetScrollPercent(-1, ImportDetailScrollPercent(currentViewport, reading,
+                        scrollProvider.VerticalScrollPercent, scrollProvider.VerticalViewSize));
+                window.Dispatcher.Invoke(rootVisual.UpdateLayout, DispatcherPriority.ContextIdle);
+                var visible = viewport.TransformToAncestor(rootVisual).TransformBounds(new Rect(viewport.RenderSize));
+                for (var index = 0; index < expected.Length; index++)
+                {
+                    if (expected[index] is '\r' or '\n') continue;
+                    var character = detail.GetRectFromCharacterIndex(index);
+                    character.Union(detail.GetRectFromCharacterIndex(index, trailingEdge: true));
+                    var glyph = detail.TransformToAncestor(rootVisual).TransformBounds(character);
+                    if (glyph.IsEmpty || glyph.Width <= 0 || glyph.Height <= 0 || !visible.Contains(glyph))
+                        throw new InvalidOperationException($"Adaptive Import character is not physically reached after expansion: email={email}; index={index}; glyph={glyph}; viewport={visible}; offset={scrolling.VerticalOffset}; expanded={disclosure.IsExpanded}.");
+                }
+                ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
+                rootVisual.UpdateLayout();
+            }
+            if (profileJourneyHistory)
+            {
+                VerifyTallImportDetail(window, import);
+                var tallDisclosure = VisualDescendants(review).OfType<Expander>().Single();
+                var tallHeader = VisualDescendants(tallDisclosure).OfType<ToggleButton>().First();
+                FocusManager.SetFocusedElement(window, tallHeader);
+                scrolling.ScrollToTop();
+                ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(tallHeader).GetPattern(PatternInterface.Toggle)).Toggle();
+                rootVisual.UpdateLayout();
+                AssertWorkspaceBytes(folder, before);
+                File.WriteAllText(import, ManyImportDiagnosticsFixture);
+                string diagnostics;
+                using (var workflow = OpenSmokeWorkspace(folder))
+                {
+                    var many = workflow.PreviewImportFile(import);
+                    AssertManyImportDiagnosticsFixture(many);
+                    diagnostics = string.Join("\n", many.Errors.Concat(many.Warnings).Concat(many.Messages));
+                }
+                VerifyImportDiagnosticsLayout(window, diagnostics, verifyKeyboardEndpoints: true);
+            }
+            AssertWorkspaceBytes(folder, before);
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Adaptive disclosure verification must remain invisible without a native handle.");
+            Console.WriteLine("PASS: real compact multi-entry Import disclosures reveal complete long/multiline/later Archive glyphs through one outer scroll per detail.");
+            if (profileJourneyHistory)
+                Console.WriteLine("PASS: shared complete ProfileJourney history reaches adaptive, tall and sixteen-warning previews with exact changes/actions and unchanged saved bytes.");
+        }
+        finally { ClosePublishedCompiledWindow(window); }
+    }
+
+    private static void VerifyCompiledReusedImportReview(Type windowType, string root)
+    {
+        using var publisher = new HeldNotePublisher();
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic,
+            null, [ApplicationWorkflow.CreateFileBacked(),
+                (Func<Window, string?>)(_ => CompiledWorkspaceChoices.Dequeue())], null)!;
+        try
+        {
+            VerifyCompiledAdaptiveImportDisclosure(windowType, Path.Combine(root, "adaptive"));
+            VerifySettingsFocus(window);
+            VerifyProfileSaveRefresh(window, root, publisher, importReviewOnly: true);
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Reused Import review must not show a window or create a native handle.");
+        }
+        finally { ClosePublishedCompiledWindow(window); }
+    }
+
+    private static void VerifyImportPreviewKey(Window window, string folder, string archivedBuildingBefore = "(none)")
     {
         var before = WorkspaceFixtures.Bytes(folder);
         var import = Path.Combine(Path.GetDirectoryName(folder)!, "enter-preview.json");
         File.WriteAllText(import, """
             {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000073",
-             "observedAt":"2026-11-02T17:00:00Z","people":[{"email":"avery@example.com","officeNumber":"123"}]}
+             "observedAt":"2026-10-02T17:00:00Z","people":[
+             {"email":"zara@example.com"},
+             {"email":"avery@example.com","officeNumber":"123","department":null},
+             {"email":"header-archived@example.com","archived":true}]}
             """);
         ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ((Button)window.FindName("OpenImportButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -1315,16 +1570,388 @@ internal static partial class Program
             new UnshownInputSource { RootVisual = (Visual)window.Content }, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent };
         path.RaiseEvent(enter);
         PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
-        if (!enter.Handled || !((ListBox)window.FindName("PreviewText")).Items.Cast<string>().Any(text =>
-                text.Contains("123", StringComparison.Ordinal)))
+        var review = (ListBox)window.FindName("PreviewText");
+        if (!enter.Handled || review.Items.Count != 2 ||
+            !System.Windows.Automation.AutomationProperties.GetName(review).Contains("123", StringComparison.Ordinal))
             throw new InvalidOperationException("Import-path Enter did not produce the same explicit reviewed preview.");
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(1100, 900));
+        root.Arrange(new Rect(0, 0, 1100, 900));
+        root.UpdateLayout();
+        var impact = window.FindName("ImportImpactText") as TextBlock;
+        var diagnostics = (TextBox)window.FindName("ImportDiagnostics");
+        if (impact is null || impact.Visibility != Visibility.Visible ||
+            impact.Text != "People added: 0; Existing people changed: 1; No Person changes: 2")
+            throw new InvalidOperationException("The compiled Import must show complete zero-inclusive batch impact above the Person list.");
+        var diagnosticText = diagnostics.Text;
+        if (diagnostics.Visibility != Visibility.Visible || !diagnosticText.Contains("older evidence", StringComparison.Ordinal) ||
+            UIElementAutomationPeer.CreatePeerForElement(diagnostics)?.GetName() != diagnosticText ||
+            diagnostics.TransformToAncestor(root).Transform(new Point(0, diagnostics.ActualHeight)).Y >
+                impact.TransformToAncestor(root).Transform(new Point()).Y)
+            throw new InvalidOperationException("Workflow warnings must be accessible and placed above counts, outside all disclosure content.");
+        var disclosures = VisualDescendants(review).OfType<Expander>().ToArray();
+        var disclosure = disclosures.Single(e =>
+            System.Windows.Automation.AutomationProperties.GetAutomationId(e) == "ImportPerson:avery@example.com");
+        var unchanged = disclosures.Single(e =>
+            System.Windows.Automation.AutomationProperties.GetAutomationId(e) == "ImportUnchanged");
+        if (unchanged.IsExpanded ||
+            System.Windows.Automation.AutomationProperties.GetName(unchanged) != "No Person changes: 2" ||
+            review.Items.IndexOf(unchanged.DataContext) != 1)
+            throw new InvalidOperationException("People without changes must occupy one counted, collapsed final section.");
+        unchanged.IsExpanded = true;
+        root.UpdateLayout();
+        var identities = VisualDescendants(unchanged).OfType<ListBox>().Single();
+        if (!identities.Items.Cast<string>().SequenceEqual(new[] { "zara@example.com", "header-archived@example.com" }) ||
+            VisualDescendants(identities).OfType<Expander>().Any() ||
+            !VirtualizingPanel.GetIsVirtualizing(identities) ||
+            VirtualizingPanel.GetVirtualizationMode(identities) != VirtualizationMode.Recycling)
+            throw new InvalidOperationException("The final section must expose only ordered email identities in an efficient native list.");
+        unchanged.IsExpanded = false;
+        if (disclosure.IsExpanded ||
+            System.Windows.Automation.AutomationProperties.GetName(disclosure) != "avery@example.com — 2 changes")
+            throw new InvalidOperationException("The compiled Person review must start collapsed with one semantic change count.");
+        disclosure.ApplyTemplate();
+        var toggle = VisualDescendants(disclosure).OfType<ToggleButton>().First();
+        if (!toggle.Focusable || !KeyboardNavigation.GetIsTabStop(toggle))
+            throw new InvalidOperationException("The native Person disclosure is not keyboard accessible.");
+        ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
+        root.UpdateLayout();
+        var detailText = VisualDescendants(disclosure).OfType<TextBox>().Select(t => t.Text).ToArray();
+        if (!disclosure.IsExpanded || review.Items.Count != 2 ||
+            !detailText.Contains("Department: Research → (clear)") ||
+            !detailText.Contains("Office number: 007B → 123") ||
+            diagnostics.Visibility != Visibility.Visible || diagnostics.Text != diagnosticText)
+            throw new InvalidOperationException("Inline expansion lost the complete differences or duplicated the Person entry.");
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000074",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"zara@example.com"},
+             {"email":"avery@example.com","managerEmail":"missing@example.com"}]}
+            """);
+        ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((Button)window.FindName("PreviewButton")).IsEnabled &&
+            ((TextBlock)window.FindName("StatusText")).Text.Contains("Import rejected", StringComparison.Ordinal));
+        if (((Button)window.FindName("ApplyButton")).IsEnabled || review.Items.Count != 0 ||
+            impact.Visibility != Visibility.Collapsed || diagnostics.Visibility != Visibility.Visible ||
+            !diagnostics.Text.Contains("missing@example.com", StringComparison.Ordinal))
+            throw new InvalidOperationException("An invalid complete graph must block the entire Import and show errors without partial/success-shaped impact.");
+        AssertWorkspaceBytes(folder, before);
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000074",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"avery@example.com","officeState":"Washington","officeCountry":"United States of America"}]}
+            """);
+        ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+        foreach (var (width, expected) in new[]
+        {
+            (1100, "Office state: (none) → Washington; Office country: Canada → United States of America"),
+            (700, "2 changes"),
+            (1100, "Office state: (none) → Washington; Office country: Canada → United States of America")
+        })
+        {
+            root.Measure(new Size(width, 900));
+            root.Arrange(new Rect(0, 0, width, 900));
+            root.UpdateLayout();
+            disclosure = VisualDescendants(review).OfType<Expander>().Single();
+            var summary = VisualDescendants(disclosure).OfType<TextBox>().SingleOrDefault(text =>
+                System.Windows.Automation.AutomationProperties.GetAutomationId(text) == "ImportSummary");
+            if (summary is null || summary.Text != expected || summary.TextWrapping != TextWrapping.NoWrap ||
+                disclosure.IsExpanded)
+                throw new InvalidOperationException($"The compiled import summary did not adapt at {width}: expected '{expected}', got '{summary?.Text}'; review={review.ActualWidth}, entry={disclosure.ActualWidth}, header={((FrameworkElement)disclosure.Header).ActualWidth}, summary={summary?.ActualWidth}/{summary?.DesiredSize}.");
+            var identity = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+                System.Windows.Automation.AutomationProperties.GetAutomationId(text) == "ImportIdentity");
+            foreach (var text in new[] { identity, summary })
+            {
+                for (var index = 0; index < text.Text.Length; index++)
+                {
+                    var glyph = text.GetRectFromCharacterIndex(index);
+                    if (glyph.IsEmpty || glyph.Height <= 0 || glyph.Left < 0 ||
+                        glyph.Right > text.ActualWidth || glyph.Bottom > text.ActualHeight)
+                        throw new InvalidOperationException("Compiled import text is clipped: " + text.Text[index]);
+                }
+            }
+        }
+        var longValue = new string('W', 160) + " complete end";
+        foreach (var (person, email, expected) in new[]
+        {
+            ($$"""{"email":"avery@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}}}""",
+                "avery@example.com", "1 change"),
+            ("""{"email":"avery@example.com","officeBuilding":"North floor\nSouth floor"}""",
+                "avery@example.com", "1 change"),
+            ($$"""{"email":"avery@example.com","displayName":"Updated Avery","alias":"updated","jobTitle":"Engineer","department":"New research","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"officeNumber":"999","officeState":"WA","officeCountry":"USA","isFavorite":true}""",
+                "avery@example.com", "9 changes"),
+            ($$"""{"email":"avery@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"archived":true}""",
+                "avery@example.com", "Archive; 2 changes"),
+            ($$"""{"email":"header-archived@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"archived":false}""",
+                "header-archived@example.com", "Reactivate; 2 changes"),
+            ("""{"email":"new.reference@example.com","displayName":"New reference","managerEmail":null}""",
+                "new.reference@example.com", "Add")
+        })
+        {
+            File.WriteAllText(import, $$"""
+                {"schemaVersion":1,"batchId":"{{Guid.NewGuid()}}","observedAt":"2026-11-02T17:00:00Z","people":[{{person}}]}
+                """);
+            ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+            root.Measure(new Size(1100, 900));
+            root.Arrange(new Rect(0, 0, 1100, 900));
+            root.UpdateLayout();
+            disclosure = VisualDescendants(review).OfType<Expander>().Single();
+            var summary = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+                System.Windows.Automation.AutomationProperties.GetAutomationId(text) == "ImportSummary");
+            if (summary.Text != expected ||
+                System.Windows.Automation.AutomationProperties.GetName(disclosure) != $"{email} — {expected}" ||
+                disclosure.IsExpanded)
+                throw new InvalidOperationException("Long/multiline/many/lifecycle/Add review lost its complete count or action: " + summary.Text);
+            var provider = (ITextProvider)UIElementAutomationPeer.CreatePeerForElement(summary).GetPattern(PatternInterface.Text);
+            if (provider.DocumentRange.GetText(-1) != expected ||
+                !Equals(provider.DocumentRange.GetAttributeValue(System.Windows.Automation.TextPattern.FontSizeAttribute.Id), 10.5d))
+                throw new InvalidOperationException("The native import text provider lost its readable unchanged typography.");
+            disclosure.IsExpanded = true;
+            root.UpdateLayout();
+            if (person.Contains("officeBuilding", StringComparison.Ordinal))
+            {
+                var building = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+                    text.Text.StartsWith("Office building:", StringComparison.Ordinal));
+                var value = person.Contains("North floor", StringComparison.Ordinal) ? "North floor\nSouth floor" : longValue;
+                var beforeBuilding = email == "header-archived@example.com" ? archivedBuildingBefore : "(none)";
+                if (building.Text != $"Office building: {beforeBuilding} → " + value || building.TextWrapping != TextWrapping.Wrap ||
+                    building.GetRectFromCharacterIndex(building.Text.Length - 1).IsEmpty)
+                    throw new InvalidOperationException($"Expanded review lost the full long/multiline supplied value: email={email}; expected=Office building: {beforeBuilding} → {value}; actual={building.Text}; wrap={building.TextWrapping}; final={building.GetRectFromCharacterIndex(building.Text.Length - 1)}.");
+            }
+            AssertWorkspaceBytes(folder, before);
+        }
+        VerifyCompiledImportDetailPeer(disclosure, "Directory name: New reference");
+        VerifyTallImportDetail(window, import);
+        VerifyManyImportDiagnostics(window, folder, import);
         AssertWorkspaceBytes(folder, before);
         var back = LogicalDescendants((DependencyObject)window.FindName("ImportPanel")).OfType<Button>()
             .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople");
         back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (((Button)window.FindName("ApplyButton")).IsEnabled)
             throw new InvalidOperationException("Leaving the preview retained an applicable unreviewed Import.");
-        Console.WriteLine("PASS: compiled Import-path Enter previews without applying or changing saved Workspace bytes.");
+        Console.WriteLine("PASS: compiled Import-path Enter shows complete impact, ordered identity-only unchanged disclosure, independent accessible warnings and whole-batch errors while preserving saved Workspace bytes.");
+        Console.WriteLine("PASS: invisible compiled Import-path Enter retains one native disclosure, complete details and Workspace bytes; actual text layout selects inline/count/inline across 1100/700/1100 widths. Hosted rendering is separate.");
+    }
+
+    private static void VerifyCompiledImportDetailPeer(Expander disclosure, string expected)
+    {
+        AutomationPeer? FindPeer(AutomationPeer peer)
+        {
+            foreach (var child in peer.GetChildren() ?? [])
+            {
+                if (child.GetName() == expected && child.GetAutomationId() == "ImportDetail" &&
+                    child.GetAutomationControlType() == AutomationControlType.Edit) return child;
+                if (FindPeer(child) is { } found) return found;
+            }
+            return null;
+        }
+        var selected = FindPeer(UIElementAutomationPeer.CreatePeerForElement(disclosure))
+            ?? throw new InvalidOperationException("Compiled Import detail is missing from the actual nested automation peer tree.");
+        if (selected.GetPattern(PatternInterface.Text) is not ITextProvider text ||
+            text.DocumentRange.GetText(-1) != expected)
+            throw new InvalidOperationException($"Import reading has no native TextPattern: {expected}; selectedPeer={selected.GetType().Name}; controlType={selected.GetAutomationControlType()}; automationId={selected.GetAutomationId()}.");
+    }
+
+    private static void VerifyTallImportDetail(Window window, string import)
+    {
+        var multiline = string.Join("\n", Enumerable.Range(1, 80).Select(line => $"Floor {line:00} complete value")) +
+            "\nFinal building characters";
+        File.WriteAllText(import, TallImportFixture(multiline));
+        ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(700, 700));
+        root.Arrange(new Rect(0, 0, 700, 700));
+        root.UpdateLayout();
+        var review = (ListBox)window.FindName("PreviewText");
+        var disclosure = VisualDescendants(review).OfType<Expander>().Single();
+        disclosure.IsExpanded = true;
+        root.UpdateLayout();
+        var building = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+            text.Text.StartsWith("Office building:", StringComparison.Ordinal));
+        var number = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+            text.Text == "Office number: 007B → FINAL-0099");
+        var state = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+            text.Text == "Office state: (none) → WA");
+        var scroll = VisualDescendants(review).OfType<ScrollViewer>().First();
+        var viewport = (ScrollContentPresenter)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
+        if (building.Text != "Office building: (none) → " + multiline ||
+            building.ActualHeight <= viewport.ActualHeight)
+            throw new InvalidOperationException("Tall Import regression must contain a complete valid value taller than the actual review viewport.");
+        scroll.ScrollToEnd();
+        window.Dispatcher.Invoke(root.UpdateLayout, DispatcherPriority.ContextIdle);
+        var visible = viewport.TransformToAncestor(root).TransformBounds(new Rect(viewport.RenderSize));
+        foreach (var text in new[] { building, number, state })
+        {
+            var character = text.GetRectFromCharacterIndex(text.Text.Length - 1);
+            character.Union(text.GetRectFromCharacterIndex(text.Text.Length - 1, trailingEdge: true));
+            var final = text.TransformToAncestor(root).TransformBounds(character);
+            if (final.IsEmpty || final.Width <= 0 || final.Height <= 0 || !visible.Contains(final))
+                throw new InvalidOperationException($"Scrolling the tall Import detail must expose its final characters and subsequent field: text={text.Text[^24..]}; glyph={final}; viewport={visible}; offset={scroll.VerticalOffset}.");
+        }
+        Console.WriteLine("PASS: compiled review scroll exposes a viewport-taller multiline value's final characters and the following fields without a native window.");
+    }
+
+    private static void VerifyManyImportDiagnostics(Window window, string folder, string import)
+    {
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000076",
+             "observedAt":"2026-10-02T17:00:00Z","people":[
+             {"email":"avery@example.com","displayName":"Avery","managerEmail":null,
+              "department":"Research","officeCountry":"Canada","officeNumber":"FINAL-0099"},
+             {"email":"zara@example.com","displayName":"Zara","managerEmail":null},
+             {"email":"header-archived@example.com","displayName":"Archived example","managerEmail":null,"archived":true}]}
+            """);
+        string expected;
+        using (var workflow = OpenSmokeWorkspace(folder))
+        {
+            var preview = workflow.PreviewImportFile(import);
+            if (!preview.CanApply || preview.Warnings.Count != 10)
+                throw new InvalidOperationException("Diagnostics regression must supply ten real older-evidence warnings from a valid whole batch.");
+            expected = string.Join("\n", preview.Errors.Concat(preview.Warnings).Concat(preview.Messages));
+        }
+        VerifyImportDiagnosticsLayout(window, expected);
+        Console.WriteLine("PASS: ten complete wrapping diagnostics scroll independently while impact and usable Person review remain inside 700x700/500 compiled layouts.");
+    }
+
+    private static void VerifyImportDiagnosticsLayout(Window window, string expected, bool verifyKeyboardEndpoints = false)
+    {
+        ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+        var root = (FrameworkElement)window.Content;
+        foreach (var height in new[] { 700, 500 })
+        {
+            root.Measure(new Size(700, height));
+            root.Arrange(new Rect(0, 0, 700, height));
+            root.UpdateLayout();
+            var diagnostics = (FrameworkElement)window.FindName("ImportDiagnostics");
+            var impact = (TextBlock)window.FindName("ImportImpactText");
+            var review = (ListBox)window.FindName("PreviewText");
+            var bounds = diagnostics.TransformToAncestor(root).TransformBounds(new Rect(diagnostics.RenderSize));
+            var counts = impact.TransformToAncestor(root).TransformBounds(new Rect(impact.RenderSize));
+            var list = review.TransformToAncestor(root).TransformBounds(new Rect(review.RenderSize));
+            if (UIElementAutomationPeer.CreatePeerForElement(diagnostics)?.GetName() != expected ||
+                counts.IsEmpty || counts.Bottom > height || bounds.Bottom > counts.Top ||
+                list.Height < 72 || list.Bottom > height)
+                throw new InvalidOperationException($"Many wrapping Import diagnostics must retain every message and usable counts/list space at 700x{height}: diagnostics={bounds}; counts={counts}; list={list}.");
+            var scrolling = UIElementAutomationPeer.CreatePeerForElement(diagnostics)?.GetPattern(PatternInterface.Scroll) as IScrollProvider;
+            if (scrolling is null || !scrolling.VerticallyScrollable)
+                throw new InvalidOperationException("All Import diagnostics must be independently scrollable rather than clipped or hidden by Person disclosures.");
+            var reading = (TextBox)diagnostics;
+            if (verifyKeyboardEndpoints)
+            {
+                var priorFocus = FocusManager.GetFocusedElement(window);
+                Console.WriteLine($"IMPORT-DIAGNOSTICS-KEYBOARD before-focus: logicalFocus={priorFocus?.GetType().Name}; caret={reading.CaretIndex}; selection={reading.SelectionStart}/{reading.SelectionLength}; offset={reading.VerticalOffset}.");
+                FocusManager.SetFocusedElement(window, reading);
+                var inner = VisualDescendants(reading).OfType<ScrollViewer>().First();
+                foreach (var (command, atStart, visible) in new[]
+                {
+                    (EditingCommands.MoveToDocumentStart, true, expected.Split('\n').First()),
+                    (EditingCommands.MoveToDocumentEnd, false, expected.Split('\n').Last())
+                })
+                {
+                    command.Execute(null, reading);
+                    if (reading.SelectionLength != 0 || reading.CaretIndex != (atStart ? 0 : reading.Text.Length))
+                        throw new InvalidOperationException($"Diagnostics command did not move its actual caret: command={command.Name}; canExecute={command.CanExecute(null, reading)}; caret={reading.CaretIndex}; selection={reading.SelectionStart}/{reading.SelectionLength}.");
+                    // An invisible window cannot activate a native caret; reveal its actual rendered rectangle.
+                    var caret = reading.GetRectFromCharacterIndex(atStart ? 0 : reading.CaretIndex - 1, trailingEdge: !atStart);
+                    reading.ScrollToVerticalOffset(reading.VerticalOffset +
+                        (atStart ? caret.Top : caret.Bottom - reading.ViewportHeight));
+                    window.Dispatcher.Invoke(root.UpdateLayout, DispatcherPriority.ContextIdle);
+                    var start = reading.Text.IndexOf(visible, StringComparison.Ordinal);
+                    var glyphs = Enumerable.Range(start, visible.Length).Select(index =>
+                    {
+                        var character = reading.GetRectFromCharacterIndex(index);
+                        character.Union(reading.GetRectFromCharacterIndex(index, trailingEdge: true));
+                        return character;
+                    }).ToArray();
+                    var state = $"command={command.Name}; canExecute={command.CanExecute(null, reading)}; readOnly={reading.IsReadOnly}; caretVisible={reading.IsReadOnlyCaretVisible}; " +
+                        $"logicalFocus={FocusManager.GetFocusedElement(window) == reading}; " +
+                        $"keyboardFocus={reading.IsKeyboardFocused}; selection={reading.SelectionStart}/{reading.SelectionLength}; " +
+                        $"caret={reading.CaretIndex}; offset={inner.VerticalOffset}; extent={inner.ExtentHeight}; " +
+                        $"viewport={inner.ViewportHeight}; percent={scrolling.VerticalScrollPercent}; " +
+                        $"requestedFirst={glyphs.First()}; requestedLast={glyphs.Last()}; reading={reading.RenderSize}.";
+                    Console.WriteLine("IMPORT-DIAGNOSTICS-KEYBOARD " + state);
+                    foreach (var character in glyphs)
+                        if (character.IsEmpty || character.Width <= 0 || character.Height <= 0 ||
+                            character.Left < -1 || character.Right > reading.ActualWidth + 1 ||
+                            character.Top < -1 || character.Bottom > reading.ActualHeight + 1)
+                            throw new InvalidOperationException("Diagnostics keyboard endpoint lost a required visible character: " + state);
+                }
+            }
+            if (!verifyKeyboardEndpoints) scrolling.SetScrollPercent(-1, 100);
+            window.Dispatcher.Invoke(root.UpdateLayout, DispatcherPriority.ContextIdle);
+            var glyph = reading.GetRectFromCharacterIndex(reading.Text.Length - 1);
+            if (reading.Text != expected || glyph.IsEmpty || glyph.Top < 0 || glyph.Bottom > reading.ActualHeight)
+                throw new InvalidOperationException("Independent diagnostics scrolling must expose the final warning characters without suppressing any messages.");
+            if (verifyKeyboardEndpoints)
+            {
+                var disclosure = VisualDescendants(review).OfType<Expander>().Single(entry =>
+                    System.Windows.Automation.AutomationProperties.GetAutomationId(entry) == "ImportPerson:avery@example.com");
+                var semantic = UIElementAutomationPeer.CreatePeerForElement(disclosure).GetName();
+                if (disclosure.IsExpanded || semantic != "avery@example.com — 1 change")
+                    throw new InvalidOperationException("Many-warning Person review lost its collapsed semantic identity/count.");
+                var headerLines = new List<Rect>();
+                foreach (var (id, expectedText) in new[]
+                {
+                    ("ImportIdentity", "avery@example.com"),
+                    ("ImportSummary", ManyImportDiagnosticsRenderedSummary)
+                })
+                {
+                    var text = VisualDescendants(disclosure).OfType<TextBox>().Single(value =>
+                        System.Windows.Automation.AutomationProperties.GetAutomationId(value) == id);
+                    var provider = (ITextProvider)UIElementAutomationPeer.CreatePeerForElement(text).GetPattern(PatternInterface.Text);
+                    var actualText = provider.DocumentRange.GetText(-1);
+                    var fontName = provider.DocumentRange.GetAttributeValue(System.Windows.Automation.TextPattern.FontNameAttribute.Id);
+                    var fontSize = provider.DocumentRange.GetAttributeValue(System.Windows.Automation.TextPattern.FontSizeAttribute.Id);
+                    Console.WriteLine($"IMPORT-MANY-HEADER height={height}; semantic={semantic}; id={id}; expected={expectedText}; actual={actualText}; fontName={fontName}; fontSize={fontSize}.");
+                    if (actualText != expectedText || text.TextWrapping != TextWrapping.NoWrap ||
+                        !Equals(fontName, "Segoe UI") || !Equals(fontSize, 10.5d))
+                        throw new InvalidOperationException($"Many-warning collapsed header lost its complete rendered text or typography: expected={expectedText}; actual={actualText}; fontName={fontName}; fontSize={fontSize}.");
+                    var line = Rect.Empty;
+                    for (var index = 0; index < expectedText.Length; index++)
+                    {
+                        var character = text.GetRectFromCharacterIndex(index);
+                        character.Union(text.GetRectFromCharacterIndex(index, trailingEdge: true));
+                        var rendered = text.TransformToAncestor(root).TransformBounds(character);
+                        if (character.IsEmpty || character.Width <= 0 || character.Height <= 0 ||
+                            !list.Contains(rendered) || !line.IsEmpty &&
+                            (Math.Abs(line.Top - rendered.Top) > 1 || Math.Abs(line.Height - rendered.Height) > 1))
+                            throw new InvalidOperationException("Many-warning collapsed header lost a complete one-line character: " + expectedText[index]);
+                        line.Union(rendered);
+                    }
+                    headerLines.Add(line);
+                }
+                var entryBounds = disclosure.TransformToAncestor(root).TransformBounds(new Rect(disclosure.RenderSize));
+                if (Math.Abs(headerLines[0].Top - headerLines[1].Top) > 1 ||
+                    Math.Abs(headerLines[0].Height - headerLines[1].Height) > 1 ||
+                    headerLines[0].Right > headerLines[1].Left ||
+                    entryBounds.Height > Math.Max(headerLines[0].Height, headerLines[1].Height) + 12)
+                    throw new InvalidOperationException("Many-warning identity and complete inline summary must occupy one collapsed line.");
+                var header = VisualDescendants(disclosure).OfType<ToggleButton>().First();
+                var toggle = (IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(header).GetPattern(PatternInterface.Toggle);
+                FocusManager.SetFocusedElement(window, header);
+                toggle.Toggle();
+                root.UpdateLayout();
+                var detail = VisualDescendants(disclosure).OfType<TextBox>().Single(value =>
+                    System.Windows.Automation.AutomationProperties.GetAutomationId(value) == "ImportDetail" &&
+                    value.Text == "Office number: 007B → FINAL-0099");
+                FocusManager.SetFocusedElement(window, detail);
+                for (var index = 0; index < detail.Text.Length; index++)
+                {
+                    var character = detail.GetRectFromCharacterIndex(index);
+                    character.Union(detail.GetRectFromCharacterIndex(index, trailingEdge: true));
+                    if (character.IsEmpty || character.Width <= 0 || character.Height <= 0 ||
+                        !list.Contains(detail.TransformToAncestor(root).TransformBounds(character)))
+                        throw new InvalidOperationException("Person review lost a character after reading diagnostics.");
+                }
+                FocusManager.SetFocusedElement(window, header);
+                toggle.Toggle();
+                root.UpdateLayout();
+            }
+        }
     }
 
     private static void VerifyRejectedPickerChoice(Window window, string folder, string preferences)
