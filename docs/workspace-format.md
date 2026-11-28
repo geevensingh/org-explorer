@@ -120,6 +120,9 @@ reason to alphabetize again.
 
 Membership changes and completed reorders commit coherently with the local
 Workspace state. New Favorites append; removing one discards its position.
+Before treating either operation as unchanged, reconcile a newer saved local
+revision. A stale cached sequence or membership cannot confirm success; failed
+refresh rejects the operation. Genuine no-ops create no revision or Profile change.
 After another local client completes a failed Favorite change, a successful
 unchanged retry retires only that change's failure, without a new revision or
 Profile history. Independent failed writing remains retained.

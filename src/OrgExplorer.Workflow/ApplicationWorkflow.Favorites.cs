@@ -147,6 +147,7 @@ public sealed partial class ApplicationWorkflow
         {
             lock (workspaceGate)
             {
+                if (localSqlite && !RefreshWorkspaceCore(onlyIfRevisionChanged: true)) return false;
                 if (workspace is null || !workspaceCurrent)
                     return Fail("Open a current Workspace before rearranging Favorites.");
                 if (!people.TryGetValue(email, out var moving) || !moving.IsFavorite ||
@@ -180,6 +181,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
+            if (localSqlite && !RefreshWorkspaceCore(onlyIfRevisionChanged: true)) return false;
             if (workspace is null || !people.TryGetValue(email, out var person)) return Fail("Open a Person first.");
             if (!workspaceCurrent) return Fail("Workspace unavailable; retained information is STALE. No changes saved.");
             if (person.IsFavorite == isFavorite)

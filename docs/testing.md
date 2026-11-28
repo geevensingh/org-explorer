@@ -98,6 +98,10 @@ Successful unchanged retries after
 a second client completes Favorite membership or ordering retire only their own
 failure; the tests retain independent note errors and assert no new revision or
 Profile history.
+Cached no-op cases use separate real local clients: a changed saved revision
+must be refreshed before deciding membership or order. Exact reopened sequences
+and unrelated delivered profile values prove actual changes are saved, while
+self-destination and repeated genuine no-ops add no revision or Profile history.
 `WorkspaceSnapshotTests` supplies #143's exact-order interchange-2
 publication/adoption/reopen, initialized-empty and supported unordered
 interchange-1 initialization (including equal-name input ties), pre-transport

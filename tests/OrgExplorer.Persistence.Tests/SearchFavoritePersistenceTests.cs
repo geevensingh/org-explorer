@@ -445,6 +445,66 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Cached_reorder_noop_reconciles_another_local_clients_saved_order(bool append)
+    {
+        var writer = Seed();
+        Assert.True(writer.EditFavorite("avery@example.com", true), writer.Status);
+        Assert.True(writer.EditFavorite("morgan@example.com", true), writer.Status);
+        using var reader = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reader.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reader.Status);
+        Assert.True(writer.ReorderFavorite("morgan@example.com", "alex@example.com"), writer.Status);
+        Assert.True(writer.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Delivered office"), writer.Status);
+        var deliveredRevision = writer.Synchronization.LocalRevision;
+
+        Assert.True(reader.ReorderFavorite("morgan@example.com", append ? null : "morgan@example.com"), reader.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(append
+            ? ["alex@example.com", "avery@example.com", "morgan@example.com"]
+            : ["morgan@example.com", "alex@example.com", "avery@example.com"],
+            reader.FavoritePeople.Select(person => person.Email));
+        Assert.Equal(reader.FavoritePeople.Select(person => person.Email),
+            reopened.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Delivered office", reopened.GetRelationships("avery@example.com")!.Person.OfficeNumber);
+        if (append) Assert.NotEqual(deliveredRevision, reader.Synchronization.LocalRevision);
+        else Assert.Equal(deliveredRevision, reader.Synchronization.LocalRevision);
+        var revision = reader.Synchronization.LocalRevision;
+        Assert.True(reader.ReorderFavorite("morgan@example.com", append ? null : "morgan@example.com"), reader.Status);
+        Assert.Equal(revision, reader.Synchronization.LocalRevision);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Cached_Favorite_noop_reconciles_another_local_clients_saved_membership(bool isFavorite)
+    {
+        var writer = Seed();
+        Assert.True(writer.EditFavorite("morgan@example.com", isFavorite), writer.Status);
+        using var reader = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reader.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reader.Status);
+        Assert.True(writer.EditFavorite("morgan@example.com", !isFavorite), writer.Status);
+        Assert.True(writer.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Delivered office"), writer.Status);
+        var deliveredRevision = writer.Synchronization.LocalRevision;
+        var deliveredChanges = writer.GetProfileTimeline("morgan@example.com")!.Changes.Count;
+
+        Assert.True(reader.EditFavorite("morgan@example.com", isFavorite), reader.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(isFavorite ? ["alex@example.com", "morgan@example.com"] : ["alex@example.com"],
+            reopened.FavoritePeople.Select(person => person.Email));
+        Assert.Equal(isFavorite, reopened.GetRelationships("morgan@example.com")!.Person.IsFavorite);
+        Assert.Equal("Delivered office", reopened.GetRelationships("avery@example.com")!.Person.OfficeNumber);
+        Assert.NotEqual(deliveredRevision, reader.Synchronization.LocalRevision);
+        Assert.Equal(deliveredChanges + 1, reopened.GetProfileTimeline("morgan@example.com")!.Changes.Count);
+        var revision = reader.Synchronization.LocalRevision;
+        Assert.True(reader.EditFavorite("morgan@example.com", isFavorite), reader.Status);
+        Assert.Equal(revision, reader.Synchronization.LocalRevision);
+        Assert.Equal(deliveredChanges + 1, reader.GetProfileTimeline("morgan@example.com")!.Changes.Count);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Writer_locked_legacy_initialization_retains_validated_browsing_until_explicit_recovery(bool emptySeed)
