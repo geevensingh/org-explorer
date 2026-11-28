@@ -135,6 +135,34 @@ public partial class MainWindow
             treeExpansionTarget = null;
         }
         CommandManager.InvalidateRequerySuggested();
+        WriteTreeStateDiagnostic();
+    }
+
+    private void WriteTreeStateDiagnostic(TreeViewItem? prepared = null)
+    {
+        var email = Environment.GetEnvironmentVariable("TREE_DIAGNOSTIC_EMAIL");
+        if (string.IsNullOrWhiteSpace(email)) return;
+        TreeViewItem? retained = null;
+        if (reportingRows.TryGetValue(email, out var reference)) reference.TryGetTarget(out retained);
+        var state = new
+        {
+            email,
+            localExpanded = expandedPeople.Contains(email),
+            coreExpanded = workflow.PeopleNavigation.ExpandedPeople.Contains(email),
+            retainedType = retained?.GetType().FullName,
+            retainedLoaded = retained?.IsLoaded,
+            retainedExpanded = retained?.IsExpanded
+        };
+        System.Windows.Automation.AutomationProperties.SetHelpText(PeopleList,
+            "[DEBUG-tree-state] " + System.Text.Json.JsonSerializer.Serialize(state));
+        if (prepared is not null)
+            System.Windows.Automation.AutomationProperties.SetHelpText(prepared,
+                "[DEBUG-tree-state] " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    state, preparedType = prepared.GetType().FullName, preparedLoaded = prepared.IsLoaded,
+                    preparedExpanded = prepared.IsExpanded,
+                    parentType = ItemsControl.ItemsControlFromItemContainer(prepared)?.GetType().FullName
+                }));
     }
 
     private static TreeViewItem? ReportingItemFrom(DependencyObject? source)

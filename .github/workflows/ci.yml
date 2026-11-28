@@ -53,6 +53,7 @@ jobs:
               $previous = $env:DESKTOP_RESULTS_DIRECTORY
               try {
                 $env:DESKTOP_RESULTS_DIRECTORY = $run
+                $env:TREE_DIAGNOSTIC_EMAIL = 'person00002@example.com'
                 Invoke-ScaleDotnet restore-app @('restore', 'src\OrgExplorer.Desktop', '--locked-mode')
                 Invoke-ScaleDotnet restore-tests @('restore', 'tests\OrgExplorer.Desktop.Smoke', '--locked-mode')
                 Invoke-ScaleDotnet build-app @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore')

@@ -340,6 +340,7 @@ internal static partial class Program
                 foreach (var property in new[] { AutomationElement.AutomationIdProperty,
                     AutomationElement.ControlTypeProperty, AutomationElement.BoundingRectangleProperty,
                     AutomationElement.IsOffscreenProperty, AutomationElement.ItemStatusProperty,
+                    AutomationElement.HelpTextProperty,
                     AutomationElement.IsVirtualizedItemPatternAvailableProperty,
                     ExpandCollapsePattern.ExpandCollapseStateProperty })
                     cache.Add(property);
@@ -359,7 +360,9 @@ internal static partial class Program
                     rowBounds is System.Windows.Rect rowRect ? rowRect.ToString(System.Globalization.CultureInfo.InvariantCulture) : null,
                     viewportBounds is System.Windows.Rect viewportRect ? viewportRect.ToString(System.Globalization.CultureInfo.InvariantCulture) : null,
                     observedTree.GetCachedPropertyValue(AutomationElement.ItemStatusProperty, true) as string, ownerProbe.Current.Name,
-                    row is null ? "The lookup did not return a row." : null));
+                    row is null ? "The lookup did not return a row." : null,
+                    observedRow?.GetCachedPropertyValue(AutomationElement.HelpTextProperty, true) as string,
+                    observedTree.GetCachedPropertyValue(AutomationElement.HelpTextProperty, true) as string));
             }
             catch (Exception error) when (error is ElementNotAvailableException or InvalidOperationException or
                 ArgumentException or System.Runtime.InteropServices.COMException)
@@ -446,7 +449,8 @@ internal static partial class Program
     private sealed record ScaleReportingRowObservation(long ObservedAt, string Phase, string RequestedEmail,
         string? ExpectedParent, bool RealizeRequested, string? ReturnedEmail, string? ControlType,
         string? ExpansionState, string? LastAwaitedState, bool? VirtualizedPatternAvailable, bool? IsOffscreen,
-        string? RowBounds, string? ViewportBounds, string? Operation, string? CurrentOwner, string? ObservationRefusal);
+        string? RowBounds, string? ViewportBounds, string? Operation, string? CurrentOwner, string? ObservationRefusal,
+        string? RowDiagnostic = null, string? TreeDiagnostic = null);
 
     private static void RunScaleMutationPrefix(string executable, string root)
     {
