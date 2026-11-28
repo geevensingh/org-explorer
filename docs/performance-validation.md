@@ -2,7 +2,7 @@
 
 ## Current execution authority
 
-Read [Testing](testing.md#separate-scale-commands-and-results) for the current
+Read [Testing scale verification](testing/scale-verification.md#separate-scale-commands-and-results) for the current
 separate commands, selection, revision/results contracts, nightly/manual
 activation, hosted manual bridge and future pre-publication requirements.
 That is the single execution guide; this document preserves fixture detail and

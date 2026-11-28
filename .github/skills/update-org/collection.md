@@ -1,7 +1,7 @@
 # Local collection protocol
 
 The app's [import contract](../../../docs/import-format.md) owns Import semantics.
-The [testing strategy](../../../docs/testing.md) owns verification; automated
+The [producer testing contract](../../../docs/testing/import-and-producer.md) owns verification; automated
 fixtures use fictitious people. Company data stays in local AppData, never a repo
 fixture or CI artifact. WorkIQ's loaded contracts own source APIs and recovery.
 

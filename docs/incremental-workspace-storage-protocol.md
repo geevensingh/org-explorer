@@ -165,4 +165,6 @@ Team-name and exit matrices. Both explicit scale suites retain the full rich
 usable and durable-save percentiles, including real background-export
 independence, require hosted Windows or an explicitly authorized isolated
 desktop. Local non-UI checks do not establish native or full-scale acceptance.
-See [testing](testing.md) for selections, thresholds and unchanged suite budgets.
+See [local storage/recovery testing](testing/workspace-storage-recovery.md)
+and [snapshot testing](testing/workspace-synchronization.md) for these contracts;
+[Testing](testing.md) retains selections, thresholds and unchanged suite budgets.
